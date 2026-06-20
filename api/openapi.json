@@ -62,6 +62,30 @@
         "title": "BudgetStrip",
         "type": "object"
       },
+      "CatImpact": {
+        "description": "A projected category total for the optimal lineup (display string + trend).",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "proj": {
+            "title": "Proj",
+            "type": "string"
+          },
+          "trend": {
+            "default": "flat",
+            "title": "Trend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "proj"
+        ],
+        "title": "CatImpact",
+        "type": "object"
+      },
       "CategoryImpact": {
         "properties": {
           "cat": {
@@ -915,9 +939,28 @@
       },
       "LineupOptimizeResponse": {
         "properties": {
+          "bench": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Bench",
+            "type": "array"
+          },
           "date": {
             "title": "Date",
             "type": "string"
+          },
+          "impact": {
+            "items": {
+              "$ref": "#/components/schemas/CatImpact"
+            },
+            "title": "Impact",
+            "type": "array"
+          },
+          "optimal": {
+            "default": false,
+            "title": "Optimal",
+            "type": "boolean"
           },
           "slots": {
             "items": {
@@ -985,6 +1028,7 @@
             "$ref": "#/components/schemas/PlayerRef"
           },
           "projected": {
+            "default": 0.0,
             "title": "Projected",
             "type": "number"
           },
@@ -1002,13 +1046,17 @@
           "slot": {
             "title": "Slot",
             "type": "string"
+          },
+          "status": {
+            "default": "start",
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
           "slot",
           "player",
-          "action",
-          "projected"
+          "action"
         ],
         "title": "LineupSlot",
         "type": "object"
