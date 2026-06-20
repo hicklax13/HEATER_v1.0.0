@@ -123,3 +123,78 @@ def test_leaders_overall_endpoint_returns_contract():
         assert r["tag"] == "hot"
     finally:
         app.dependency_overrides.clear()
+
+
+# ── breakout perf guard ──────────────────────────────────────────────────────
+# compute_breakout_scores_batch is O(n²) (each player is percentile-ranked vs the
+# whole input), so the fix BOUNDS the input size at the service layer. These guard
+# the bound deterministically (no live DB / no wall-clock flakiness) — a count cap
+# is the real regression guard; a timing assertion would be flaky and DB-dependent.
+
+
+def _synthetic_pool(n: int) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "player_id": range(n),
+            "name": [f"P{i}" for i in range(n)],
+            "barrel_pct": [10.0] * n,
+            "xwoba": [0.330] * n,
+            "hard_hit_pct": [40.0] * n,
+            "consensus_rank": list(range(n, 0, -1)),  # reverse so sort actually reorders
+            "percent_owned": [float(i) for i in range(n)],
+        }
+    )
+
+
+def test_filter_breakout_candidates_caps_input_size():
+    from api.services.leaders_overall_service import _filter_breakout_candidates
+
+    out = _filter_breakout_candidates(_synthetic_pool(1500), top_n=500)
+    assert len(out) <= 500  # the O(n²) regression guard: bounded input
+
+
+def test_filter_breakout_candidates_prefers_relevance():
+    """The bounded set must be the most fantasy-relevant players (lowest
+    consensus_rank), not an arbitrary slice of the pool's natural order."""
+    from api.services.leaders_overall_service import _filter_breakout_candidates
+
+    out = _filter_breakout_candidates(_synthetic_pool(1500), top_n=10)
+    assert len(out) == 10
+    assert out["consensus_rank"].max() <= 10  # kept the 10 best ranks, dropped the rest
+
+
+def test_filter_breakout_candidates_is_total():
+    """Never raises / never empty-by-surprise: empty pool, and a pool missing the
+    Statcast + relevance columns entirely."""
+    from api.services.leaders_overall_service import _filter_breakout_candidates
+
+    assert _filter_breakout_candidates(pd.DataFrame(), top_n=500).empty
+    bare = pd.DataFrame({"player_id": range(30), "name": [f"P{i}" for i in range(30)]})
+    out = _filter_breakout_candidates(bare, top_n=10)
+    assert len(out) == 10  # falls back to natural-order head(top_n)
+
+
+def test_sell_lens_maps_candidates(monkeypatch):
+    """Regression guard for the wiring bug: the service's narrow season_stats query
+    starved compute_sustainability_score (→ every score 0.5 → 0 sell rows). With the
+    engine returning candidates, the sell branch must map them to OverallLeaderRow
+    stamped tag='sell'. Fabricated engine output → deterministic, no live DB."""
+    import api.services.leaders_overall_service as svc
+
+    pool = pd.DataFrame(
+        [{"player_id": 7, "name": "Hot Regression", "positions": "OF", "is_hitter": True, "ytd_hr": 18}]
+    )
+    fake_candidates = pd.DataFrame(
+        [{"player_id": 7, "trend_delta": 2.4, "sustainability_score": 0.2, "is_hitter": True}]
+    )
+    # The service imports these inside _ranked() (from src... import ...), so patch
+    # them at their source module — that's where the late binding resolves them.
+    monkeypatch.setattr("src.database.load_player_pool", lambda: pool)
+    monkeypatch.setattr(svc.LeadersOverallService, "_load_season_stats", staticmethod(lambda: pool))
+    monkeypatch.setattr("src.trend_tracker.detect_sell_high_candidates", lambda *a, **k: fake_candidates)
+
+    result = svc.LeadersOverallService().get_leaders_overall(lens="sell", limit=25)
+    assert len(result.rows) == 1
+    assert result.rows[0].player.id == 7
+    assert result.rows[0].tag == "sell"
+    assert result.rows[0].trend == _LENS_META["sell"][1]
