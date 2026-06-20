@@ -104,7 +104,7 @@ def _run_build(roster_df, pool_df=None):
     orig = {k: sys.modules.get(k) for k in overrides}
     sys.modules.update(overrides)
     try:
-        hitters, pitchers, date_tabs, h_cols, p_cols = MatchupService._build_roster_tables(
+        hitters, pitchers, date_tabs, h_cols, p_cols, _ht, _pt = MatchupService._build_roster_tables(
             "Team Hickey", "Rivals", mock_yds, week=7
         )
     finally:
