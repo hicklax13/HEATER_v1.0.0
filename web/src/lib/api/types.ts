@@ -26,3 +26,4 @@ export type ApiPlayoffOddsResponse = components["schemas"]["PlayoffOddsResponse"
 export type ApiTradeFinderResponse = components["schemas"]["TradeFinderResponse"];
 export type ApiPlayerSearchResponse = components["schemas"]["PlayerSearchResponse"];
 export type ApiTradeEvaluationResponse = components["schemas"]["TradeEvaluationResponse"];
+export type ApiDatabankResponse = components["schemas"]["DatabankResponse"];

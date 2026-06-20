@@ -31,6 +31,7 @@ const NAV = [
   { label: "Trades", href: "/trades" },
   { label: "Players", href: "/players" },
   { label: "Research", href: "/research" },
+  { label: "Databank", href: "/databank" },
 ];
 
 export function TopBar() {

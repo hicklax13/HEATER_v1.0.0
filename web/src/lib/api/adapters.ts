@@ -11,6 +11,7 @@ import type {
   ApiPlayoffOddsResponse,
   ApiTradeFinderResponse,
   ApiTradeEvaluationResponse,
+  ApiDatabankResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -26,6 +27,7 @@ import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
 import type { CompareData } from "@/lib/compare-data";
 import type { TradesData, TradePlayer, TradeEval } from "@/lib/trades-data";
+import type { DatabankData } from "@/lib/databank-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -514,5 +516,13 @@ export function apiTradeEvaluateToData(api: ApiTradeEvaluationResponse): TradeEv
     deltaChampProb: api.delta_champ_prob ?? undefined,
     summary: api.summary ?? "",
     warnings: api.warnings ?? [],
+  };
+}
+
+/** Map /api/databank → frontend DatabankData (player + newest-first seasons). */
+export function apiDatabankToData(api: ApiDatabankResponse): DatabankData {
+  return {
+    player: toPlayerRef(api.player),
+    seasons: (api.seasons ?? []).map((s) => ({ year: s.year, stats: s.stats ?? {} })),
   };
 }
