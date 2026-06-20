@@ -1,6 +1,13 @@
-import type { ApiLeadersResponse, ApiFreeAgentPoolResponse } from "@/lib/api/types";
+import type { ApiLeadersResponse, ApiFreeAgentPoolResponse, ApiClosersResponse } from "@/lib/api/types";
+import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow, ResearchData } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
+import { securityFor, type CloserEntry, type ClosersData } from "@/lib/closers-data";
+
+/** Flatten an API PlayerRef (snake_case + nullable) → the frontend PlayerRef. */
+function toPlayerRef(p: { name: string; positions: string; mlb_id?: number | null; team_abbr?: string | null; team_id?: number | null }): PlayerRef {
+  return { name: p.name, pos: p.positions, teamAbbr: p.team_abbr ?? "", teamId: p.team_id ?? 0, mlbId: p.mlb_id ?? 0 };
+}
 
 const PITCHER_POS = /\b(P|SP|RP)\b/;
 
@@ -63,4 +70,20 @@ export function apiPoolToPlayers(api: ApiFreeAgentPoolResponse): PlayersData {
     tag: it.tag ?? undefined,
   }));
   return { topNeed: api.top_need, freeAgents };
+}
+
+/** Map the /api/closers response → the frontend ClosersData. The API is minimal
+ *  (closer/handcuffs/confidence/role/team); derive the 0–100 security from the
+ *  confidence label, and leave stats empty (the API doesn't return them yet). */
+export function apiClosersToData(api: ApiClosersResponse): ClosersData {
+  const entries: CloserEntry[] = api.entries.map((e) => ({
+    team: e.team,
+    closer: e.closer ? toPlayerRef(e.closer) : null,
+    role: e.role || "Closer",
+    confidence: e.confidence || "Shaky",
+    security: securityFor(e.confidence || "Shaky"),
+    handcuffs: (e.handcuffs ?? []).map(toPlayerRef),
+    stats: [], // gap: /api/closers has no proj SV / ERA / WHIP yet
+  }));
+  return { entries };
 }

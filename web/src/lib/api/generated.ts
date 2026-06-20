@@ -338,6 +338,31 @@ export interface components {
             /** Drop Player Key */
             drop_player_key?: string | null;
         };
+        /** BudgetStrip */
+        BudgetStrip: {
+            /**
+             * Adds Left
+             * @default 0
+             */
+            adds_left: number;
+            /**
+             * Adds Total
+             * @default 10
+             */
+            adds_total: number;
+            /** Cats In Play */
+            cats_in_play?: string[];
+            /**
+             * Ip Pace
+             * @default 0
+             */
+            ip_pace: number;
+            /**
+             * Ip Target
+             * @default 54
+             */
+            ip_target: number;
+        };
         /** CategoryImpact */
         CategoryImpact: {
             /** Cat */
@@ -883,17 +908,85 @@ export interface components {
              * @default true
              */
             actionable: boolean;
+            components?: components["schemas"]["StreamComponents"];
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+            /**
+             * Expected Er
+             * @default 0
+             */
+            expected_er: number;
+            /**
+             * Expected Ip
+             * @default 0
+             */
+            expected_ip: number;
+            /**
+             * Expected K
+             * @default 0
+             */
+            expected_k: number;
+            /**
+             * Expected Line
+             * @default
+             */
+            expected_line: string;
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            /**
+             * Net Sgp
+             * @default 0
+             */
+            net_sgp: number;
+            /**
+             * Num Starts
+             * @default 1
+             */
+            num_starts: number;
+            /**
+             * Opp K Pct
+             * @default 0
+             */
+            opp_k_pct: number;
+            /**
+             * Opp Wrc Plus
+             * @default 0
+             */
+            opp_wrc_plus: number;
             /**
              * Opponent
              * @default
              */
             opponent: string;
+            /**
+             * Own Pct
+             * @default 0
+             */
+            own_pct: number;
+            /**
+             * Park
+             * @default 1
+             */
+            park: number;
             player: components["schemas"]["PlayerRef"];
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
             /**
              * Reason
              * @default
              */
             reason: string;
+            /** Risk Flags */
+            risk_flags?: string[];
             /**
              * Score
              * @default 0
@@ -909,13 +1002,56 @@ export interface components {
              * @default
              */
             team: string;
+            /**
+             * Win Pct
+             * @default 0
+             */
+            win_pct: number;
+        };
+        /**
+         * StreamComponents
+         * @description The 6 stream-score factors, each in [-1, +1].
+         */
+        StreamComponents: {
+            /**
+             * Env
+             * @default 0
+             */
+            env: number;
+            /**
+             * Form
+             * @default 0
+             */
+            form: number;
+            /**
+             * Lineup
+             * @default 0
+             */
+            lineup: number;
+            /**
+             * Matchup
+             * @default 0
+             */
+            matchup: number;
+            /**
+             * Sgp
+             * @default 0
+             */
+            sgp: number;
+            /**
+             * Winprob
+             * @default 0
+             */
+            winprob: number;
         };
         /** StreamingResponse */
         StreamingResponse: {
+            budget?: components["schemas"]["BudgetStrip"];
             /** Candidates */
-            candidates: components["schemas"]["StreamCandidate"][];
+            candidates?: components["schemas"]["StreamCandidate"][];
             /** Date */
             date: string;
+            top_pick?: components["schemas"]["StreamCandidate"] | null;
         };
         /** TeamStanding */
         TeamStanding: {

@@ -14,3 +14,4 @@ export type ApiLeaderRow = components["schemas"]["LeaderRow"];
 export type ApiLeadersResponse = components["schemas"]["LeadersResponse"];
 export type ApiFreeAgentPoolResponse = components["schemas"]["FreeAgentPoolResponse"];
 export type ApiFreeAgentPoolItem = components["schemas"]["FreeAgentPoolItem"];
+export type ApiClosersResponse = components["schemas"]["ClosersResponse"];
