@@ -166,8 +166,8 @@ function Side({
         {label}
       </div>
       <div className="space-y-1.5">
-        {players.map((p) => (
-          <PlayerDialog key={p.name} player={{ ...p, rosteredBy }}>
+        {players.map((p, i) => (
+          <PlayerDialog key={`${p.name}-${i}`} player={{ ...p, rosteredBy }}>
             <button className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-left transition-colors duration-[var(--dur-1)] hover:border-heat/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50">
               <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
               <span className="min-w-0">

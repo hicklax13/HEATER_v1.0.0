@@ -56,7 +56,7 @@ export function LeverCard({
 
         <div className="flex items-center">
           {pickups.map((p, i) => (
-            <Tooltip.Root key={p.name}>
+            <Tooltip.Root key={`${p.name}-${i}`}>
               <Tooltip.Trigger asChild>
                 <button
                   className="-ml-2 rounded-full first:ml-0"

@@ -30,8 +30,8 @@ export function Movers({ movers, scope }: { movers: Mover[]; scope: Scope }) {
         </span>
       </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {movers.map((m) => (
-          <MoverCard key={m.name} m={m} />
+        {movers.map((m, i) => (
+          <MoverCard key={`${m.name}-${i}`} m={m} />
         ))}
       </div>
     </section>
