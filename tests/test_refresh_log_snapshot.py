@@ -36,13 +36,21 @@ def test_snapshot_returns_all_sources(temp_db):
     update_refresh_log("phase_b", "cached", message="all hit cache", tier="emergency")
     update_refresh_log("phase_c", "no_data", message="nothing fetched")
     snap = get_refresh_log_snapshot()
-    assert len(snap) == 3
-    sources = {r["source"] for r in snap}
+    # Scope assertions to THIS test's sources. Under the non-sharded `-n auto`
+    # Coverage Floor run, a sibling test's update_refresh_log (e.g. the
+    # data_bootstrap "news_intelligence" write, src/data_bootstrap.py) can leak
+    # into the shared snapshot via test-ordering races on the module-global
+    # DB_PATH. Asserting an exact GLOBAL count (`len(snap) == 3`) was therefore
+    # flaky (seen: `assert 4 == 3`). Validate presence + correctness + relative
+    # sort order of our own rows instead — immune to leaked sources, same intent.
+    mine = [r for r in snap if r["source"] in {"phase_a", "phase_b", "phase_c"}]
+    assert len(mine) == 3
+    sources = {r["source"] for r in mine}
     assert sources == {"phase_a", "phase_b", "phase_c"}
-    # Sorted by source name
-    assert [r["source"] for r in snap] == ["phase_a", "phase_b", "phase_c"]
+    # Sorted by source name (among our rows)
+    assert [r["source"] for r in mine] == ["phase_a", "phase_b", "phase_c"]
     # Tier propagates
-    by_src = {r["source"]: r for r in snap}
+    by_src = {r["source"]: r for r in mine}
     assert by_src["phase_a"]["tier"] == "primary"
     assert by_src["phase_b"]["tier"] == "emergency"
 
