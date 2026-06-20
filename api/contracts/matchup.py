@@ -31,6 +31,18 @@ class RosterRow(BaseModel):
     opp: MatchPlayer | None = None
 
 
+class TeamSide(BaseModel):
+    name: str = ""
+    manager: str = ""
+    record: str = ""  # "4-7-1 · 8th"
+    score: int = 0  # this-week category-win count
+
+
+class SideTotals(BaseModel):
+    you: list[str] = Field(default_factory=list)
+    opp: list[str] = Field(default_factory=list)
+
+
 class MatchupResponse(BaseModel):
     team_name: str
     opponent: str = ""
@@ -43,3 +55,7 @@ class MatchupResponse(BaseModel):
     pitcher_columns: list[str] = Field(default_factory=list)
     hitters: list[RosterRow] = Field(default_factory=list)
     pitchers: list[RosterRow] = Field(default_factory=list)
+    you: TeamSide = Field(default_factory=TeamSide)
+    opp: TeamSide = Field(default_factory=TeamSide)
+    hitter_totals: SideTotals = Field(default_factory=SideTotals)
+    pitcher_totals: SideTotals = Field(default_factory=SideTotals)

@@ -26,6 +26,59 @@ def _avg(value) -> str:
     return f"{fval:.3f}"[1:] if 0.0 <= fval < 1.0 else f"{fval:.3f}"
 
 
+def _format_record(wins, losses, ties, rank) -> str:
+    w, l, t = int(_f(wins)), int(_f(losses)), int(_f(ties))
+    r = int(_f(rank))
+    if r <= 0:
+        return f"{w}-{l}-{t}"
+    suffix = "th" if 11 <= (r % 100) <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(r % 10, "th")
+    return f"{w}-{l}-{t} · {r}{suffix}"
+
+
+def _aggregate_totals(rows, hitter: bool) -> list[str]:
+    """Aggregate a side's roster stat line: counting stats summed, rate stats
+    weighted (AVG=Σh/Σab, OBP=Σ(h+bb+hbp)/Σ(ab+bb+hbp+sf), ERA=Σer·9/Σip,
+    WHIP=Σ(bb_allowed+h_allowed)/Σip). NaN/zero-safe."""
+    import pandas as pd
+
+    def _sum(col: str) -> float:
+        try:
+            if isinstance(rows, pd.DataFrame) and col in rows.columns:
+                return float(sum(_f(v) for v in rows[col]))
+        except Exception:
+            pass
+        return 0.0
+
+    if hitter:
+        h, ab = _sum("h"), _sum("ab")
+        bb, hbp, sf = _sum("bb"), _sum("hbp"), _sum("sf")
+        obp_den = ab + bb + hbp + sf
+        avg = (h / ab) if ab > 0 else 0.0
+        obp = ((h + bb + hbp) / obp_den) if obp_den > 0 else 0.0
+        return [
+            f"{int(h)}/{int(ab)}",
+            str(int(_sum("r"))),
+            str(int(_sum("hr"))),
+            str(int(_sum("rbi"))),
+            str(int(_sum("sb"))),
+            _avg(avg),
+            _avg(obp),
+        ]
+    ip = _sum("ip")
+    er, bba, ha = _sum("er"), _sum("bb_allowed"), _sum("h_allowed")
+    era = (er * 9.0 / ip) if ip > 0 else 0.0
+    whip = ((bba + ha) / ip) if ip > 0 else 0.0
+    return [
+        f"{ip:.1f}",
+        str(int(_sum("w"))),
+        str(int(_sum("l"))),
+        str(int(_sum("sv"))),
+        str(int(_sum("k"))),
+        f"{era:.2f}",
+        f"{whip:.2f}",
+    ]
+
+
 def _fmt_hitter_stats(row) -> list[str]:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
     return [
