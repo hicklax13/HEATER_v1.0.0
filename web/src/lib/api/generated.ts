@@ -157,6 +157,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/league/rosters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** League Rosters */
+        get: operations["league_rosters_api_league_rosters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lineup/optimize": {
         parameters: {
             query?: never;
@@ -217,6 +234,23 @@ export interface paths {
         };
         /** Get My Team */
         get: operations["get_my_team_api_me_team_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/players/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Players */
+        get: operations["search_players_api_players_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -413,6 +447,21 @@ export interface components {
              * @default 54
              */
             ip_target: number;
+        };
+        /**
+         * CatImpact
+         * @description A projected category total for the optimal lineup (display string + trend).
+         */
+        CatImpact: {
+            /** Key */
+            key: string;
+            /** Proj */
+            proj: string;
+            /**
+             * Trend
+             * @default flat
+             */
+            trend: string;
         };
         /** CategoryImpact */
         CategoryImpact: {
@@ -782,6 +831,23 @@ export interface components {
             a?: components["schemas"]["TeamSide"];
             b?: components["schemas"]["TeamSide"];
         };
+        /** LeagueRosterTeam */
+        LeagueRosterTeam: {
+            /**
+             * Manager
+             * @default
+             */
+            manager: string;
+            /** Players */
+            players?: components["schemas"]["PlayerRef"][];
+            /** Team Name */
+            team_name: string;
+        };
+        /** LeagueRostersResponse */
+        LeagueRostersResponse: {
+            /** Teams */
+            teams?: components["schemas"]["LeagueRosterTeam"][];
+        };
         /**
          * Lever
          * @description The single biggest category weakness + suggested pickups to fix it.
@@ -836,8 +902,17 @@ export interface components {
         };
         /** LineupOptimizeResponse */
         LineupOptimizeResponse: {
+            /** Bench */
+            bench?: components["schemas"]["LineupSlot"][];
             /** Date */
             date: string;
+            /** Impact */
+            impact?: components["schemas"]["CatImpact"][];
+            /**
+             * Optimal
+             * @default false
+             */
+            optimal: boolean;
             /** Slots */
             slots: components["schemas"]["LineupSlot"][];
             /**
@@ -867,12 +942,20 @@ export interface components {
              */
             forced_start: boolean;
             player: components["schemas"]["PlayerRef"];
-            /** Projected */
+            /**
+             * Projected
+             * @default 0
+             */
             projected: number;
             /** Reason */
             reason?: string | null;
             /** Slot */
             slot: string;
+            /**
+             * Status
+             * @default start
+             */
+            status: string;
         };
         /** MatchPlayer */
         MatchPlayer: {
@@ -1240,6 +1323,13 @@ export interface components {
             team_id?: number | null;
             /** Yahoo Player Key */
             yahoo_player_key?: string | null;
+        };
+        /** PlayerSearchResponse */
+        PlayerSearchResponse: {
+            /** Query */
+            query: string;
+            /** Results */
+            results?: components["schemas"]["PlayerRef"][];
         };
         /** PlayoffOddsResponse */
         PlayoffOddsResponse: {
@@ -2054,6 +2144,26 @@ export interface operations {
             };
         };
     };
+    league_rosters_api_league_rosters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeagueRostersResponse"];
+                };
+            };
+        };
+    };
     optimize_lineup_api_lineup_optimize_post: {
         parameters: {
             query?: never;
@@ -2178,6 +2288,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyTeamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_players_api_players_search_get: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerSearchResponse"];
                 };
             };
             /** @description Validation Error */

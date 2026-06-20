@@ -1,7 +1,8 @@
 import type { PlayerRef } from "./types";
-import { apiGet } from "@/lib/api/client";
-import { apiTradeFinderToData } from "@/lib/api/adapters";
-import type { ApiTradeFinderResponse } from "@/lib/api/types";
+import { apiGet, apiPost } from "@/lib/api/client";
+import { apiTradeFinderToData, apiTradeEvaluateToData } from "@/lib/api/adapters";
+import type { ApiTradeFinderResponse, ApiTradeEvaluationResponse } from "@/lib/api/types";
+import type { PlayerPick } from "./player-search";
 
 /**
  * Trades data — the Finder tab's auto-suggested trades. Mock by default; live
@@ -146,4 +147,70 @@ export async function fetchTrades(delayMs = 600): Promise<TradesData> {
     }
   }
   return new Promise((resolve) => setTimeout(() => resolve(TRADES), delayMs));
+}
+
+/* ── Build-a-trade evaluator ───────────────────────────────────────────── */
+
+export interface CatDelta {
+  cat: string;
+  delta: number; // signed SGP delta for this category from the trade
+}
+
+export interface TradeEval {
+  grade: string;
+  verdict: string;
+  surplusSgp: number;
+  confidencePct: number;
+  giving: PlayerRef[];
+  receiving: PlayerRef[];
+  categoryImpacts: CatDelta[];
+  deltaPlayoffProb?: number;
+  deltaChampProb?: number;
+  summary: string;
+  warnings: string[];
+}
+
+/** Off-live demo evaluation so the builder works in the showcase. */
+function mockEvaluate(giving: PlayerPick[], receiving: PlayerPick[]): TradeEval {
+  return {
+    grade: "B+",
+    verdict: "Fair",
+    surplusSgp: 1.2,
+    confidencePct: 68,
+    giving,
+    receiving,
+    categoryImpacts: [
+      { cat: "SB", delta: 2.1 },
+      { cat: "R", delta: 0.8 },
+      { cat: "HR", delta: -1.4 },
+    ],
+    deltaPlayoffProb: 3,
+    summary: "A roughly balanced swap with a modest net gain. (Demo — connect live data for a real grade.)",
+    warnings: [],
+  };
+}
+
+/** Evaluate a proposed trade. Live: POST /api/trade/evaluate (receiving side is
+ *  pool-backed → real locally; the giving side needs your roster → full on
+ *  Railway). Off-live: a demo evaluation. Returns null until both sides have a
+ *  player. */
+export async function evaluateTrade(
+  giving: PlayerPick[],
+  receiving: PlayerPick[],
+): Promise<TradeEval | null> {
+  if (giving.length === 0 || receiving.length === 0) return null;
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiPost<ApiTradeEvaluationResponse>("/trade/evaluate", {
+        team_name: "Team Hickey",
+        giving_ids: giving.map((p) => p.id),
+        receiving_ids: receiving.map((p) => p.id),
+        enable_mc: false,
+      });
+      return apiTradeEvaluateToData(api);
+    } catch {
+      return null;
+    }
+  }
+  return mockEvaluate(giving, receiving);
 }

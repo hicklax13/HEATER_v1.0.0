@@ -10,6 +10,7 @@ import type {
   ApiMyTeamResponse,
   ApiPlayoffOddsResponse,
   ApiTradeFinderResponse,
+  ApiTradeEvaluationResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -24,7 +25,7 @@ import type { PlayerRef, MyTeamData, Matchup, Mover, CategoryRow, OpsCard, Scope
 import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
 import type { CompareData } from "@/lib/compare-data";
-import type { TradesData, TradePlayer } from "@/lib/trades-data";
+import type { TradesData, TradePlayer, TradeEval } from "@/lib/trades-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -495,4 +496,23 @@ export function apiTradeFinderToData(api: ApiTradeFinderResponse): TradesData {
     rationale: s.rationale ?? "",
   }));
   return { needs: [], recs };
+}
+
+/** Map /api/trade/evaluate → frontend TradeEval (the Phase-1 SGP grade is the
+ *  authority). Snake→camel; null playoff/champ deltas → undefined; giving/
+ *  receiving echoed + PlayerRef-enriched. */
+export function apiTradeEvaluateToData(api: ApiTradeEvaluationResponse): TradeEval {
+  return {
+    grade: api.grade ?? "",
+    verdict: api.verdict ?? "",
+    surplusSgp: api.surplus_sgp ?? 0,
+    confidencePct: api.confidence_pct ?? 0,
+    giving: (api.giving ?? []).map(toPlayerRef),
+    receiving: (api.receiving ?? []).map(toPlayerRef),
+    categoryImpacts: (api.category_impacts ?? []).map((c) => ({ cat: c.cat, delta: c.delta ?? 0 })),
+    deltaPlayoffProb: api.delta_playoff_prob ?? undefined,
+    deltaChampProb: api.delta_champ_prob ?? undefined,
+    summary: api.summary ?? "",
+    warnings: api.warnings ?? [],
+  };
 }

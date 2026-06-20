@@ -11,11 +11,12 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { ComparePanel } from "@/components/trades/ComparePanel";
+import { BuildPanel } from "@/components/trades/BuildPanel";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty } from "@/components/ui/PageStates";
 
-type Tab = "finder" | "compare";
+type Tab = "finder" | "compare" | "build";
 
 const YOU = "Team Hickey";
 
@@ -44,6 +45,8 @@ export default function TradesPage() {
         )}
 
         {tab === "compare" && <ComparePanel />}
+
+        {tab === "build" && <BuildPanel />}
       </main>
       <Footer freshnessMinutes={9} />
     </>
@@ -53,6 +56,7 @@ export default function TradesPage() {
 const TABS: { key: Tab; label: string }[] = [
   { key: "finder", label: "Finder" },
   { key: "compare", label: "Compare" },
+  { key: "build", label: "Build" },
 ];
 
 function PageHead({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
