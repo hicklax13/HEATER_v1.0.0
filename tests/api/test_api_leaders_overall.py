@@ -77,3 +77,45 @@ def test_to_overall_row_missing_pool_row_degrades():
     assert item.stats == []  # no pool row → no stats
     assert item.tag == ""
     assert item.value == 50.0
+
+
+def test_leaders_overall_endpoint_returns_contract():
+    from fastapi.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.leaders import LeadersOverallResponse, OverallLeaderRow
+    from api.deps import get_leaders_overall_service
+    from api.main import create_app
+
+    class _Fake:
+        def get_leaders_overall(self, lens="overall", limit=25):
+            return LeadersOverallResponse(
+                lens=lens,
+                rows=[
+                    OverallLeaderRow(
+                        rank=1,
+                        player=PlayerRef(
+                            id=1, mlb_id=592450, name="Judge", positions="OF", team_abbr="NYY", team_id=147
+                        ),
+                        value=92.0,
+                        stats=["30 HR", "70 R", ".310 AVG"],
+                        trend="up",
+                        tag="hot",
+                        note="Trending hot",
+                        hitter=True,
+                    )
+                ],
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_leaders_overall_service] = lambda: _Fake()
+    try:
+        body = TestClient(app).get("/api/leaders/overall?lens=hot").json()
+        assert body["lens"] == "hot"
+        r = body["rows"][0]
+        assert r["player"]["mlb_id"] == 592450
+        assert r["value"] == 92.0
+        assert r["stats"] == ["30 HR", "70 R", ".310 AVG"]
+        assert r["tag"] == "hot"
+    finally:
+        app.dependency_overrides.clear()

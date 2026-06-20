@@ -757,6 +757,24 @@
         "title": "LeaderRow",
         "type": "object"
       },
+      "LeadersOverallResponse": {
+        "properties": {
+          "lens": {
+            "default": "overall",
+            "title": "Lens",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/OverallLeaderRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "title": "LeadersOverallResponse",
+        "type": "object"
+      },
       "LeadersResponse": {
         "properties": {
           "category": {
@@ -1135,6 +1153,55 @@
           "categories"
         ],
         "title": "MyTeamResponse",
+        "type": "object"
+      },
+      "OverallLeaderRow": {
+        "properties": {
+          "hitter": {
+            "default": true,
+            "title": "Hitter",
+            "type": "boolean"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "stats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
+          "tag": {
+            "default": "",
+            "title": "Tag",
+            "type": "string"
+          },
+          "trend": {
+            "default": "flat",
+            "title": "Trend",
+            "type": "string"
+          },
+          "value": {
+            "default": 0.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rank",
+          "player"
+        ],
+        "title": "OverallLeaderRow",
         "type": "object"
       },
       "PitcherScorecard": {
@@ -2349,6 +2416,59 @@
           }
         },
         "summary": "Get Leaders",
+        "tags": [
+          "leaders"
+        ]
+      }
+    },
+    "/api/leaders/overall": {
+      "get": {
+        "operationId": "get_leaders_overall_api_leaders_overall_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lens",
+            "required": false,
+            "schema": {
+              "default": "overall",
+              "title": "Lens",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadersOverallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Leaders Overall",
         "tags": [
           "leaders"
         ]

@@ -9,6 +9,7 @@ from api.services.databank_service import DatabankService
 from api.services.draft_service import DraftService
 from api.services.fa_pool_service import FreeAgentPoolService
 from api.services.fa_service import FreeAgentService
+from api.services.leaders_overall_service import LeadersOverallService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
 from api.services.matchup_service import MatchupService
@@ -47,6 +48,10 @@ def get_closer_service() -> CloserService:
 
 def get_leaders_service() -> LeadersService:
     return LeadersService()
+
+
+def get_leaders_overall_service() -> LeadersOverallService:
+    return LeadersOverallService()
 
 
 def get_matchup_service() -> MatchupService:
