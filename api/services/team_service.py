@@ -11,11 +11,15 @@ import logging
 import math
 from datetime import UTC, datetime
 
+from api.contracts.common import StatItem
 from api.contracts.my_team import (
     CategoryLine,
+    Lever,
+    LeverPickup,
     MatchupHero,
     Mover,
     MyTeamResponse,
+    OpsCard,
     StatusChip,
 )
 from api.services.player_ref import player_ref_from_pool
@@ -46,20 +50,47 @@ def _f(value, default: float = 0.0) -> float:
     return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
-def _fmt_avg(value) -> str:
-    """Batting-average display: strip the leading zero only for a true .000-.999 rate
+def _avg_value(value) -> str:
+    """Batting-average display VALUE: strip the leading zero for a true .000-.999 rate
     ('.310'), but keep it for 0/NaN ('0.000') so it never looks like a parse artifact."""
     fval = _f(value)
     text = f"{fval:.3f}"
-    return f"{text.lstrip('0')} AVG" if 0.0 < fval < 1.0 else f"{text} AVG"
+    return text.lstrip("0") if 0.0 < fval < 1.0 else text
 
 
-def _mover_stats(row, hitter: bool) -> list[str]:
-    """Two YTD display stats for a mover, by player type (pool ytd_* columns)."""
+def _stat_value(value, cat: str) -> str:
+    """Format a YTD value for display: rate cats keep decimals, counting cats round to int."""
+    cu = cat.upper()
+    if cu in ("AVG", "OBP"):
+        return _avg_value(value)
+    if cu in ("ERA", "WHIP"):
+        return f"{_f(value):.2f}"
+    return str(int(round(_f(value))))
+
+
+def _mover_stats(row, hitter: bool) -> list[StatItem]:
+    """Two YTD stats for a mover as StatItem{label,value}, by player type (pool ytd_* cols)."""
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
     if hitter:
-        return [f"{int(round(_f(g('ytd_hr'))))} HR", _fmt_avg(g("ytd_avg"))]
-    return [f"{int(round(_f(g('ytd_k'))))} K", f"{_f(g('ytd_era')):.2f} ERA"]
+        return [
+            StatItem(label="HR", value=_stat_value(g("ytd_hr"), "HR")),
+            StatItem(label="AVG", value=_stat_value(g("ytd_avg"), "AVG")),
+        ]
+    return [
+        StatItem(label="K", value=_stat_value(g("ytd_k"), "K")),
+        StatItem(label="ERA", value=_stat_value(g("ytd_era"), "ERA")),
+    ]
+
+
+def _cat_stat(pool_row, cat: str) -> StatItem:
+    """A lever pickup's stat in the lever category, e.g. {label:"SB", value:"24"}.
+    Reads ytd_<cat> from the player's pool row; NaN/missing → '0'."""
+    g = (
+        (pool_row.get if hasattr(pool_row, "get") else (lambda k, d=None: None))
+        if pool_row is not None
+        else (lambda k, d=None: None)
+    )
+    return StatItem(label=cat, value=_stat_value(g(f"ytd_{cat.lower()}"), cat))
 
 
 class TeamService:
@@ -78,6 +109,9 @@ class TeamService:
         roster = self._roster(team_name)
         roster_ids = self._roster_ids(roster)
 
+        # ONE optimizer context shared by lever + ops (each ~2-4s otherwise).
+        ctx = self._build_ctx(team_name, cfg)
+
         return MyTeamResponse(
             team_name=team_name,
             record=record,
@@ -91,6 +125,195 @@ class TeamService:
             status_chips=self._status_chips(roster, roster_ids),
             movers=self._movers(roster_ids, cfg),
             movers_scope="mine",
+            lever=self._lever(ctx, cfg),
+            ops=self._ops(ctx),
+        )
+
+    @staticmethod
+    def _build_ctx(team_name: str, cfg):
+        """Build the optimizer context ONCE for lever + ops (heavy ~2-4s call).
+        Returns None on cold env / failure (never raises)."""
+        try:
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            return build_optimizer_context(
+                scope="rest_of_season",
+                yds=get_yahoo_data_service(),
+                config=cfg,
+                user_team_name=team_name,
+                level_filter="MLB only",
+            )
+        except Exception as exc:
+            logger.warning("TeamService._build_ctx failed: %s", exc)
+            return None
+
+    def _lever(self, ctx, cfg) -> Lever | None:
+        """The biggest category weakness + up to 3 FA pickups that address it.
+
+        Mirrors fa_pool_service: weakest cat = most-negative category_gap →
+        rank_free_agents filtered to best_category == that cat. Returns None on
+        cold env (ctx None) / no gaps / winning-everywhere (never raises)."""
+        try:
+            if ctx is None:
+                return None
+            from src.in_season import rank_free_agents
+
+            gaps = ctx.category_gaps or {}
+            if not gaps:
+                return None
+            raw_cat = min(gaps, key=gaps.get)  # most-negative gap = weakest category
+            if _f(gaps.get(raw_cat), 0.0) >= 0:
+                return None  # at-or-ahead in every category — no weakness to flag (lever=None)
+            # category_gaps keys are lowercase ("era") but rank_free_agents.best_category
+            # is UPPERCASE ("ERA") — normalize so the pickup filter actually matches.
+            cat = str(raw_cat).upper()
+            behind_by = round(abs(_f(gaps.get(raw_cat))), 1)
+            return Lever(
+                category_key=cat,
+                headline=f"{cat} is your weakest category",
+                behind_by=behind_by,
+                pickups=self._lever_pickups(ctx, cat, cfg, rank_free_agents),
+            )
+        except Exception as exc:
+            logger.warning("TeamService._lever failed: %s", exc)
+            return None
+
+    @staticmethod
+    def _lever_pickups(ctx, cat: str, cfg, rank_free_agents) -> list[LeverPickup]:
+        """Top-3 FAs whose best_category is the lever category, enriched + with proj_stat."""
+        try:
+            if ctx.free_agents is None or ctx.free_agents.empty or ctx.player_pool.empty:
+                return []
+            ranked = rank_free_agents(ctx.user_roster_ids, ctx.free_agents, ctx.player_pool, cfg)
+            if ranked is None or ranked.empty or "best_category" not in ranked.columns:
+                return []
+            matches = ranked[ranked["best_category"] == cat].head(3)
+            pool = ctx.player_pool
+            out: list[LeverPickup] = []
+            for r in matches.to_dict("records"):
+                pid = int(r.get("player_id", 0) or 0)
+                prow = None
+                try:
+                    m = pool[pool["player_id"] == pid]
+                    if not m.empty:
+                        prow = m.iloc[0]
+                except Exception:
+                    prow = None
+                out.append(
+                    LeverPickup(
+                        player=player_ref_from_pool(pid, pool, name=r.get("player_name"), positions=r.get("positions")),
+                        proj_stat=_cat_stat(prow, cat),
+                    )
+                )
+            return out
+        except Exception as exc:
+            logger.warning("TeamService._lever_pickups failed: %s", exc)
+            return []
+
+    # ── slice 3: ops cards ────────────────────────────────────────────────
+    def _ops(self, ctx) -> list[OpsCard]:
+        """The 3 operational cards (IP pace, moves left, roster health). Each card
+        is independently wrapped — a failing one is skipped, not fatal. [] if no ctx."""
+        if ctx is None:
+            return []
+        cards: list[OpsCard] = []
+        for builder in (self._ip_pace_card, self._moves_left_card, self._roster_health_card):
+            try:
+                card = builder(ctx)
+                if card is not None:
+                    cards.append(card)
+            except Exception as exc:
+                logger.warning("TeamService._ops card %s failed: %s", getattr(builder, "__name__", "?"), exc)
+        return cards
+
+    @staticmethod
+    def _ip_pace_card(ctx) -> OpsCard | None:
+        """Weekly IP pace vs target, from the roster's pitchers' projected IP."""
+        import pandas as pd
+
+        from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+        roster, pool = ctx.roster, ctx.player_pool
+        if roster is None or not isinstance(roster, pd.DataFrame) or roster.empty or pool is None or pool.empty:
+            return None
+        pitchers: list[dict] = []
+        for r in roster.to_dict("records"):
+            try:
+                pid = int(r.get("player_id", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            m = pool[pool["player_id"] == pid]
+            if m.empty:
+                continue
+            prow = m.iloc[0]
+            positions = str(prow.get("positions", "") or "")
+            is_hitter = prow.get("is_hitter", None)
+            is_pitcher = ("SP" in positions.upper() or "RP" in positions.upper() or "P" in positions.upper()) or (
+                is_hitter is not None
+                and not (isinstance(is_hitter, float) and math.isnan(is_hitter))
+                and not bool(is_hitter)
+            )
+            if not is_pitcher:
+                continue
+            pitchers.append(
+                {
+                    "name": str(prow.get("name", "") or ""),
+                    "positions": positions,
+                    "ip": _f(prow.get("ip")),
+                    "gs": _f(prow.get("gs")),
+                    "is_starter": "SP" in positions.upper(),
+                    "status": str(r.get("status", "active") or "active"),
+                }
+            )
+        if not pitchers:
+            return None
+        proj = compute_weekly_ip_projection(pitchers, get_days_remaining_in_week())
+        status = {"safe": "ok", "warning": "warn", "danger": "danger"}.get(str(proj.get("status", "")), "ok")
+        return OpsCard(
+            key="ip_pace",
+            label="IP Pace",
+            value=round(_f(proj.get("projected_ip")), 1),
+            total=round(_f(proj.get("ip_target")), 1),
+            verdict=str(proj.get("message", "") or ""),
+            status=status,
+        )
+
+    @staticmethod
+    def _moves_left_card(ctx) -> OpsCard:
+        """Remaining weekly add/trade transactions (out of 10)."""
+        from src.league_rules import WEEKLY_TRANSACTION_LIMIT
+
+        limit = int(WEEKLY_TRANSACTION_LIMIT)
+        remaining = int(getattr(ctx, "adds_remaining_this_week", limit) or 0)
+        status = "ok" if remaining > 2 else ("warn" if remaining > 0 else "danger")
+        return OpsCard(
+            key="moves_left",
+            label="Moves Left",
+            value=float(remaining),
+            total=float(limit),
+            verdict=f"{remaining} of {limit} adds left this week",
+            status=status,
+        )
+
+    @staticmethod
+    def _roster_health_card(ctx) -> OpsCard | None:
+        """Healthy (non-IL) players out of the roster size."""
+        import pandas as pd
+
+        roster = ctx.roster
+        if roster is None or not isinstance(roster, pd.DataFrame) or roster.empty:
+            return None
+        total = int(len(roster))
+        il = TeamService._il_count(roster) or 0
+        healthy = max(0, total - il)
+        return OpsCard(
+            key="roster_health",
+            label="Roster Health",
+            value=float(healthy),
+            total=float(total),
+            verdict=f"{il} on IL" if il else "All active",
+            status="warn" if il else "ok",
         )
 
     # ── existing core ────────────────────────────────────────────────────
