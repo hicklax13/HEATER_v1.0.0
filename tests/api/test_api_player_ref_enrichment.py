@@ -165,25 +165,22 @@ def test_lineup_to_slots_enriches_via_pool():
     from api.services.lineup_service import LineupService
 
     pool = pd.DataFrame([{"player_id": 31, "name": "X", "positions": "OF", "mlb_id": 660271, "team": "LAA"}])
-    result = {
-        "lineup": [
-            {"slot": "OF", "player_id": 31, "player_name": "Shohei Ohtani", "positions": "OF", "action": "START"}
-        ]
-    }
-    slots = LineupService._to_slots(result, pool)
-    assert slots[0].player.mlb_id == 660271
-    assert slots[0].player.team_abbr == "LAA"
-    assert slots[0].player.team_id == 108
-    assert slots[0].player.name == "Shohei Ohtani"  # engine name preferred
+    # `lineup` is the optimize_lineup() dict: {assignments, bench, projected_stats, status}
+    lineup = {"assignments": [{"slot": "OF", "player_id": 31, "player_name": "Shohei Ohtani"}]}
+    starters, _bench = LineupService._to_slots(lineup, pool)
+    assert starters[0].player.mlb_id == 660271
+    assert starters[0].player.team_abbr == "LAA"
+    assert starters[0].player.team_id == 108
+    assert starters[0].player.name == "Shohei Ohtani"  # engine name preferred
 
 
 def test_lineup_to_slots_without_pool_still_works():
     from api.services.lineup_service import LineupService
 
-    result = {"lineup": [{"slot": "OF", "player_id": 31, "player_name": "X", "positions": "OF", "action": "START"}]}
-    slots = LineupService._to_slots(result)  # pool defaults to None
-    assert slots[0].player.mlb_id is None
-    assert slots[0].player.id == 31
+    lineup = {"assignments": [{"slot": "OF", "player_id": 31, "player_name": "X"}]}
+    starters, _bench = LineupService._to_slots(lineup)  # pool defaults to None
+    assert starters[0].player.mlb_id is None
+    assert starters[0].player.id == 31
 
 
 def test_fa_to_rec_enriches_and_fixes_id_key():
