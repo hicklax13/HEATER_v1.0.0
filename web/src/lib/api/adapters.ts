@@ -4,8 +4,10 @@ import type {
   ApiStreamingResponse,
   ApiStreamAnalyzeResponse,
   ApiStandingsResponse,
+  ApiPuntResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
+import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
 import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow, ResearchData } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
@@ -193,4 +195,23 @@ export function apiStandingsToData(api: ApiStandingsResponse): StandingsData {
     isUser: (t.team_name ?? "") === "Team Hickey", // single-league until M4
   }));
   return { teams, playoffSpots: 4 };
+}
+
+/** Map /api/punt → frontend PuntData. Derives the compete/tossup/punt verdict
+ *  from the engine's rank + gainability + punt_candidates. */
+export function apiPuntToData(api: ApiPuntResponse): PuntData {
+  const candidates = api.punt_candidates ?? [];
+  const nTeams = 12; // FourzynBurn
+  const cats: PuntCat[] = (api.categories ?? []).map((c) => {
+    const rank = c.current_rank ?? 0;
+    const gainable = c.gainable ?? false;
+    return {
+      cat: c.cat,
+      rank,
+      gainable,
+      verdict: verdictFor(c.cat, rank, gainable, candidates, nTeams),
+      recommendation: c.recommendation ?? "",
+    };
+  });
+  return { teamName: api.team_name ?? "", nTeams, candidates, cats };
 }
