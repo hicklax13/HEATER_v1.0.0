@@ -1,12 +1,18 @@
 import type { PlayerRef } from "./types";
+import { apiGet } from "@/lib/api/client";
+import { apiTradeFinderToData } from "@/lib/api/adapters";
+import type { ApiTradeFinderResponse } from "@/lib/api/types";
 
 /**
- * Mock Trades data — Trade Finder recommendations targeting your needs.
- * Swap this module for the API client in Sub-project B; the shape is the contract.
+ * Trades data — the Finder tab's auto-suggested trades. Mock by default; live
+ * behind NEXT_PUBLIC_HEATER_LIVE via /api/trade-finder. The contract is lean
+ * (partner + giving/receiving + net_sgp + rationale), so grade/impact/playoffDelta/
+ * partnerRecord are mock-only and hidden on live data; verdict is derived from
+ * net_sgp. Suggestions are roster-relative → empty locally, real on Railway.
  */
 export interface TradePlayer extends PlayerRef {
   posLabel: string; // "RF · NYM"
-  keyStat: string; // headline line, e.g. ".265 AVG · 19 HR"
+  keyStat?: string; // headline line, e.g. ".265 AVG · 19 HR" — optional (mock only)
 }
 
 export interface CatImpact {
@@ -18,14 +24,15 @@ export interface CatImpact {
 export interface TradeRec {
   id: number;
   partner: string;
-  partnerRecord: string;
-  grade: string; // "A-", "B+"…
-  verdict: string; // "Fair", "You win", "Slight overpay"
+  partnerRecord?: string; // optional — not in the trade-finder contract
+  grade?: string; // "A-", "B+"… — optional (mock); live shows netSgp instead
+  netSgp?: number; // net SGP gain from the trade (live trade-finder signal)
+  verdict: string; // "Fair", "You win", … (derived from netSgp on live data)
   give: TradePlayer[];
   get: TradePlayer[];
-  impact: CatImpact[];
+  impact?: CatImpact[]; // optional — no per-category breakdown in the contract
   rationale: string;
-  playoffDelta: number; // change in playoff odds (pp)
+  playoffDelta?: number; // change in playoff odds (pp) — optional (mock only)
 }
 
 export interface TradesData {
@@ -123,6 +130,20 @@ export const TRADES: TradesData = {
   ],
 };
 
-export function fetchTrades(delayMs = 600): Promise<TradesData> {
+/** Live: GET /api/trade-finder?team_name=… → adapt. Falls back to the mock on a
+ *  throw or empty suggestions (roster-relative → empty locally, real on Railway).
+ *  Mock: the in-memory TRADES after a simulated delay. */
+export async function fetchTrades(delayMs = 600): Promise<TradesData> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiGet<ApiTradeFinderResponse>("/trade-finder", {
+        team_name: "Team Hickey",
+        limit: 10,
+      });
+      if ((api.suggestions?.length ?? 0) > 0) return apiTradeFinderToData(api);
+    } catch {
+      // fall through to mock
+    }
+  }
   return new Promise((resolve) => setTimeout(() => resolve(TRADES), delayMs));
 }

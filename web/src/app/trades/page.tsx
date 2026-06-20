@@ -88,14 +88,23 @@ function FinderView({ data }: { data: TradesData }) {
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-4">
       <motion.p variants={staggerItem} className="text-[13px] text-ink-2">
-        {data.recs.length} deals that target your needs:{" "}
-        {data.needs.map((n, i) => (
-          <span key={n}>
-            <span className="font-bold text-heat">{n}</span>
-            {i < data.needs.length - 1 ? ", " : ""}
-          </span>
-        ))}
-        .
+        {data.needs.length > 0 ? (
+          <>
+            {data.recs.length} deals that target your needs:{" "}
+            {data.needs.map((n, i) => (
+              <span key={n}>
+                <span className="font-bold text-heat">{n}</span>
+                {i < data.needs.length - 1 ? ", " : ""}
+              </span>
+            ))}
+            .
+          </>
+        ) : (
+          <>
+            {data.recs.length} {data.recs.length === 1 ? "trade idea" : "trade ideas"} surfaced from your
+            roster.
+          </>
+        )}
       </motion.p>
       {data.recs.map((rec) => (
         <motion.div key={rec.id} variants={staggerItem}>
@@ -114,7 +123,7 @@ function gradeColor(grade: string): string {
 }
 
 function TradeCard({ rec }: { rec: TradeRec }) {
-  const playoff = useCountUp(rec.playoffDelta);
+  const playoff = useCountUp(rec.playoffDelta ?? 0);
   return (
     <Card className="p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -122,7 +131,9 @@ function TradeCard({ rec }: { rec: TradeRec }) {
           <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3">Trade With</div>
           <div className="font-display text-base font-bold text-navy">
             {rec.partner}
-            <span className="tnum ml-2 text-[12px] font-medium text-ink-3">{rec.partnerRecord}</span>
+            {rec.partnerRecord && (
+              <span className="tnum ml-2 text-[12px] font-medium text-ink-3">{rec.partnerRecord}</span>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -130,14 +141,30 @@ function TradeCard({ rec }: { rec: TradeRec }) {
             <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3">Verdict</div>
             <div className="text-[13px] font-bold text-navy">{rec.verdict}</div>
           </div>
-          <span
-            className={cn(
-              "flex size-14 items-center justify-center rounded-2xl font-display text-[30px] font-extrabold leading-none",
-              gradeColor(rec.grade),
-            )}
-          >
-            {rec.grade}
-          </span>
+          {rec.grade ? (
+            <span
+              className={cn(
+                "flex size-14 items-center justify-center rounded-2xl font-display text-[30px] font-extrabold leading-none",
+                gradeColor(rec.grade),
+              )}
+            >
+              {rec.grade}
+            </span>
+          ) : rec.netSgp !== undefined ? (
+            <span
+              className={cn(
+                "flex size-14 flex-col items-center justify-center rounded-2xl font-display leading-none",
+                rec.netSgp >= 0 ? "bg-ok/12 text-ok" : "bg-ember/12 text-ember",
+              )}
+              title="Net SGP gain from this trade"
+            >
+              <span className="tnum text-[19px] font-extrabold">
+                {rec.netSgp >= 0 ? "+" : ""}
+                {rec.netSgp.toFixed(1)}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-wide opacity-70">SGP</span>
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -151,15 +178,17 @@ function TradeCard({ rec }: { rec: TradeRec }) {
         <Side label="You Get" players={rec.get} rosteredBy={rec.partner} tone="get" />
       </div>
 
-      <ImpactLedger impact={rec.impact} />
+      {rec.impact && rec.impact.length > 0 && <ImpactLedger impact={rec.impact} />}
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <p className="max-w-[60ch] text-[12.5px] text-ink-2">{rec.rationale}</p>
         <div className="flex items-center gap-3">
-          <span className="tnum inline-flex items-center gap-1 text-[12px] font-semibold text-ok">
-            <TrendingUp className="size-3.5" aria-hidden />
-            +{playoff}% playoff odds
-          </span>
+          {rec.playoffDelta !== undefined && (
+            <span className="tnum inline-flex items-center gap-1 text-[12px] font-semibold text-ok">
+              <TrendingUp className="size-3.5" aria-hidden />
+              +{playoff}% playoff odds
+            </span>
+          )}
           <button className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-gradient-to-b from-heat-bright to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
             Analyze
           </button>
@@ -197,7 +226,7 @@ function Side({
               <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
               <span className="min-w-0">
                 <span className="block truncate text-[13px] font-semibold text-navy">{p.name}</span>
-                <span className="tnum block text-[10.5px] text-ink-3">{p.keyStat}</span>
+                <span className="tnum block text-[10.5px] text-ink-3">{p.keyStat ?? p.posLabel}</span>
               </span>
             </button>
           </PlayerDialog>

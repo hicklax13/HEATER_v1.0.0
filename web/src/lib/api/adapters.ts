@@ -9,6 +9,7 @@ import type {
   ApiCompareResponse,
   ApiMyTeamResponse,
   ApiPlayoffOddsResponse,
+  ApiTradeFinderResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -23,6 +24,7 @@ import type { PlayerRef, MyTeamData, Matchup, Mover, CategoryRow, OpsCard, Scope
 import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
 import type { CompareData } from "@/lib/compare-data";
+import type { TradesData, TradePlayer } from "@/lib/trades-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -458,4 +460,39 @@ export function applyPlayoffOdds(data: StandingsData, api: ApiPlayoffOddsRespons
       return odds === undefined ? t : { ...t, playoffOdds: Math.round(odds) };
     }),
   };
+}
+
+/* ── Trade Finder ───────────────────────────────────────────────────────── */
+
+type ApiTradeSuggestion = NonNullable<ApiTradeFinderResponse["suggestions"]>[number];
+
+/** A net-SGP gain → a plain verdict (the contract has no grade/verdict). */
+function verdictFromSgp(net: number): string {
+  if (net >= 1.5) return "You win";
+  if (net >= 0.3) return "Favorable";
+  if (net > -0.3) return "Fair";
+  return "You overpay";
+}
+
+function toTradePlayer(p: Parameters<typeof toPlayerRef>[0]): TradePlayer {
+  const r = toPlayerRef(p);
+  // keyStat omitted — the suggestion carries no per-player stat line.
+  return { ...r, posLabel: r.teamAbbr ? `${r.pos} · ${r.teamAbbr}` : r.pos };
+}
+
+/** Map /api/trade-finder → frontend TradesData. Lean contract (partner + giving/
+ *  receiving + net_sgp + rationale): verdict is derived from net_sgp;
+ *  grade/impact/playoffDelta/partnerRecord/needs aren't in it → omitted (the card
+ *  hides them). */
+export function apiTradeFinderToData(api: ApiTradeFinderResponse): TradesData {
+  const recs = (api.suggestions ?? []).map((s: ApiTradeSuggestion, i) => ({
+    id: i,
+    partner: s.partner_team ?? "",
+    netSgp: s.net_sgp,
+    verdict: verdictFromSgp(s.net_sgp ?? 0),
+    give: (s.giving ?? []).map(toTradePlayer),
+    get: (s.receiving ?? []).map(toTradePlayer),
+    rationale: s.rationale ?? "",
+  }));
+  return { needs: [], recs };
 }
