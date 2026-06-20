@@ -88,7 +88,29 @@ def _game_state(team_abbr: str, schedule: list, abbr_to_name: dict) -> tuple[str
     return "none", ""
 
 
-def _to_match_player(player_id, slot: str, pool, hitter: bool, state: str, status: str) -> MatchPlayer:
+def _badge_from_status(status: str) -> str | None:
+    """Derive the display badge from a Yahoo roster status string.
+
+    Returns ``"IL"`` for any IL/NA status, ``"DTD"`` for day-to-day, else ``None``.
+    """
+    s = (status or "").strip()
+    sl = s.lower()
+    if sl.startswith("il") or sl == "na":
+        return "IL"
+    if "dtd" in sl or "day" in sl:
+        return "DTD"
+    return None
+
+
+def _to_match_player(
+    player_id,
+    slot: str,
+    pool,
+    hitter: bool,
+    state: str,
+    status: str,
+    roster_status: str = "",
+) -> MatchPlayer:
     import pandas as pd
 
     prow = None
@@ -107,7 +129,7 @@ def _to_match_player(player_id, slot: str, pool, hitter: bool, state: str, statu
         status=status,
         state=state,
         stats=stats,
-        badge=None,
+        badge=_badge_from_status(roster_status),
     )
 
 
@@ -247,19 +269,40 @@ class MatchupService:
             return abbrs.mode().iloc[0] if not abbrs.empty else ""
 
         # Stable slot ordering for the display grid.
-        _HITTER_SLOT_ORDER = ["C", "1B", "2B", "3B", "SS", "OF", "Util"]
-        _PITCHER_SLOT_ORDER = ["SP", "RP", "P"]
+        # BN and IL* sort last within their respective table.
+        _HITTER_SLOT_ORDER = ["C", "1B", "2B", "3B", "SS", "OF", "Util", "BN"]
+        _PITCHER_SLOT_ORDER = ["SP", "RP", "P", "BN"]
 
         def _slot_key(slot: str) -> int:
             order = _HITTER_SLOT_ORDER + _PITCHER_SLOT_ORDER
+            s = str(slot)
             try:
-                return order.index(slot)
+                return order.index(s)
             except ValueError:
+                # IL10/IL15/IL60 etc. sort after named slots
+                if s.upper().startswith("IL"):
+                    return len(order) + 1
                 return len(order)
 
-        def _is_pitcher_slot(slot: str) -> bool:
-            s = str(slot).upper()
-            return s in ("SP", "RP", "P", "BN") or s.startswith("IL")
+        _PITCHER_SLOTS = frozenset({"SP", "RP", "P"})
+
+        def _is_pitcher_by_pool(pid, roster_status: str, side_pool: pd.DataFrame) -> bool:
+            """Classify hitter vs pitcher using the pool's is_hitter flag.
+
+            Falls back to slot-string heuristic only when the player is absent
+            from the pool (never raises).
+            """
+            if side_pool is not None and not side_pool.empty:
+                try:
+                    pmatch = side_pool[side_pool["player_id"] == pid]
+                    if not pmatch.empty:
+                        flag = pmatch.iloc[0].get("is_hitter")
+                        if flag is not None:
+                            return not bool(flag)
+                except Exception:
+                    pass
+            # Fallback: use roster status/IL as pitcher-leaning default
+            return False
 
         def _build_side(
             side_rosters: pd.DataFrame,
@@ -267,23 +310,36 @@ class MatchupService:
             side_team_abbr: str,
             hitter: bool,
         ) -> tuple[list, list]:
-            """Build (players, slots) for one side (you or opp), hitters or pitchers."""
+            """Build (players, slots) for one side (you or opp), hitters or pitchers.
+
+            Uses ``selected_position`` as the assigned slot (falls back to
+            ``roster_slot`` only when missing). Classifies hitter/pitcher via
+            the pool's ``is_hitter`` flag. Includes BN and IL rows.
+            """
             players: list[MatchPlayer] = []
             slots: list[str] = []
             if side_rosters.empty:
                 return players, slots
-            slot_col = "roster_slot" if "roster_slot" in side_rosters.columns else "selected_position"
             for _, row in side_rosters.iterrows():
-                slot = str(row.get(slot_col) or "").strip()
-                if not slot or slot.upper() in ("BN",) or slot.upper().startswith("IL"):
+                # Use the manager-assigned slot, not the eligible-positions list.
+                sel = str(row.get("selected_position") or "").strip()
+                if not sel:
+                    sel = str(row.get("roster_slot") or "").strip()
+                if not sel:
                     continue
-                is_pit = _is_pitcher_slot(slot)
+
+                pid = row.get("player_id")
+                roster_status = str(row.get("status") or "").strip()
+
+                # Classify using pool is_hitter flag (handles BN/IL/SP,RP swingmen).
+                is_pit = _is_pitcher_by_pool(pid, sel, side_pool)
+
                 if hitter and is_pit:
                     continue
                 if not hitter and not is_pit:
                     continue
-                pid = row.get("player_id")
-                # Look up team_abbr for this player from pool or editorial_team_abbr.
+
+                # Look up team_abbr for game-state from pool or editorial_team_abbr.
                 team_abbr = side_team_abbr
                 if side_pool is not None and not side_pool.empty:
                     try:
@@ -295,9 +351,9 @@ class MatchupService:
                     except Exception:
                         pass
                 state, status = _game_state(team_abbr, schedule, abbr_to_name)
-                mp = _to_match_player(pid, slot, side_pool, hitter, state, status)
+                mp = _to_match_player(pid, sel, side_pool, hitter, state, status, roster_status=roster_status)
                 players.append(mp)
-                slots.append(slot)
+                slots.append(sel)
             # Sort by slot order for a stable grid.
             paired = sorted(zip(slots, players), key=lambda x: _slot_key(x[0]))
             if paired:
