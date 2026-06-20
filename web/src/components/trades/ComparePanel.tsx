@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, X, Scale } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
-import { fetchPlayers, type FreeAgent } from "@/lib/players-data";
+import { searchPlayers, type PlayerPick } from "@/lib/player-search";
 import {
   fetchCompare,
   bestIndexForCat,
@@ -17,27 +17,28 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Player Compare — pick two players from the free-agent pool and see a
- * head-to-head category table. Picker is FA-pool-sourced (v1); /api/compare is
- * pool-backed (real locally). Comparing any rostered player is a fast-follow
- * once a player-search endpoint exists.
+ * Player Compare — search for any two players and see a head-to-head category
+ * table. The picker uses /api/players/search (any player, rostered or FA);
+ * /api/compare is pool-backed (real locally).
  */
 export function ComparePanel() {
-  const [pool, setPool] = useState<FreeAgent[]>([]);
-  const [selected, setSelected] = useState<FreeAgent[]>([]);
+  const [selected, setSelected] = useState<PlayerPick[]>([]);
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlayerPick[]>([]);
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [comparing, setComparing] = useState(false);
 
+  // Debounced player search.
   useEffect(() => {
     let alive = true;
-    fetchPlayers()
-      .then((d) => alive && setPool(d.freeAgents))
-      .catch(() => {});
+    const id = setTimeout(() => {
+      searchPlayers(query).then((r) => alive && setResults(r));
+    }, 250);
     return () => {
       alive = false;
+      clearTimeout(id);
     };
-  }, []);
+  }, [query]);
 
   useEffect(() => {
     if (selected.length < 2) return; // render gate hides any stale comparison
@@ -47,7 +48,7 @@ export function ComparePanel() {
       .then(() => {
         if (!alive) return;
         setComparing(true);
-        return fetchCompare(selected.map((p) => p.id));
+        return fetchCompare(selected);
       })
       .then((d) => {
         if (alive && d) setCompare(d);
@@ -63,15 +64,10 @@ export function ComparePanel() {
     };
   }, [selected]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const chosen = new Set(selected.map((p) => p.id));
-    return pool
-      .filter((p) => !chosen.has(p.id) && (q === "" || p.name.toLowerCase().includes(q)))
-      .slice(0, 40);
-  }, [pool, query, selected]);
+  const chosen = new Set(selected.map((p) => p.id));
+  const filtered = results.filter((p) => !chosen.has(p.id)).slice(0, 12);
 
-  const addPlayer = (p: FreeAgent) => setSelected((s) => (s.length >= 2 ? s : [...s, p]));
+  const addPlayer = (p: PlayerPick) => setSelected((s) => (s.length >= 2 ? s : [...s, p]));
   const removePlayer = (id: number) => setSelected((s) => s.filter((p) => p.id !== id));
 
   return (
@@ -91,14 +87,16 @@ export function ComparePanel() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search free agents to compare…"
+              placeholder="Search any player to compare…"
               className="w-full bg-transparent text-[13px] text-navy outline-none placeholder:text-ink-3"
-              aria-label="Search free agents to compare"
+              aria-label="Search any player to compare"
             />
           </div>
           <ul className="max-h-80 overflow-y-auto">
             {filtered.length === 0 ? (
-              <li className="px-4 py-6 text-center text-[13px] text-ink-3">No matching free agents.</li>
+              <li className="px-4 py-6 text-center text-[13px] text-ink-3">
+                {query.trim().length < 2 ? "Type a name to search players." : "No matching players."}
+              </li>
             ) : (
               filtered.map((p) => (
                 <li key={p.id}>
@@ -112,9 +110,6 @@ export function ComparePanel() {
                       <span className="tnum block text-[10.5px] text-ink-3">
                         {p.teamAbbr} · {p.pos}
                       </span>
-                    </span>
-                    <span className="tnum shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10.5px] font-bold text-ink-2">
-                      Fit {p.fit}
                     </span>
                   </button>
                 </li>
@@ -145,7 +140,7 @@ function Slot({
   index,
   onRemove,
 }: {
-  player: FreeAgent | undefined;
+  player: PlayerPick | undefined;
   index: number;
   onRemove: (id: number) => void;
 }) {

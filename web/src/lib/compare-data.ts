@@ -2,14 +2,13 @@ import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiCompareToData } from "@/lib/api/adapters";
 import type { ApiCompareResponse } from "@/lib/api/types";
-import { PLAYERS } from "@/lib/players-data";
+import type { PlayerPick } from "@/lib/player-search";
 
 /**
  * Player Compare data — head-to-head category comparison. With
  * NEXT_PUBLIC_HEATER_LIVE=1, fetchCompare wires to GET /api/compare?ids=… (pool-
- * backed → real locally) and falls back to a mock synthesized from the FA pool.
- * The picker sources players from the FA pool (players-data) — its HEATER `id`
- * is what /api/compare consumes.
+ * backed → real locally) and falls back to a demo comparison. The picker searches
+ * ANY player (player-search) — its HEATER `id` is what /api/compare consumes.
  */
 
 /** Lower-is-better categories (FourzynBurn inverse stats). */
@@ -81,42 +80,42 @@ export function formatCatValue(cat: string, v: number | undefined): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
-const NON_NUMERIC = /[^0-9.\-]/g;
-
-/** Mock: synthesize a comparison from the selected FA-pool players by parsing
- *  their display-string stats into numbers. Sparse by nature (each FA carries
- *  ~3 stats); live /api/compare returns the full category set. */
-function mockCompare(ids: number[]): CompareData {
-  const picked = ids
-    .map((id) => PLAYERS.freeAgents.find((f) => f.id === id))
-    .filter((f): f is NonNullable<typeof f> => !!f);
-  const categories: string[] = [];
-  for (const p of picked) {
-    for (const s of p.stats) if (!categories.includes(s.label)) categories.push(s.label);
-  }
-  const players: ComparePlayerData[] = picked.map((p) => {
-    const stats: Record<string, number> = {};
-    for (const s of p.stats) {
-      const n = parseFloat(s.value.replace(NON_NUMERIC, ""));
-      if (Number.isFinite(n)) stats[s.label] = n;
-    }
-    return { name: p.name, pos: p.pos, teamAbbr: p.teamAbbr, teamId: p.teamId, mlbId: p.mlbId, stats };
-  });
-  return { categories, players };
+// Off-live demo so the showcase works: a sample hitter line (player 0 leads
+// most cats). Live /api/compare returns the real, full category set.
+const DEMO_CATS = ["R", "HR", "RBI", "SB", "AVG", "OBP"];
+const DEMO_LINE: Record<string, [number, number]> = {
+  R: [92, 74],
+  HR: [33, 21],
+  RBI: [98, 63],
+  SB: [14, 7],
+  AVG: [0.301, 0.268],
+  OBP: [0.388, 0.339],
+};
+function mockCompare(players: PlayerPick[]): CompareData {
+  return {
+    categories: DEMO_CATS,
+    players: players.map((p, i) => ({
+      name: p.name,
+      pos: p.pos,
+      teamAbbr: p.teamAbbr,
+      teamId: p.teamId,
+      mlbId: p.mlbId,
+      stats: Object.fromEntries(DEMO_CATS.map((c) => [c, DEMO_LINE[c][Math.min(i, 1)]])),
+    })),
+  };
 }
 
-/** Fetch a head-to-head comparison for the given HEATER player ids (need ≥2).
- *  Live → /api/compare?ids=…; falls back to the FA-pool-synthesized mock on
- *  error / empty. */
-export async function fetchCompare(ids: number[]): Promise<CompareData> {
-  if (ids.length < 2) return { categories: [], players: [] };
+/** Fetch a head-to-head comparison for the picked players (need ≥2). Live →
+ *  GET /api/compare?ids=…; falls back to a demo comparison on error / empty. */
+export async function fetchCompare(players: PlayerPick[]): Promise<CompareData> {
+  if (players.length < 2) return { categories: [], players: [] };
   if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
     try {
-      const api = await apiGet<ApiCompareResponse>("/compare", { ids: ids.join(",") });
+      const api = await apiGet<ApiCompareResponse>("/compare", { ids: players.map((p) => p.id).join(",") });
       if ((api.players?.length ?? 0) > 0) return apiCompareToData(api);
     } catch {
       // fall through to mock
     }
   }
-  return mockCompare(ids);
+  return mockCompare(players);
 }
