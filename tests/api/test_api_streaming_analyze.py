@@ -59,10 +59,17 @@ def test_factors_six_components_weights_and_details():
     assert by_key["matchup"].weight == float(_CR["stream_score_w_matchup"].value)
 
 
-def test_factors_is_nan_safe():
-    factors = _factors(_row(opp_wrc_plus=float("nan"), components={"matchup": float("nan")}))
+def test_factors_is_nan_and_inf_safe():
+    # NaN AND inf must both coerce to 0.0 — both serialize to RFC-8259-invalid JSON.
+    factors = _factors(
+        _row(
+            opp_wrc_plus=float("nan"), net_sgp=float("inf"), components={"matchup": float("nan"), "sgp": float("-inf")}
+        )
+    )
     by_key = {f.key: f for f in factors}
     assert by_key["matchup"].value == 0.0  # NaN component → 0.0
+    assert by_key["sgp"].value == 0.0  # -inf component → 0.0
+    assert by_key["sgp"].detail == "+0.00 SGP"  # inf net_sgp → 0.0
     assert "wRC+" in by_key["matchup"].detail  # composes without crashing (0 wRC+)
 
 

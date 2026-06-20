@@ -21,12 +21,13 @@ from api.services.player_ref import make_player_ref
 
 
 def _f(value, default: float = 0.0) -> float:
-    """NaN-safe float coercion (None/NaN/junk → default) — keeps NaN out of JSON."""
+    """Finite-float coercion (None/NaN/inf/junk → default) — keeps NaN AND inf
+    out of JSON (both serialize to RFC-8259-invalid tokens)."""
     try:
         fval = float(value)
     except (TypeError, ValueError):
         return default
-    return default if math.isnan(fval) else fval
+    return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
 def _pick_top(candidates: list[StreamCandidate]) -> StreamCandidate | None:
