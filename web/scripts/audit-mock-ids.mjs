@@ -9,6 +9,7 @@ const FILES = [
   "web/src/lib/optimizer-data.ts",
   "web/src/lib/trades-data.ts",
   "web/src/lib/data.ts",
+  "web/src/lib/streaming-data.ts",
 ];
 
 // Extract the player NAME from a row, trying each mock shape in order.
@@ -17,6 +18,7 @@ function extractName(line) {
   if ((m = line.match(/\bp\(\s*"([^"]+)"/))) return m[1]; // optimizer p("Name",...)
   if ((m = line.match(/\btp\(\s*"([^"]+)"/))) return m[1]; // trades   tp("Name",...)
   if ((m = line.match(/\b(?:fa|lr)\(\s*\d+\s*,\s*"([^"]+)"/))) return m[1]; // fa/lr(rank,"Name",...)
+  if ((m = line.match(/\b(?:pr|ref)\(\s*"([^"]+)"/))) return m[1]; // streaming pr("Name",...) / closers ref("Name",...)
   if ((m = line.match(/name:\s*"([^"]+)"/))) return m[1]; // data.ts  { name: "Name", ... }
   if ((m = line.match(/"([^"]+)"/))) return m[1]; // fallback: first quoted string
   return null;
