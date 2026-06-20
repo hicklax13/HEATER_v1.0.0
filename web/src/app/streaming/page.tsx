@@ -41,7 +41,7 @@ function Loaded({ data }: { data: StreamingData }) {
       <motion.div variants={staggerItem}><BudgetStrip budget={data.budget} /></motion.div>
       {data.topPick && <motion.div variants={staggerItem}><TopPickCallout pick={data.topPick} /></motion.div>}
       <motion.div variants={staggerItem}><StreamBoard board={data.board} /></motion.div>
-      <motion.div variants={staggerItem}><AnalyzeStarter probables={data.probables} /></motion.div>
+      <motion.div variants={staggerItem}><AnalyzeStarter probables={data.probables} date={data.date} /></motion.div>
     </motion.div>
   );
 }

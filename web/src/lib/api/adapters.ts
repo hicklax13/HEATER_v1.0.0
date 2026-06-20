@@ -1,6 +1,32 @@
-import type { ApiLeadersResponse, ApiFreeAgentPoolResponse } from "@/lib/api/types";
+import type {
+  ApiLeadersResponse,
+  ApiFreeAgentPoolResponse,
+  ApiStreamingResponse,
+  ApiStreamAnalyzeResponse,
+} from "@/lib/api/types";
+import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow, ResearchData } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
+import type {
+  StreamingData,
+  StreamCandidate,
+  PitcherScorecard,
+  ProbableStarter,
+  StreamStatus,
+  StreamConfidence,
+  StreamComponents,
+} from "@/lib/streaming-data";
+
+/** Flatten an API PlayerRef (snake_case + nullable) → the frontend PlayerRef. */
+function toPlayerRef(p: {
+  name: string;
+  positions: string;
+  mlb_id?: number | null;
+  team_abbr?: string | null;
+  team_id?: number | null;
+}): PlayerRef {
+  return { name: p.name, pos: p.positions, teamAbbr: p.team_abbr ?? "", teamId: p.team_id ?? 0, mlbId: p.mlb_id ?? 0 };
+}
 
 const PITCHER_POS = /\b(P|SP|RP)\b/;
 
@@ -63,4 +89,88 @@ export function apiPoolToPlayers(api: ApiFreeAgentPoolResponse): PlayersData {
     tag: it.tag ?? undefined,
   }));
   return { topNeed: api.top_need, freeAgents };
+}
+
+type ApiStreamCandidate = NonNullable<ApiStreamingResponse["candidates"]>[number];
+
+// Engine emits RAW UPPERCASE status/confidence; map to the frontend's lowercase.
+const STREAM_STATUS: Record<string, StreamStatus> = {
+  PROBABLE: "probable",
+  LOCKED: "locked",
+  FINAL: "final",
+  OPEN: "open",
+};
+const STREAM_CONF: Record<string, StreamConfidence> = { HIGH: "high", MEDIUM: "med", LOW: "low" };
+
+/** Map one API stream candidate (or analyze scorecard, which extends it) → the
+ *  frontend StreamCandidate. Caveats handled: status/confidence casing,
+ *  win_pct 0–1 → 0–100, reason → why, NaN-safe fallbacks. */
+function toStreamCandidate(c: ApiStreamCandidate): StreamCandidate {
+  return {
+    rank: c.rank,
+    player: toPlayerRef(c.player),
+    opponent: c.opponent,
+    isHome: c.is_home,
+    score: Math.round(c.score),
+    status: STREAM_STATUS[c.status] ?? "probable",
+    confidence: STREAM_CONF[c.confidence] ?? "med",
+    actionable: c.actionable,
+    numStarts: c.num_starts,
+    netSgp: c.net_sgp,
+    oppWrcPlus: Math.round(c.opp_wrc_plus),
+    oppKpct: c.opp_k_pct,
+    park: c.park,
+    xIp: c.expected_ip,
+    xK: c.expected_k,
+    xEr: c.expected_er,
+    winPct: Math.round(c.win_pct * 100), // API win_pct is 0–1
+    ownPct: Math.round(c.own_pct),
+    riskFlags: c.risk_flags ?? [],
+    components: (c.components ?? { matchup: 0, env: 0, form: 0, lineup: 0, sgp: 0, winprob: 0 }) as StreamComponents,
+    expectedLine: c.expected_line,
+    why: c.reason ?? "",
+  };
+}
+
+/** Map the /api/streaming response → the frontend StreamingData. */
+export function apiStreamingToData(api: ApiStreamingResponse): StreamingData {
+  const b = api.budget;
+  return {
+    date: api.date ?? "",
+    budget: {
+      addsLeft: b?.adds_left ?? 0,
+      addsTotal: b?.adds_total ?? 10,
+      ipPace: Math.round(b?.ip_pace ?? 0), // 0 for now (deferred backend plumbing)
+      ipTarget: Math.round(b?.ip_target ?? 54), // float (53.8…) → 54
+      catsInPlay: b?.cats_in_play ?? [],
+    },
+    topPick: api.top_pick ? toStreamCandidate(api.top_pick) : null,
+    board: (api.candidates ?? []).map(toStreamCandidate),
+    probables: (api.probables ?? []).map((p) => ({
+      player: toPlayerRef(p.player),
+      pitcherId: p.player.id, // HEATER player_id — needed for the analyze POST
+      team: p.team,
+      opponent: p.opponent,
+      isHome: p.is_home,
+      posGroup: p.pos_group as ProbableStarter["posGroup"],
+      startLikelihood: p.start_likelihood as ProbableStarter["startLikelihood"],
+    })),
+  };
+}
+
+/** Map the analyze response → a frontend PitcherScorecard (or null if the
+ *  pitcher isn't a probable that date). */
+export function apiScorecard(api: ApiStreamAnalyzeResponse): PitcherScorecard | null {
+  if (!api.found || !api.scorecard) return null;
+  const c = toStreamCandidate(api.scorecard);
+  return {
+    ...c,
+    factors: (api.scorecard.factors ?? []).map((f) => ({
+      key: f.key as keyof StreamComponents,
+      label: f.label,
+      value: f.value,
+      weight: f.weight,
+      detail: f.detail,
+    })),
+  };
 }

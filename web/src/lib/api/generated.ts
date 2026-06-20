@@ -259,6 +259,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/streaming/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Analyze Streaming */
+        post: operations["analyze_streaming_api_streaming_analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trade-finder": {
         parameters: {
             query?: never;
@@ -337,6 +354,31 @@ export interface components {
             add_player_key?: string | null;
             /** Drop Player Key */
             drop_player_key?: string | null;
+        };
+        /** BudgetStrip */
+        BudgetStrip: {
+            /**
+             * Adds Left
+             * @default 0
+             */
+            adds_left: number;
+            /**
+             * Adds Total
+             * @default 10
+             */
+            adds_total: number;
+            /** Cats In Play */
+            cats_in_play?: string[];
+            /**
+             * Ip Pace
+             * @default 0
+             */
+            ip_pace: number;
+            /**
+             * Ip Target
+             * @default 54
+             */
+            ip_target: number;
         };
         /** CategoryImpact */
         CategoryImpact: {
@@ -557,6 +599,28 @@ export interface components {
              * @default
              */
             summary: string;
+        };
+        /** FactorDetail */
+        FactorDetail: {
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Value
+             * @default 0
+             */
+            value: number;
+            /**
+             * Weight
+             * @default 0
+             */
+            weight: number;
         };
         /** FreeAgentPoolItem */
         FreeAgentPoolItem: {
@@ -806,6 +870,115 @@ export interface components {
             /** Team Name */
             team_name: string;
         };
+        /** PitcherScorecard */
+        PitcherScorecard: {
+            /**
+             * Actionable
+             * @default true
+             */
+            actionable: boolean;
+            components?: components["schemas"]["StreamComponents"];
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+            /**
+             * Expected Er
+             * @default 0
+             */
+            expected_er: number;
+            /**
+             * Expected Ip
+             * @default 0
+             */
+            expected_ip: number;
+            /**
+             * Expected K
+             * @default 0
+             */
+            expected_k: number;
+            /**
+             * Expected Line
+             * @default
+             */
+            expected_line: string;
+            /** Factors */
+            factors?: components["schemas"]["FactorDetail"][];
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            /**
+             * Net Sgp
+             * @default 0
+             */
+            net_sgp: number;
+            /**
+             * Num Starts
+             * @default 1
+             */
+            num_starts: number;
+            /**
+             * Opp K Pct
+             * @default 0
+             */
+            opp_k_pct: number;
+            /**
+             * Opp Wrc Plus
+             * @default 0
+             */
+            opp_wrc_plus: number;
+            /**
+             * Opponent
+             * @default
+             */
+            opponent: string;
+            /**
+             * Own Pct
+             * @default 0
+             */
+            own_pct: number;
+            /**
+             * Park
+             * @default 1
+             */
+            park: number;
+            player: components["schemas"]["PlayerRef"];
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Risk Flags */
+            risk_flags?: string[];
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+            /**
+             * Team
+             * @default
+             */
+            team: string;
+            /**
+             * Win Pct
+             * @default 0
+             */
+            win_pct: number;
+        };
         /** PlayerRef */
         PlayerRef: {
             /** Id */
@@ -822,6 +995,35 @@ export interface components {
             team_id?: number | null;
             /** Yahoo Player Key */
             yahoo_player_key?: string | null;
+        };
+        /** ProbableStarter */
+        ProbableStarter: {
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            /**
+             * Opponent
+             * @default
+             */
+            opponent: string;
+            player: components["schemas"]["PlayerRef"];
+            /**
+             * Pos Group
+             * @default SP
+             */
+            pos_group: string;
+            /**
+             * Start Likelihood
+             * @default
+             */
+            start_likelihood: string;
+            /**
+             * Team
+             * @default
+             */
+            team: string;
         };
         /** PuntCategory */
         PuntCategory: {
@@ -876,6 +1078,25 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** StreamAnalyzeRequest */
+        StreamAnalyzeRequest: {
+            /**
+             * Date
+             * @default
+             */
+            date: string;
+            /** Pitcher Id */
+            pitcher_id: number;
+        };
+        /** StreamAnalyzeResponse */
+        StreamAnalyzeResponse: {
+            /**
+             * Found
+             * @default false
+             */
+            found: boolean;
+            scorecard?: components["schemas"]["PitcherScorecard"] | null;
+        };
         /** StreamCandidate */
         StreamCandidate: {
             /**
@@ -883,17 +1104,85 @@ export interface components {
              * @default true
              */
             actionable: boolean;
+            components?: components["schemas"]["StreamComponents"];
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+            /**
+             * Expected Er
+             * @default 0
+             */
+            expected_er: number;
+            /**
+             * Expected Ip
+             * @default 0
+             */
+            expected_ip: number;
+            /**
+             * Expected K
+             * @default 0
+             */
+            expected_k: number;
+            /**
+             * Expected Line
+             * @default
+             */
+            expected_line: string;
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            /**
+             * Net Sgp
+             * @default 0
+             */
+            net_sgp: number;
+            /**
+             * Num Starts
+             * @default 1
+             */
+            num_starts: number;
+            /**
+             * Opp K Pct
+             * @default 0
+             */
+            opp_k_pct: number;
+            /**
+             * Opp Wrc Plus
+             * @default 0
+             */
+            opp_wrc_plus: number;
             /**
              * Opponent
              * @default
              */
             opponent: string;
+            /**
+             * Own Pct
+             * @default 0
+             */
+            own_pct: number;
+            /**
+             * Park
+             * @default 1
+             */
+            park: number;
             player: components["schemas"]["PlayerRef"];
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
             /**
              * Reason
              * @default
              */
             reason: string;
+            /** Risk Flags */
+            risk_flags?: string[];
             /**
              * Score
              * @default 0
@@ -909,13 +1198,58 @@ export interface components {
              * @default
              */
             team: string;
+            /**
+             * Win Pct
+             * @default 0
+             */
+            win_pct: number;
+        };
+        /**
+         * StreamComponents
+         * @description The 6 stream-score factors, each in [-1, +1].
+         */
+        StreamComponents: {
+            /**
+             * Env
+             * @default 0
+             */
+            env: number;
+            /**
+             * Form
+             * @default 0
+             */
+            form: number;
+            /**
+             * Lineup
+             * @default 0
+             */
+            lineup: number;
+            /**
+             * Matchup
+             * @default 0
+             */
+            matchup: number;
+            /**
+             * Sgp
+             * @default 0
+             */
+            sgp: number;
+            /**
+             * Winprob
+             * @default 0
+             */
+            winprob: number;
         };
         /** StreamingResponse */
         StreamingResponse: {
+            budget?: components["schemas"]["BudgetStrip"];
             /** Candidates */
-            candidates: components["schemas"]["StreamCandidate"][];
+            candidates?: components["schemas"]["StreamCandidate"][];
             /** Date */
             date: string;
+            /** Probables */
+            probables?: components["schemas"]["ProbableStarter"][];
+            top_pick?: components["schemas"]["StreamCandidate"] | null;
         };
         /** TeamStanding */
         TeamStanding: {
@@ -1531,6 +1865,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StreamingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_streaming_api_streaming_analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StreamAnalyzeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamAnalyzeResponse"];
                 };
             };
             /** @description Validation Error */

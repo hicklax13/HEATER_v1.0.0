@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Microscope } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { StreamScorecard } from "@/components/viz/StreamScorecard";
-import { analyzePitcher, type ProbableStarter, type PosGroup } from "@/lib/streaming-data";
+import { analyzePitcher, type ProbableStarter, type PosGroup, type PitcherScorecard } from "@/lib/streaming-data";
 
 const GROUPS: (PosGroup | "All")[] = ["All", "SP", "SP/RP", "RP"];
 
-export function AnalyzeStarter({ probables }: { probables: ProbableStarter[] }) {
+export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter[]; date: string }) {
   const [group, setGroup] = useState<PosGroup | "All">("All");
   const list = useMemo(
     () => (group === "All" ? probables : probables.filter((p) => p.posGroup === group)),
@@ -17,7 +17,31 @@ export function AnalyzeStarter({ probables }: { probables: ProbableStarter[] }) 
   );
   const [mlbId, setMlbId] = useState<number>(probables[0]?.player.mlbId ?? 0);
   const selected = list.find((p) => p.player.mlbId === mlbId) ?? list[0];
-  const card = selected ? analyzePitcher(selected) : null;
+
+  // Analyze is async (live = POST /api/streaming/analyze). Re-run on selection/date change.
+  const [card, setCard] = useState<PitcherScorecard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const selectedMlbId = selected?.player.mlbId;
+  useEffect(() => {
+    let alive = true;
+    // setState only inside async callbacks (never synchronously in the effect body).
+    Promise.resolve()
+      .then(() => {
+        if (!alive) return undefined;
+        setLoading(true);
+        return selected ? analyzePitcher(selected, date) : null;
+      })
+      .then((c) => {
+        if (!alive || c === undefined) return;
+        setCard(c);
+        setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // selected resolves from selectedMlbId + the stable list; keying on the id avoids a refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMlbId, date]);
 
   return (
     <Card className="p-5">
@@ -53,7 +77,11 @@ export function AnalyzeStarter({ probables }: { probables: ProbableStarter[] }) 
         </select>
       </div>
 
-      {card && selected && (
+      {loading && <div className="mt-5 text-[13px] text-ink-3">Scoring…</div>}
+      {!loading && !card && selected && (
+        <div className="mt-5 text-[13px] text-ink-3">Couldn&apos;t score this starter for {date}.</div>
+      )}
+      {!loading && card && selected && (
         <div className="mt-5 flex flex-wrap items-start gap-6">
           <StreamScorecard score={card.score} components={card.components} size={168} />
           <div className="min-w-0 flex-1 space-y-3">

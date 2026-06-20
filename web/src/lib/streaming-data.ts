@@ -1,9 +1,12 @@
 import type { PlayerRef } from "./types";
+import { apiGet, apiPost } from "@/lib/api/client";
+import { apiStreamingToData, apiScorecard } from "@/lib/api/adapters";
+import type { ApiStreamingResponse, ApiStreamAnalyzeResponse } from "@/lib/api/types";
 
 /**
- * Mock Pitcher Streaming data. The shape IS the API contract spec for the CEO
- * track (widen /api/streaming + add the analyze endpoint). Live wiring deferred.
- * Spec: docs/superpowers/specs/2026-06-19-heater-pitcher-streaming-page-design.md
+ * Pitcher Streaming data. Mock by default; with NEXT_PUBLIC_HEATER_LIVE=1,
+ * fetchStreaming / analyzePitcher wire to /api/streaming (+ /analyze) and fall
+ * back to this mock on any error or empty response.
  */
 
 /** The 6 engine score components, each normalized -1..+1 (matches stream_analyzer). */
@@ -59,6 +62,7 @@ export interface PitcherScorecard extends StreamCandidate {
 
 export interface ProbableStarter {
   player: PlayerRef;
+  pitcherId?: number; // HEATER player_id (live only) — for the analyze POST
   team: string;
   opponent: string;
   isHome: boolean;
@@ -206,15 +210,22 @@ export function factorsFor(c: StreamCandidate): FactorDetail[] {
   }));
 }
 
-/** Mock-first fetch. Live path (NEXT_PUBLIC_HEATER_LIVE) is a deferred slice. */
-export function fetchStreaming(delayMs = 600): Promise<StreamingData> {
+/** Mock by default; live (NEXT_PUBLIC_HEATER_LIVE=1) fetches the board, falling
+ *  back to the mock on any error or empty response. */
+export async function fetchStreaming(delayMs = 600): Promise<StreamingData> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiGet<ApiStreamingResponse>("/streaming");
+      if ((api.candidates?.length ?? 0) > 0) return apiStreamingToData(api);
+    } catch {
+      // fall through to mock
+    }
+  }
   return new Promise((resolve) => setTimeout(() => resolve(STREAMING), delayMs));
 }
 
-/** Analyze any probable pitcher -> a full scorecard. On mock: derive from the
- *  board if present, else synthesize a neutral-ish card deterministically from
- *  the pitcher's mlbId so repeat picks are stable. (Live: POST /api/streaming/analyze.) */
-export function analyzePitcher(p: ProbableStarter): PitcherScorecard {
+/** Synthesize a scorecard from the mock board / a deterministic pitcher hash. */
+function mockScorecard(p: ProbableStarter): PitcherScorecard {
   const onBoard = STREAMING.board.find((b) => b.player.mlbId === p.player.mlbId);
   if (onBoard) return { ...onBoard, factors: factorsFor(onBoard) };
   const h = (p.player.mlbId % 46) + 35; // 35..80
@@ -245,4 +256,19 @@ export function analyzePitcher(p: ProbableStarter): PitcherScorecard {
   };
   base.expectedLine = `${base.xIp.toFixed(1)} IP · ${base.xK.toFixed(0)} K · ${base.xEr.toFixed(1)} ER`;
   return { ...base, factors: factorsFor(base) };
+}
+
+/** Analyze any probable pitcher → a full scorecard. Live: POST
+ *  /api/streaming/analyze (returns null if the pitcher isn't a probable that
+ *  date). Mock, or live failure: synthesize deterministically. */
+export async function analyzePitcher(p: ProbableStarter, date?: string): Promise<PitcherScorecard | null> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1" && p.pitcherId != null && date) {
+    try {
+      const api = await apiPost<ApiStreamAnalyzeResponse>("/streaming/analyze", { pitcher_id: p.pitcherId, date });
+      return apiScorecard(api); // null when found:false
+    } catch {
+      // fall through to mock synth
+    }
+  }
+  return mockScorecard(p);
 }
