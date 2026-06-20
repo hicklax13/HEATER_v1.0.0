@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/leaders/overall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Leaders Overall */
+        get: operations["get_leaders_overall_api_leaders_overall_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lineup/optimize": {
         parameters: {
             query?: never;
@@ -720,6 +737,16 @@ export interface components {
             /** Value */
             value: number;
         };
+        /** LeadersOverallResponse */
+        LeadersOverallResponse: {
+            /**
+             * Lens
+             * @default overall
+             */
+            lens: string;
+            /** Rows */
+            rows?: components["schemas"]["OverallLeaderRow"][];
+        };
         /** LeadersResponse */
         LeadersResponse: {
             /** Category */
@@ -788,6 +815,29 @@ export interface components {
             /** Slot */
             slot: string;
         };
+        /** MatchPlayer */
+        MatchPlayer: {
+            /** Badge */
+            badge?: string | null;
+            player: components["schemas"]["PlayerRef"];
+            /**
+             * Pos
+             * @default
+             */
+            pos: string;
+            /**
+             * State
+             * @default none
+             */
+            state: string;
+            /** Stats */
+            stats?: string[];
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+        };
         /** MatchupCategory */
         MatchupCategory: {
             /** Cat */
@@ -799,6 +849,11 @@ export interface components {
             inverse: boolean;
             /** Opp */
             opp: number;
+            /**
+             * Win
+             * @default
+             */
+            win: string;
             /** Win Prob */
             win_prob: number;
             /** You */
@@ -824,11 +879,21 @@ export interface components {
              * @default []
              */
             categories: components["schemas"]["MatchupCategory"][];
+            /** Date Tabs */
+            date_tabs?: string[];
+            /** Hitter Columns */
+            hitter_columns?: string[];
+            /** Hitters */
+            hitters?: components["schemas"]["RosterRow"][];
             /**
              * Opponent
              * @default
              */
             opponent: string;
+            /** Pitcher Columns */
+            pitcher_columns?: string[];
+            /** Pitchers */
+            pitchers?: components["schemas"]["RosterRow"][];
             /**
              * Projected Cat Wins
              * @default 0
@@ -869,6 +934,39 @@ export interface components {
             record: string;
             /** Team Name */
             team_name: string;
+        };
+        /** OverallLeaderRow */
+        OverallLeaderRow: {
+            /**
+             * Hitter
+             * @default true
+             */
+            hitter: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            player: components["schemas"]["PlayerRef"];
+            /** Rank */
+            rank: number;
+            /** Stats */
+            stats?: string[];
+            /**
+             * Tag
+             * @default
+             */
+            tag: string;
+            /**
+             * Trend
+             * @default flat
+             */
+            trend: string;
+            /**
+             * Value
+             * @default 0
+             */
+            value: number;
         };
         /** PitcherScorecard */
         PitcherScorecard: {
@@ -1053,6 +1151,16 @@ export interface components {
             punt_candidates: string[];
             /** Team Name */
             team_name: string;
+        };
+        /** RosterRow */
+        RosterRow: {
+            opp?: components["schemas"]["MatchPlayer"] | null;
+            /**
+             * Slot
+             * @default
+             */
+            slot: string;
+            you?: components["schemas"]["MatchPlayer"] | null;
         };
         /** SeasonStat */
         SeasonStat: {
@@ -1645,6 +1753,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_leaders_overall_api_leaders_overall_get: {
+        parameters: {
+            query?: {
+                lens?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadersOverallResponse"];
                 };
             };
             /** @description Validation Error */

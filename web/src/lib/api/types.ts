@@ -12,6 +12,7 @@ import type { components } from "./generated";
 export type ApiPlayerRef = components["schemas"]["PlayerRef"];
 export type ApiLeaderRow = components["schemas"]["LeaderRow"];
 export type ApiLeadersResponse = components["schemas"]["LeadersResponse"];
+export type ApiLeadersOverallResponse = components["schemas"]["LeadersOverallResponse"];
 export type ApiFreeAgentPoolResponse = components["schemas"]["FreeAgentPoolResponse"];
 export type ApiFreeAgentPoolItem = components["schemas"]["FreeAgentPoolItem"];
 export type ApiStreamingResponse = components["schemas"]["StreamingResponse"];

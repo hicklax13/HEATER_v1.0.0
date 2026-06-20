@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Flame, Snowflake, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Minus, Search, SearchX } from "lucide-react";
-import { fetchResearch, type ResearchData, type LeaderRow, type Lens } from "@/lib/research-data";
+import { fetchResearch, fetchLens, type ResearchData, type LeaderRow, type Lens } from "@/lib/research-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
@@ -56,15 +56,27 @@ export default function ResearchPage() {
 function Loaded({ data }: { data: ResearchData }) {
   const [lens, setLens] = useState<Lens>("overall");
   const [query, setQuery] = useState("");
+  const [extra, setExtra] = useState<Partial<Record<Lens, LeaderRow[]>>>({});
 
+  // The live initial payload carries only the overall board; load the other
+  // lenses on first visit (one at a time — dodges single-worker starvation).
+  useEffect(() => {
+    if (lens === "overall" || data.byLens[lens].length > 0 || extra[lens] !== undefined) return;
+    let alive = true;
+    fetchLens(lens).then((board) => {
+      if (alive) setExtra((e) => ({ ...e, [lens]: board }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [lens, data, extra]);
+
+  const board = data.byLens[lens].length > 0 ? data.byLens[lens] : extra[lens];
+  const loading = board === undefined;
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return data.leaders.filter((p) => {
-      if (lens !== "overall" && p.tag !== lens) return false;
-      if (q && !p.name.toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [data, lens, query]);
+    return (board ?? []).filter((p) => !q || p.name.toLowerCase().includes(q));
+  }, [board, query]);
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
@@ -74,7 +86,7 @@ function Loaded({ data }: { data: ResearchData }) {
       <motion.div variants={staggerItem}>
         <Card className="p-5">
           <Toolbar lens={lens} setLens={setLens} query={query} setQuery={setQuery} shown={rows.length} />
-          <LeaderTable rows={rows} />
+          <LeaderTable rows={rows} loading={loading} />
         </Card>
       </motion.div>
     </motion.div>
@@ -147,7 +159,10 @@ function Toolbar({
   );
 }
 
-function LeaderTable({ rows }: { rows: LeaderRow[] }) {
+function LeaderTable({ rows, loading }: { rows: LeaderRow[]; loading?: boolean }) {
+  if (loading) {
+    return <Skeleton className="h-72 w-full rounded-xl" />;
+  }
   if (rows.length === 0) {
     return (
       <EmptyState
@@ -190,7 +205,9 @@ function LeaderTable({ rows }: { rows: LeaderRow[] }) {
                         <span className="block truncate text-[13px] font-semibold text-navy">{p.name}</span>
                         <span className="tnum block text-[10.5px] text-ink-3">
                           {p.pos} · {p.teamAbbr}
-                          <span className={cn("ml-1 rounded px-1 text-[9px] font-bold", tag.cls)}>{tag.label}</span>
+                          {tag && (
+                            <span className={cn("ml-1 rounded px-1 text-[9px] font-bold", tag.cls)}>{tag.label}</span>
+                          )}
                         </span>
                       </span>
                     </button>
