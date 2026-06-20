@@ -4,8 +4,58 @@ degrades to an empty candidates list rather than raising."""
 
 from __future__ import annotations
 
-from api.contracts.streaming import StreamCandidate, StreamingResponse
+import math
+
+from api.contracts.streaming import (
+    BudgetStrip,
+    StreamCandidate,
+    StreamComponents,
+    StreamingResponse,
+)
 from api.services.player_ref import make_player_ref
+
+
+def _f(value, default: float = 0.0) -> float:
+    """NaN-safe float coercion (None/NaN/junk → default) — keeps NaN out of JSON."""
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if math.isnan(fval) else fval
+
+
+def _pick_top(candidates: list[StreamCandidate]) -> StreamCandidate | None:
+    """The #1 actionable stream (the board is score-sorted, so the first actionable wins)."""
+    for c in candidates:
+        if c.actionable:
+            return c
+    return None
+
+
+def _build_budget(ctx) -> BudgetStrip:
+    from src.league_rules import WEEKLY_TRANSACTION_LIMIT
+
+    adds_total = int(WEEKLY_TRANSACTION_LIMIT)
+    try:
+        adds_left = int(getattr(ctx, "adds_remaining_this_week", adds_total))
+    except (TypeError, ValueError):
+        adds_left = adds_total
+    try:
+        from src.ip_tracker import WEEKLY_TARGET
+
+        ip_target = float(WEEKLY_TARGET)
+    except Exception:
+        ip_target = 54.0
+    gaps = getattr(ctx, "category_gaps", {}) or {}
+    pitching = {"W", "L", "SV", "K", "ERA", "WHIP"}
+    cats_in_play = [c for c, gap in gaps.items() if c in pitching and _f(gap, 1.0) <= 0]
+    return BudgetStrip(
+        adds_left=adds_left,
+        adds_total=adds_total,
+        ip_pace=0.0,
+        ip_target=ip_target,
+        cats_in_play=cats_in_play,
+    )
 
 
 class StreamingService:
@@ -20,6 +70,8 @@ class StreamingService:
             target_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
         candidates: list[StreamCandidate] = []
+        top_pick: StreamCandidate | None = None
+        budget = BudgetStrip()
         try:
             from src.optimizer.shared_data_layer import build_optimizer_context
             from src.optimizer.stream_analyzer import build_stream_board
@@ -35,30 +87,69 @@ class StreamingService:
             )
             board = build_stream_board(ctx, target_date)
             if board is not None and not board.empty:
-                for _, row in board.head(limit).iterrows():
-                    candidates.append(self._to_candidate(row))
+                for rank, (_, row) in enumerate(board.head(limit).iterrows(), start=1):
+                    candidates.append(self._to_candidate(row, rank))
+            top_pick = _pick_top(candidates)
+            budget = _build_budget(ctx)
         except Exception:
             candidates = []  # cold env / no data → empty list
 
-        return StreamingResponse(date=target_date, candidates=candidates)
+        return StreamingResponse(
+            date=target_date,
+            candidates=candidates,
+            top_pick=top_pick,
+            budget=budget,
+        )
 
     @staticmethod
-    def _to_candidate(row) -> StreamCandidate:
-        g = row.get if hasattr(row, "get") else lambda k, d=None: row.get(k, d) if hasattr(row, "get") else d
-        pid = g("player_id", None)
+    def _to_candidate(row, rank: int = 0) -> StreamCandidate:
+        g = row.get if hasattr(row, "get") else lambda k, d=None: getattr(row, k, d)
         try:
-            pid_int = int(pid) if pid is not None else 0
+            pid_int = int(g("player_id", 0) or 0)
         except (TypeError, ValueError):
             pid_int = 0
-        name = str(g("player_name", "") or "")
-        positions = "SP"  # stream board is SP-focused by design
-        player = make_player_ref(id=pid_int, name=name, positions=positions, team_abbr=g("team"))
+        comp = g("components", {}) or {}
+        ip, k, er = _f(g("expected_ip")), _f(g("expected_k")), _f(g("expected_er"))
+        flags = g("risk_flags", []) or []
+        try:
+            num_starts = int(g("num_starts", 1) or 1)
+        except (TypeError, ValueError):
+            num_starts = 1  # NaN/junk → default (int(nan) would raise)
         return StreamCandidate(
-            player=player,
+            player=make_player_ref(
+                id=pid_int,
+                name=str(g("player_name", "") or ""),
+                positions="SP",
+                mlb_id=g("mlb_id"),
+                team_abbr=g("team"),
+            ),
             team=str(g("team", "") or ""),
             opponent=str(g("opponent", "") or ""),
-            score=float(g("stream_score", 0.0) or 0.0),
-            actionable=bool(g("actionable", True)),
+            is_home=bool(g("is_home", False)),
+            score=_f(g("stream_score")),
             status=str(g("status", "") or ""),
+            confidence=str(g("confidence", "") or ""),
+            actionable=bool(g("actionable", True)),
+            num_starts=num_starts,
+            net_sgp=_f(g("net_sgp")),
+            opp_wrc_plus=_f(g("opp_wrc_plus")),
+            opp_k_pct=_f(g("opp_k_pct")),
+            park=_f(g("park_factor"), 1.0),
+            expected_ip=ip,
+            expected_k=k,
+            expected_er=er,
+            win_pct=_f(g("win_probability")),
+            own_pct=_f(g("percent_owned")),
+            risk_flags=[str(x) for x in flags],
+            components=StreamComponents(
+                matchup=_f(comp.get("matchup")),
+                env=_f(comp.get("env")),
+                form=_f(comp.get("form")),
+                lineup=_f(comp.get("lineup")),
+                sgp=_f(comp.get("sgp")),
+                winprob=_f(comp.get("winprob")),
+            ),
+            expected_line=f"{ip:.1f} IP · {k:.0f} K · {er:.0f} ER",
+            rank=rank,
             reason="",
         )
