@@ -1704,6 +1704,94 @@
         "title": "PlayerRef",
         "type": "object"
       },
+      "PlayoffOddsResponse": {
+        "properties": {
+          "league": {
+            "items": {
+              "$ref": "#/components/schemas/PlayoffTeam"
+            },
+            "title": "League",
+            "type": "array"
+          },
+          "n_sims": {
+            "default": 0,
+            "title": "N Sims",
+            "type": "integer"
+          },
+          "playoff_spots": {
+            "default": 4,
+            "title": "Playoff Spots",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "you": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayoffTeam"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "PlayoffOddsResponse",
+        "type": "object"
+      },
+      "PlayoffTeam": {
+        "properties": {
+          "current_wins": {
+            "default": 0,
+            "title": "Current Wins",
+            "type": "integer"
+          },
+          "in_cut": {
+            "default": false,
+            "title": "In Cut",
+            "type": "boolean"
+          },
+          "is_user": {
+            "default": false,
+            "title": "Is User",
+            "type": "boolean"
+          },
+          "playoff_odds": {
+            "default": 0.0,
+            "title": "Playoff Odds",
+            "type": "number"
+          },
+          "projected_record": {
+            "default": "",
+            "title": "Projected Record",
+            "type": "string"
+          },
+          "projected_wins": {
+            "default": 0.0,
+            "title": "Projected Wins",
+            "type": "number"
+          },
+          "rank": {
+            "default": 0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "team": {
+            "title": "Team",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "title": "PlayoffTeam",
+        "type": "object"
+      },
       "ProbableStarter": {
         "properties": {
           "is_home": {
@@ -3065,6 +3153,48 @@
         "summary": "Get My Team",
         "tags": [
           "team"
+        ]
+      }
+    },
+    "/api/playoff-odds": {
+      "get": {
+        "operationId": "get_playoff_odds_api_playoff_odds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": true,
+            "schema": {
+              "title": "Team Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayoffOddsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Playoff Odds",
+        "tags": [
+          "playoff"
         ]
       }
     },
