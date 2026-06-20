@@ -109,6 +109,48 @@ def _to_overall_row(rank: int, row, pool, lens: str) -> OverallLeaderRow:
     )
 
 
+def _take_most_relevant(df, top_n: int):
+    """Take the top_n most fantasy-relevant rows so the bounded breakout board
+    scores the players that matter, not an arbitrary slice of the pool order.
+
+    Prefers ECR consensus rank (lower = better), then ownership (higher = better),
+    then falls back to the natural order. Always returns a copy.
+    """
+    for col, ascending in (("consensus_rank", True), ("percent_owned", False)):
+        if col in df.columns and df[col].notna().any():
+            return df.sort_values(col, ascending=ascending, na_position="last").head(top_n).copy()
+    return df.head(top_n).copy()
+
+
+def _filter_breakout_candidates(pool, top_n: int = 500):
+    """Pre-filter the player pool before calling compute_breakout_scores_batch.
+
+    compute_breakout_scores_batch is O(n²) — every player is percentile-ranked
+    against the whole pool — so scoring the full ~1500-player pool takes >12s and
+    ties up the uvicorn worker. Bounding the input to the top_n most relevant
+    players (breakout scores stay relative to this filtered set) drops the call to
+    ~1-2s while keeping every player a user would plausibly stream/add. Priority:
+      1. Players with Statcast data (barrel_pct / xwoba / hard_hit_pct) — the
+         process metrics breakout scoring relies on.
+      2. Of those, the top_n by relevance (consensus rank / ownership), so the
+         bounded set is the most-relevant players, not the pool's natural order.
+      3. Fallbacks keep the function total: never raises, never empty-by-surprise.
+    """
+    if pool is None or pool.empty:
+        return pool
+
+    statcast_cols = [c for c in ("barrel_pct", "xwoba", "hard_hit_pct") if c in pool.columns]
+    if statcast_cols:
+        has_statcast = pool[statcast_cols[0]].notna()
+        for col in statcast_cols[1:]:
+            has_statcast = has_statcast | pool[col].notna()
+        filtered = pool[has_statcast]
+        if not filtered.empty:
+            return _take_most_relevant(filtered, top_n)
+
+    return _take_most_relevant(pool, top_n)
+
+
 class LeadersOverallService:
     _VALID = ("overall", "hot", "cold", "breakout", "sell")
 
@@ -140,7 +182,9 @@ class LeadersOverallService:
         if lens == "breakout":
             from src.leaders import compute_breakout_scores_batch
 
-            bdf = compute_breakout_scores_batch(pool)
+            # Pre-filter pool to reduce O(n²) complexity (~1500 → ~500 players)
+            filtered_pool = _filter_breakout_candidates(pool)
+            bdf = compute_breakout_scores_batch(filtered_pool)
             if bdf is None or bdf.empty:
                 return pd.DataFrame(), pool
             bdf = bdf.sort_values("breakout_score", ascending=False).reset_index(drop=True)
@@ -193,12 +237,20 @@ class LeadersOverallService:
 
         conn = get_connection()
         try:
+            # ab/h/sf + fip/xfip/siera/stuff_plus are REQUIRED by the sell lens:
+            # detect_sell_high_candidates feeds each season-stats row to
+            # compute_sustainability_score, which reads ab (hitter sample gate +
+            # BABIP) and xfip/stuff_plus (pitcher regression signal). Omitting them
+            # collapsed every score to the neutral 0.5, so the cap (<0.45) was never
+            # met and the sell lens always returned 0 rows. Matches the columns the
+            # Streamlit Leaders page passes via load_season_stats().
             return pd.read_sql_query(
                 """
                 SELECT
                     s.player_id, p.name, p.positions, p.is_hitter,
                     s.pa, s.ip, s.r, s.hr, s.rbi, s.sb, s.avg, s.obp,
-                    s.w, s.l, s.sv, s.k, s.era, s.whip
+                    s.w, s.l, s.sv, s.k, s.era, s.whip,
+                    s.ab, s.h, s.sf, s.fip, s.xfip, s.siera, s.stuff_plus
                 FROM season_stats s
                 JOIN players p ON p.player_id = s.player_id
                 WHERE s.season = 2026
