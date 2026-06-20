@@ -243,6 +243,72 @@
         "title": "CompareResponse",
         "type": "object"
       },
+      "DailyMeta": {
+        "description": "Day-level context for the daily optimizer (populated only when mode='daily').",
+        "properties": {
+          "ip_pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IpPace"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "losing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Losing",
+            "type": "array"
+          },
+          "rate_modes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Rate Modes",
+            "type": "object"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "swaps": {
+            "items": {
+              "$ref": "#/components/schemas/Swap"
+            },
+            "title": "Swaps",
+            "type": "array"
+          },
+          "tied": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tied",
+            "type": "array"
+          },
+          "urgency": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Urgency",
+            "type": "object"
+          },
+          "winning": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Winning",
+            "type": "array"
+          }
+        },
+        "title": "DailyMeta",
+        "type": "object"
+      },
       "DatabankResponse": {
         "properties": {
           "player": {
@@ -759,6 +825,40 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IpPace": {
+        "description": "Weekly innings-pitched pacing for the daily view (from ip_tracker).",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "pace_pct": {
+            "title": "Pace Pct",
+            "type": "integer"
+          },
+          "projected": {
+            "title": "Projected",
+            "type": "number"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "number"
+          }
+        },
+        "required": [
+          "projected",
+          "target",
+          "pace_pct"
+        ],
+        "title": "IpPace",
+        "type": "object"
+      },
       "LeaderRow": {
         "properties": {
           "player": {
@@ -959,6 +1059,11 @@
             ],
             "title": "Date"
           },
+          "mode": {
+            "default": "standard",
+            "title": "Mode",
+            "type": "string"
+          },
           "scope": {
             "default": "rest_of_season",
             "title": "Scope",
@@ -984,6 +1089,16 @@
             "title": "Bench",
             "type": "array"
           },
+          "daily": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "date": {
             "title": "Date",
             "type": "string"
@@ -994,6 +1109,11 @@
             },
             "title": "Impact",
             "type": "array"
+          },
+          "mode": {
+            "default": "standard",
+            "title": "Mode",
+            "type": "string"
           },
           "optimal": {
             "default": false,
@@ -1057,10 +1177,20 @@
             "title": "Action",
             "type": "string"
           },
+          "current_slot": {
+            "default": "",
+            "title": "Current Slot",
+            "type": "string"
+          },
           "forced_start": {
             "default": false,
             "title": "Forced Start",
             "type": "boolean"
+          },
+          "matchup": {
+            "default": "",
+            "title": "Matchup",
+            "type": "string"
           },
           "player": {
             "$ref": "#/components/schemas/PlayerRef"
@@ -1089,6 +1219,11 @@
             "default": "start",
             "title": "Status",
             "type": "string"
+          },
+          "value": {
+            "default": 0.0,
+            "title": "Value",
+            "type": "number"
           }
         },
         "required": [
@@ -2359,6 +2494,29 @@
           "date"
         ],
         "title": "StreamingResponse",
+        "type": "object"
+      },
+      "Swap": {
+        "description": "A recommended move: start this currently-benched player in `slot`.",
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "value": {
+            "default": 0.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "player",
+          "slot"
+        ],
+        "title": "Swap",
         "type": "object"
       },
       "TeamSide": {

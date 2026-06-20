@@ -12,4 +12,4 @@ router = APIRouter(prefix="/api", tags=["lineup"])
 
 @router.post("/lineup/optimize", response_model=LineupOptimizeResponse)
 def optimize_lineup(req: LineupOptimizeRequest, service=Depends(get_lineup_service)) -> LineupOptimizeResponse:
-    return service.optimize(req.team_name, req.date, req.scope)
+    return service.optimize(req.team_name, req.date, req.scope, req.mode)
