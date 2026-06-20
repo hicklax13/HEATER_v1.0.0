@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { heatColor } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty } from "@/components/ui/PageStates";
@@ -208,12 +209,15 @@ function LeaderTable({ rows }: { rows: LeaderRow[] }) {
                 <td className="px-2.5 py-2.5 text-center">
                   <span className={cn("inline-flex items-center justify-center", trendCls)}>
                     <TrendIcon className="size-4" aria-hidden />
+                    <span className="sr-only">
+                      {p.trend === "up" ? "Trending up" : p.trend === "down" ? "Trending down" : "Trend flat"}
+                    </span>
                   </span>
                 </td>
                 <td className="px-2.5 py-2.5">
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-2">
-                      <span className="block h-full rounded-full bg-heat" style={{ width: `${p.value}%` }} />
+                      <span className="block h-full rounded-full" style={{ width: `${p.value}%`, background: heatColor(p.value) }} />
                     </div>
                     <span className="tnum w-7 text-right text-[12px] font-bold text-navy">{p.value}</span>
                   </div>

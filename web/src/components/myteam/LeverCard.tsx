@@ -46,7 +46,7 @@ export function LeverCard({
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-4">
-        <button className="group inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
+        <button className="group inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
           See The 3 Pickups
           <ArrowRight
             className="size-4 transition-transform duration-[var(--dur-1)] group-hover:translate-x-1 motion-reduce:transform-none"

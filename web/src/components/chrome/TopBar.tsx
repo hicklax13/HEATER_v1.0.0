@@ -148,7 +148,7 @@ export function TopBar() {
           </kbd>
         </button>
 
-        <span className="tnum rounded-md bg-gradient-to-b from-[#ff7a2e] to-heat px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
+        <span className="tnum rounded-md bg-gradient-to-b from-heat-bright to-heat px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
           PRO
         </span>
 
@@ -157,7 +157,7 @@ export function TopBar() {
             aria-label="Account menu"
             className="flex items-center gap-1 rounded-full"
           >
-            <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-b from-[#ff7a2e] to-heat font-display text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
+            <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-b from-heat-bright to-heat font-display text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
               CH
             </span>
             <ChevronDown className="size-4 text-white/50" aria-hidden />

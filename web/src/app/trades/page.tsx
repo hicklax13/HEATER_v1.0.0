@@ -73,7 +73,7 @@ function Header({ needs, count }: { needs: string[]; count: number }) {
           .
         </p>
       </div>
-      <button className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
+      <button className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
         <Plus className="size-4" aria-hidden />
         Build A Trade
       </button>
@@ -135,7 +135,7 @@ function TradeCard({ rec }: { rec: TradeRec }) {
             <TrendingUp className="size-3.5" aria-hidden />
             +{playoff}% playoff odds
           </span>
-          <button className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-gradient-to-b from-[#ff7a2e] to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
+          <button className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-gradient-to-b from-heat-bright to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
             Analyze
           </button>
         </div>

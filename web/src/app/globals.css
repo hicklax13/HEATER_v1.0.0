@@ -23,6 +23,7 @@
 
   /* heat ramp (cloned flame: redhot → heat → flame → gold) */
   --color-heat: #ff5c10;
+  --color-heat-bright: #ff7a2e; /* lighter heat — top of the primary-button gradient */
   --color-flame: #ff8a1e;
   --color-gold: #ffe519;
   --color-redhot: #ff4401;

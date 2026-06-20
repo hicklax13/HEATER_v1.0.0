@@ -163,7 +163,7 @@ function TopPickup({ fa, need }: { fa: FreeAgent; need: string }) {
           <button className="group flex min-w-0 flex-1 items-center gap-3.5 text-left focus-visible:outline-none">
             <span className="relative shrink-0">
               <PlayerAvatar mlbId={fa.mlbId} teamId={fa.teamId} name={fa.name} size={60} />
-              <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-gradient-to-b from-[#ff7a2e] to-heat font-display text-[12px] font-extrabold text-white shadow-[0_2px_8px_rgba(255,92,16,0.45)] ring-2 ring-canvas">
+              <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-gradient-to-b from-heat-bright to-heat font-display text-[12px] font-extrabold text-white shadow-[0_2px_8px_rgba(255,92,16,0.45)] ring-2 ring-canvas">
                 1
               </span>
             </span>
@@ -196,7 +196,7 @@ function TopPickup({ fa, need }: { fa: FreeAgent; need: string }) {
               />
             </div>
           </div>
-          <button className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.03] active:scale-95 motion-reduce:transform-none">
+          <button className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.03] active:scale-95 motion-reduce:transform-none">
             <Plus className="size-4" aria-hidden />
             Add
           </button>
@@ -367,6 +367,7 @@ function FATable({ rows, need }: { rows: FreeAgent[]; need: string }) {
                     </span>
                     <span className={cn("tnum inline-flex items-center text-[10.5px]", up ? "text-ok" : "text-ink-3")}>
                       <DeltaIcon className="size-3" aria-hidden />
+                      <span className="sr-only">ownership {up ? "up" : "down"} </span>
                       {Math.abs(p.ownDelta)}
                     </span>
                   </div>
