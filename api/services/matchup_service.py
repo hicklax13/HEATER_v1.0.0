@@ -151,6 +151,26 @@ class MatchupService:
         except Exception:
             categories = []  # cold env / no data → empty list
 
+        # Set per-category win field now that categories are built.
+        for cat in categories:
+            cat.win = _cat_win(cat.you, cat.opp, cat.inverse)
+
+        # Build roster-comparison tables (wrapped so any failure leaves fields empty).
+        hitters: list[RosterRow] = []
+        pitchers: list[RosterRow] = []
+        date_tabs: list[str] = []
+        hitter_columns: list[str] = []
+        pitcher_columns: list[str] = []
+        try:
+            from src.yahoo_data_service import get_yahoo_data_service as _yds_fn
+
+            _yds = _yds_fn()
+            hitters, pitchers, date_tabs, hitter_columns, pitcher_columns = self._build_roster_tables(
+                team_name, opponent, _yds, week
+            )
+        except Exception:
+            pass  # cold env — leave roster fields at defaults
+
         return MatchupResponse(
             team_name=team_name,
             opponent=opponent,
@@ -158,6 +178,151 @@ class MatchupService:
             projected_cat_wins=projected_cat_wins,
             win_prob=win_prob,
             categories=categories,
+            hitters=hitters,
+            pitchers=pitchers,
+            date_tabs=date_tabs,
+            hitter_columns=hitter_columns,
+            pitcher_columns=pitcher_columns,
+        )
+
+    @staticmethod
+    def _build_roster_tables(
+        team_name: str,
+        opponent: str,
+        yds,
+        week: int,
+    ) -> tuple[list[RosterRow], list[RosterRow], list[str], list[str], list[str]]:
+        """Build hitter/pitcher RosterRow lists for the matchup comparison.
+
+        Returns (hitters, pitchers, date_tabs, hitter_columns, pitcher_columns).
+        Never raises — on any error returns empty lists.
+        """
+        import pandas as pd
+        import statsapi
+
+        from src.database import load_player_pool
+        from src.game_day import get_target_game_date
+        from src.valuation import TEAM_NAME_TO_ABBR
+
+        # Build abbr → full_name map by inverting the canonical map.
+        abbr_to_name: dict[str, str] = {}
+        for full, abbr in TEAM_NAME_TO_ABBR.items():
+            if abbr not in abbr_to_name:
+                abbr_to_name[abbr] = full.title()
+
+        # Load rosters + player pool.
+        try:
+            rosters = yds.get_rosters()
+        except Exception:
+            rosters = pd.DataFrame()
+
+        if rosters is None or rosters.empty:
+            return [], [], [], [], []
+
+        try:
+            pool = load_player_pool()
+        except Exception:
+            pool = pd.DataFrame()
+
+        # Fetch today's schedule for game-state resolution (graceful on failure).
+        schedule: list[dict] = []
+        try:
+            game_date = get_target_game_date()
+            schedule = statsapi.schedule(date=game_date) or []
+        except Exception:
+            schedule = []
+
+        # Filter to the two matchup teams.
+        you_rosters = rosters[rosters["team_name"] == team_name].copy()
+        opp_rosters = rosters[rosters["team_name"] == opponent].copy()
+
+        # Determine team abbr for game-state from editorial_team_abbr column (if present).
+        def _abbr_for_roster(df: pd.DataFrame) -> str:
+            """Return the most common editorial_team_abbr in this roster slice."""
+            col = "editorial_team_abbr"
+            if col not in df.columns or df.empty:
+                return ""
+            abbrs = df[col].dropna().astype(str).str.strip().str.upper()
+            abbrs = abbrs[abbrs != ""]
+            return abbrs.mode().iloc[0] if not abbrs.empty else ""
+
+        # Stable slot ordering for the display grid.
+        _HITTER_SLOT_ORDER = ["C", "1B", "2B", "3B", "SS", "OF", "Util"]
+        _PITCHER_SLOT_ORDER = ["SP", "RP", "P"]
+
+        def _slot_key(slot: str) -> int:
+            order = _HITTER_SLOT_ORDER + _PITCHER_SLOT_ORDER
+            try:
+                return order.index(slot)
+            except ValueError:
+                return len(order)
+
+        def _is_pitcher_slot(slot: str) -> bool:
+            s = str(slot).upper()
+            return s in ("SP", "RP", "P", "BN") or s.startswith("IL")
+
+        def _build_side(
+            side_rosters: pd.DataFrame,
+            side_pool: pd.DataFrame,
+            side_team_abbr: str,
+            hitter: bool,
+        ) -> tuple[list, list]:
+            """Build (players, slots) for one side (you or opp), hitters or pitchers."""
+            players: list[MatchPlayer] = []
+            slots: list[str] = []
+            if side_rosters.empty:
+                return players, slots
+            slot_col = "roster_slot" if "roster_slot" in side_rosters.columns else "selected_position"
+            for _, row in side_rosters.iterrows():
+                slot = str(row.get(slot_col) or "").strip()
+                if not slot or slot.upper() in ("BN",) or slot.upper().startswith("IL"):
+                    continue
+                is_pit = _is_pitcher_slot(slot)
+                if hitter and is_pit:
+                    continue
+                if not hitter and not is_pit:
+                    continue
+                pid = row.get("player_id")
+                # Look up team_abbr for this player from pool or editorial_team_abbr.
+                team_abbr = side_team_abbr
+                if side_pool is not None and not side_pool.empty:
+                    try:
+                        pmatch = side_pool[side_pool["player_id"] == pid]
+                        if not pmatch.empty:
+                            t = str(pmatch.iloc[0].get("team", "") or "").strip().upper()
+                            if t:
+                                team_abbr = t
+                    except Exception:
+                        pass
+                state, status = _game_state(team_abbr, schedule, abbr_to_name)
+                mp = _to_match_player(pid, slot, side_pool, hitter, state, status)
+                players.append(mp)
+                slots.append(slot)
+            # Sort by slot order for a stable grid.
+            paired = sorted(zip(slots, players), key=lambda x: _slot_key(x[0]))
+            if paired:
+                slots, players = zip(*paired)  # type: ignore[assignment]
+                return list(players), list(slots)
+            return [], []
+
+        # Merge pool into rosters for abbr lookup (need per-player team abbr).
+        you_team_abbr = _abbr_for_roster(you_rosters)
+        opp_team_abbr = _abbr_for_roster(opp_rosters)
+
+        you_hitters, you_h_slots = _build_side(you_rosters, pool, you_team_abbr, hitter=True)
+        opp_hitters, opp_h_slots = _build_side(opp_rosters, pool, opp_team_abbr, hitter=True)
+        you_pitchers, you_p_slots = _build_side(you_rosters, pool, you_team_abbr, hitter=False)
+        opp_pitchers, opp_p_slots = _build_side(opp_rosters, pool, opp_team_abbr, hitter=False)
+
+        hitters = _pair_rows(you_hitters, opp_hitters, you_h_slots)
+        pitchers = _pair_rows(you_pitchers, opp_pitchers, you_p_slots)
+
+        return (
+            hitters,
+            pitchers,
+            _date_tabs(week),
+            _HITTER_COLUMNS,
+            _PITCHER_COLUMNS,
         )
 
     @staticmethod

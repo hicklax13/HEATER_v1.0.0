@@ -954,6 +954,51 @@
         "title": "LineupSlot",
         "type": "object"
       },
+      "MatchPlayer": {
+        "properties": {
+          "badge": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Badge"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "pos": {
+            "default": "",
+            "title": "Pos",
+            "type": "string"
+          },
+          "state": {
+            "default": "none",
+            "title": "State",
+            "type": "string"
+          },
+          "stats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "MatchPlayer",
+        "type": "object"
+      },
       "MatchupCategory": {
         "properties": {
           "cat": {
@@ -968,6 +1013,11 @@
           "opp": {
             "title": "Opp",
             "type": "number"
+          },
+          "win": {
+            "default": "",
+            "title": "Win",
+            "type": "string"
           },
           "win_prob": {
             "title": "Win Prob",
@@ -1036,10 +1086,45 @@
             "title": "Categories",
             "type": "array"
           },
+          "date_tabs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Date Tabs",
+            "type": "array"
+          },
+          "hitter_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hitter Columns",
+            "type": "array"
+          },
+          "hitters": {
+            "items": {
+              "$ref": "#/components/schemas/RosterRow"
+            },
+            "title": "Hitters",
+            "type": "array"
+          },
           "opponent": {
             "default": "",
             "title": "Opponent",
             "type": "string"
+          },
+          "pitcher_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pitcher Columns",
+            "type": "array"
+          },
+          "pitchers": {
+            "items": {
+              "$ref": "#/components/schemas/RosterRow"
+            },
+            "title": "Pitchers",
+            "type": "array"
           },
           "projected_cat_wins": {
             "default": 0.0,
@@ -1492,6 +1577,37 @@
           "team_name"
         ],
         "title": "PuntResponse",
+        "type": "object"
+      },
+      "RosterRow": {
+        "properties": {
+          "opp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchPlayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot": {
+            "default": "",
+            "title": "Slot",
+            "type": "string"
+          },
+          "you": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchPlayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "RosterRow",
         "type": "object"
       },
       "SeasonStat": {
