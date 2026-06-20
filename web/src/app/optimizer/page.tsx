@@ -78,7 +78,12 @@ function Loaded({ data }: { data: OptimizerData }) {
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
       <motion.div variants={staggerItem}>
-        <Header date={data.date} optimized={optimized} onOptimize={() => setOptimized(true)} />
+        <Header
+          date={data.date}
+          optimized={optimized}
+          changes={data.swaps.length}
+          onOptimize={() => setOptimized(true)}
+        />
       </motion.div>
       {optimized && (
         <motion.div variants={staggerItem}>
@@ -98,8 +103,8 @@ function Loaded({ data }: { data: OptimizerData }) {
         </div>
         <aside className="space-y-4">
           <SwapCard swaps={data.swaps} starters={data.starters} bench={data.bench} optimized={optimized} />
-          <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />
-          <ImpactCard impact={data.impact} />
+          {(data.ipPace || data.movesLeft) && <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />}
+          {data.impact.length > 0 && <ImpactCard impact={data.impact} />}
         </aside>
       </motion.div>
     </motion.div>
@@ -109,12 +114,19 @@ function Loaded({ data }: { data: OptimizerData }) {
 function Header({
   date,
   optimized,
+  changes,
   onOptimize,
 }: {
   date: string;
   optimized: boolean;
+  changes: number;
   onOptimize: () => void;
 }) {
+  const subline = optimized
+    ? "Your lineup is optimal for today."
+    : changes > 0
+      ? `${changes} change${changes === 1 ? "" : "s"} can improve today's projection.`
+      : "Your lineup looks set for today.";
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -122,19 +134,17 @@ function Header({
           Lineup · {date}
         </div>
         <h1 className="font-display text-3xl font-extrabold text-navy">Optimizer</h1>
-        <p className="mt-1 text-[13px] text-ink-2">
-          {optimized
-            ? "Your lineup is optimal for today."
-            : "1 change can improve today's projection."}
-        </p>
+        <p className="mt-1 text-[13px] text-ink-2">{subline}</p>
       </div>
-      <button
-        onClick={onOptimize}
-        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
-      >
-        <Wand2 className="size-4" aria-hidden />
-        Optimize Lineup
-      </button>
+      {!optimized && changes > 0 && (
+        <button
+          onClick={onOptimize}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
+        >
+          <Wand2 className="size-4" aria-hidden />
+          Optimize Lineup
+        </button>
+      )}
     </div>
   );
 }
@@ -144,7 +154,7 @@ function SuccessBanner({ swaps }: { swaps: OptimizerData["swaps"] }) {
     <div className="flex items-center gap-2 rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-[13px] font-semibold text-ok">
       <Check className="size-4 shrink-0" aria-hidden />
       Lineup optimized — applied {swaps.length} change{swaps.length === 1 ? "" : "s"}
-      {swaps[0] ? ` (${swaps[0].gain})` : ""}.
+      {swaps[0]?.gain ? ` (${swaps[0].gain})` : ""}.
     </div>
   );
 }
@@ -189,9 +199,11 @@ function SwapCard({
                 <span className="flex size-5 items-center justify-center rounded-full bg-heat/12 text-heat">
                   <ArrowDown className="size-3.5" aria-hidden />
                 </span>
-                <span className="tnum rounded-md bg-heat/12 px-2 py-0.5 text-[11px] font-bold text-heat">
-                  {s.gain}
-                </span>
+                {s.gain && (
+                  <span className="tnum rounded-md bg-heat/12 px-2 py-0.5 text-[11px] font-bold text-heat">
+                    {s.gain}
+                  </span>
+                )}
               </div>
               <SwapRow tone="in" label="Start" slot={byName.get(s.in)} fallbackName={s.in} />
             </li>
@@ -267,32 +279,35 @@ function PaceCard({
   ipPace,
   movesLeft,
 }: {
-  ipPace: { value: number; total: number };
-  movesLeft: { value: number; total: number };
+  ipPace?: { value: number; total: number };
+  movesLeft?: { value: number; total: number };
 }) {
-  const movesUsed = movesLeft.total - movesLeft.value;
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-navy">
         <Clock className="size-4 text-heat" aria-hidden />
         This Week
       </div>
-      <Meter
-        label="IP pace"
-        value={ipPace.value}
-        total={ipPace.total}
-        unit="IP"
-        caption={`On pace to clear the ${ipPace.total} IP minimum.`}
-      />
-      <div className="mt-3.5">
+      {ipPace && (
         <Meter
-          label="Moves left"
-          value={movesLeft.value}
-          total={movesLeft.total}
-          tone="cool"
-          caption={`${movesUsed} used · comfortable burn rate.`}
+          label="IP pace"
+          value={ipPace.value}
+          total={ipPace.total}
+          unit="IP"
+          caption={`On pace to clear the ${ipPace.total} IP minimum.`}
         />
-      </div>
+      )}
+      {movesLeft && (
+        <div className={ipPace ? "mt-3.5" : ""}>
+          <Meter
+            label="Moves left"
+            value={movesLeft.value}
+            total={movesLeft.total}
+            tone="cool"
+            caption={`${movesLeft.total - movesLeft.value} used · comfortable burn rate.`}
+          />
+        </div>
+      )}
     </Card>
   );
 }

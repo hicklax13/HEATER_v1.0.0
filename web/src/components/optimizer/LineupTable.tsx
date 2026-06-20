@@ -56,7 +56,7 @@ export function LineupTable({ slots }: { slots: LineupSlot[] }) {
                 </td>
                 <td className="tnum px-2.5 py-2.5 text-ink-2">{s.matchup}</td>
                 <td className="px-2.5 py-2.5">
-                  <span className="tnum text-ink">{s.proj}</span>
+                  <span className="tnum text-ink">{s.proj ?? "—"}</span>
                   {s.note && <div className="text-[10.5px] font-medium text-ember">{s.note}</div>}
                 </td>
                 <td className="px-2.5 py-2.5">

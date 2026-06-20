@@ -27,3 +27,5 @@ export type ApiTradeFinderResponse = components["schemas"]["TradeFinderResponse"
 export type ApiPlayerSearchResponse = components["schemas"]["PlayerSearchResponse"];
 export type ApiTradeEvaluationResponse = components["schemas"]["TradeEvaluationResponse"];
 export type ApiDatabankResponse = components["schemas"]["DatabankResponse"];
+export type ApiLineupOptimizeResponse = components["schemas"]["LineupOptimizeResponse"];
+export type ApiLineupSlot = components["schemas"]["LineupSlot"];

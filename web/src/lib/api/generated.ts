@@ -538,6 +538,31 @@ export interface components {
              */
             players: components["schemas"]["ComparePlayer"][];
         };
+        /**
+         * DailyMeta
+         * @description Day-level context for the daily optimizer (populated only when mode='daily').
+         */
+        DailyMeta: {
+            ip_pace?: components["schemas"]["IpPace"] | null;
+            /** Losing */
+            losing?: string[];
+            /** Rate Modes */
+            rate_modes?: {
+                [key: string]: string;
+            };
+            /** Recommendations */
+            recommendations?: string[];
+            /** Swaps */
+            swaps?: components["schemas"]["Swap"][];
+            /** Tied */
+            tied?: string[];
+            /** Urgency */
+            urgency?: {
+                [key: string]: number;
+            };
+            /** Winning */
+            winning?: string[];
+        };
         /** DatabankResponse */
         DatabankResponse: {
             player: components["schemas"]["PlayerRef"];
@@ -795,6 +820,28 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * IpPace
+         * @description Weekly innings-pitched pacing for the daily view (from ip_tracker).
+         */
+        IpPace: {
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Pace Pct */
+            pace_pct: number;
+            /** Projected */
+            projected: number;
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+            /** Target */
+            target: number;
+        };
         /** LeaderRow */
         LeaderRow: {
             player: components["schemas"]["PlayerRef"];
@@ -893,6 +940,11 @@ export interface components {
             /** Date */
             date?: string | null;
             /**
+             * Mode
+             * @default standard
+             */
+            mode: string;
+            /**
              * Scope
              * @default rest_of_season
              */
@@ -904,10 +956,16 @@ export interface components {
         LineupOptimizeResponse: {
             /** Bench */
             bench?: components["schemas"]["LineupSlot"][];
+            daily?: components["schemas"]["DailyMeta"] | null;
             /** Date */
             date: string;
             /** Impact */
             impact?: components["schemas"]["CatImpact"][];
+            /**
+             * Mode
+             * @default standard
+             */
+            mode: string;
             /**
              * Optimal
              * @default false
@@ -937,10 +995,20 @@ export interface components {
             /** Action */
             action: string;
             /**
+             * Current Slot
+             * @default
+             */
+            current_slot: string;
+            /**
              * Forced Start
              * @default false
              */
             forced_start: boolean;
+            /**
+             * Matchup
+             * @default
+             */
+            matchup: string;
             player: components["schemas"]["PlayerRef"];
             /**
              * Projected
@@ -956,6 +1024,11 @@ export interface components {
              * @default start
              */
             status: string;
+            /**
+             * Value
+             * @default 0
+             */
+            value: number;
         };
         /** MatchPlayer */
         MatchPlayer: {
@@ -1681,6 +1754,20 @@ export interface components {
             /** Probables */
             probables?: components["schemas"]["ProbableStarter"][];
             top_pick?: components["schemas"]["StreamCandidate"] | null;
+        };
+        /**
+         * Swap
+         * @description A recommended move: start this currently-benched player in `slot`.
+         */
+        Swap: {
+            player: components["schemas"]["PlayerRef"];
+            /** Slot */
+            slot: string;
+            /**
+             * Value
+             * @default 0
+             */
+            value: number;
         };
         /** TeamSide */
         TeamSide: {

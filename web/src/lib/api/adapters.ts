@@ -12,6 +12,8 @@ import type {
   ApiTradeFinderResponse,
   ApiTradeEvaluationResponse,
   ApiDatabankResponse,
+  ApiLineupOptimizeResponse,
+  ApiLineupSlot,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -28,6 +30,7 @@ import type { FreeAgent, PlayersData } from "@/lib/players-data";
 import type { CompareData } from "@/lib/compare-data";
 import type { TradesData, TradePlayer, TradeEval } from "@/lib/trades-data";
 import type { DatabankData } from "@/lib/databank-data";
+import type { OptimizerData, LineupSlot as OptSlot, SlotStatus } from "@/lib/optimizer-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -524,5 +527,70 @@ export function apiDatabankToData(api: ApiDatabankResponse): DatabankData {
   return {
     player: toPlayerRef(api.player),
     seasons: (api.seasons ?? []).map((s) => ({ year: s.year, stats: s.stats ?? {} })),
+  };
+}
+
+const REASON_NOTE: Record<string, string> = {
+  LOCKED: "Game already started",
+  IL: "On IL",
+  OFF_DAY: "Not playing today",
+};
+
+/** Map one API LineupSlot → a frontend OptimizerData slot. Daily mode carries the
+ *  0-100 heat value + matchup; there's no per-stat proj line (mock-only). */
+function toOptSlot(s: ApiLineupSlot, kind: "starter" | "bench"): OptSlot {
+  const status: SlotStatus =
+    kind === "bench"
+      ? s.reason === "OFF_DAY"
+        ? "off"
+        : "bench"
+      : s.action === "SIT"
+        ? "sit"
+        : "start";
+  const note = s.forced_start
+    ? "Forced start — poor matchup"
+    : s.reason
+      ? (REASON_NOTE[s.reason] ?? s.reason)
+      : undefined;
+  return {
+    slot: s.slot,
+    player: toPlayerRef(s.player),
+    matchup: s.matchup ?? "",
+    value: Math.round(s.value ?? 0),
+    status,
+    note,
+    currentSlot: s.current_slot || undefined,
+    forcedStart: s.forced_start || undefined,
+  };
+}
+
+/** Map /api/lineup/optimize (daily mode) → frontend OptimizerData. */
+export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData {
+  const slots = api.slots ?? [];
+  const starters = slots.map((s) => toOptSlot(s, "starter"));
+  const bench = (api.bench ?? []).map((s) => toOptSlot(s, "bench"));
+  // Each daily swap = a benched player to START in `slot`; the OUT is the SIT
+  // starter currently holding that slot (current_slot === the target slot).
+  const swaps = (api.daily?.swaps ?? [])
+    .map((sw) => ({
+      out: slots.find((s) => s.action === "SIT" && s.current_slot === sw.slot)?.player.name ?? "",
+      in: sw.player.name,
+      gain: undefined as string | undefined,
+    }))
+    .filter((s) => s.in);
+  const ip = api.daily?.ip_pace;
+  return {
+    date: api.date || "Today",
+    optimal: api.optimal ?? false,
+    starters,
+    bench,
+    ipPace: ip ? { value: Math.round(ip.projected ?? 0), total: Math.round(ip.target ?? 0) || 54 } : undefined,
+    movesLeft: undefined, // not part of the optimize contract
+    swaps,
+    impact: (api.impact ?? []).map((c) => ({
+      key: c.key,
+      proj: c.proj,
+      trend: (c.trend as "up" | "down" | "flat") ?? "flat",
+    })),
   };
 }

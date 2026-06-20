@@ -1,19 +1,28 @@
 import type { PlayerRef } from "./types";
+import { apiPost } from "@/lib/api/client";
+import { apiOptimizeToData } from "@/lib/api/adapters";
+import type { ApiLineupOptimizeResponse } from "@/lib/api/types";
 
 /**
- * Mock Optimizer data — today's recommended lineup for Team Hickey.
- * Swap this module for the API client in Sub-project B; the shape is the contract.
+ * Optimizer data — today's recommended lineup for Team Hickey. With
+ * NEXT_PUBLIC_HEATER_LIVE=1, fetchOptimizer POSTs /api/lineup/optimize in DAILY
+ * mode (start/sit by 0-100 heat value). Daily mode needs live Yahoo, so it
+ * returns empty in local dev (→ the page's empty-state) and populates on Railway;
+ * off-live falls back to the mock below. The mock shape is the contract.
  */
+const VIEWER_TEAM = "Team Hickey";
 export type SlotStatus = "start" | "sit" | "bench" | "off";
 
 export interface LineupSlot {
   slot: string; // C, 1B, …, SP, RP, P, Util, BN
   player: PlayerRef & { ownPct?: number };
   matchup: string; // "vs SF", "@NYM", "OFF"
-  proj: string; // short projected line
+  proj?: string; // short projected line (mock only — the daily API has no per-stat line)
   value: number; // 0–100 daily value
   status: SlotStatus;
   note?: string;
+  currentSlot?: string; // player's current Yahoo slot (live — lets us diff swaps)
+  forcedStart?: boolean; // started despite a poor matchup (roster-forced)
 }
 
 export interface CatImpact {
@@ -22,14 +31,20 @@ export interface CatImpact {
   trend: "up" | "down" | "flat";
 }
 
+export interface OptimizerSwap {
+  out: string;
+  in: string;
+  gain?: string; // mock only — the daily API ranks by heat value, not an SGP delta
+}
+
 export interface OptimizerData {
   date: string;
   optimal: boolean; // is the current lineup already optimal?
   starters: LineupSlot[];
   bench: LineupSlot[];
-  ipPace: { value: number; total: number };
-  movesLeft: { value: number; total: number };
-  swaps: { out: string; in: string; gain: string }[];
+  ipPace?: { value: number; total: number }; // daily mode only
+  movesLeft?: { value: number; total: number }; // not in the optimize contract
+  swaps: OptimizerSwap[];
   impact: CatImpact[];
 }
 
@@ -80,6 +95,18 @@ export const OPTIMIZER: OptimizerData = {
   ],
 };
 
-export function fetchOptimizer(delayMs = 600): Promise<OptimizerData> {
-  return new Promise((resolve) => setTimeout(() => resolve(OPTIMIZER), delayMs));
+export async function fetchOptimizer(): Promise<OptimizerData | null> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiPost<ApiLineupOptimizeResponse>("/lineup/optimize", {
+        team_name: VIEWER_TEAM,
+        mode: "daily",
+      });
+      const data = apiOptimizeToData(api);
+      return data.starters.length > 0 ? data : null; // null → empty-state
+    } catch {
+      return null;
+    }
+  }
+  return new Promise((resolve) => setTimeout(() => resolve(OPTIMIZER), 400));
 }
