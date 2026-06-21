@@ -20,6 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 import { usePalette } from "./Providers";
 import { HexMesh } from "@/components/ui/HexMesh";
+import { authEnabled } from "@/lib/auth-config";
+import { ClerkAccountArea } from "./ClerkAccountArea";
 
 const NAV = [
   { label: "Team", href: "/" },
@@ -152,6 +154,10 @@ export function TopBar() {
           </kbd>
         </button>
 
+        {authEnabled ? (
+          <ClerkAccountArea />
+        ) : (
+          <>
         <span className="tnum rounded-md bg-gradient-to-b from-heat-bright to-heat px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
           PRO
         </span>
@@ -185,6 +191,8 @@ export function TopBar() {
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+          </>
+        )}
       </div>
     </header>
   );

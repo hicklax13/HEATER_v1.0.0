@@ -2,6 +2,7 @@ import type { PlayerRef } from "./types";
 import { apiPost } from "@/lib/api/client";
 import { apiOptimizeToData } from "@/lib/api/adapters";
 import type { ApiLineupOptimizeResponse } from "@/lib/api/types";
+import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Optimizer data — today's recommended lineup for Team Hickey. With
@@ -127,7 +128,8 @@ export async function fetchOptimizer(): Promise<OptimizerData | null> {
       });
       const data = apiOptimizeToData(api);
       return data.starters.length > 0 ? data : null; // null → empty-state
-    } catch {
+    } catch (e) {
+      if (isPaywall(e)) throw e; // 402 → usePageData `locked` → paywall
       return null;
     }
   }

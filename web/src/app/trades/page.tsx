@@ -14,7 +14,7 @@ import { ComparePanel } from "@/components/trades/ComparePanel";
 import { BuildPanel } from "@/components/trades/BuildPanel";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageLocked } from "@/components/ui/PageStates";
 
 type Tab = "finder" | "compare" | "build";
 
@@ -32,6 +32,7 @@ export default function TradesPage() {
         {tab === "finder" && (
           <>
             {state.status === "loading" && <LoadingView />}
+            {state.status === "locked" && <PageLocked feature="The Trade Finder" />}
             {state.status === "error" && <PageError onRetry={retry} />}
             {state.status === "empty" && (
               <PageEmpty

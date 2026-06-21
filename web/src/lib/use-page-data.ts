@@ -1,12 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { isPaywall } from "@/lib/api/errors";
 
-/** Page-level async state. `loaded` carries the data; the other three are terminal UI states. */
+/** Page-level async state. `loaded` carries the data; the others are terminal UI
+ *  states. `locked` is the M2 paywall (fetcher threw an ApiError 402 — signed-in
+ *  Free user); it never occurs while billing is dormant. */
 export type PageState<T> =
   | { status: "loading" }
   | { status: "error" }
   | { status: "empty" }
+  | { status: "locked" }
   | { status: "loaded"; data: T };
 
 type Forced = "loading" | "error" | "empty";
@@ -66,10 +70,9 @@ export function usePageData<T>(
         if (!alive || data === undefined) return;
         setState(data == null ? { status: "empty" } : { status: "loaded", data });
       })
-      .catch(() => {
-        // Deliberate: the error UI is generic (see PageError), so the rejection
-        // cause is not surfaced in state. Add an `error` field here if that changes.
-        if (alive) setState({ status: "error" });
+      .catch((e) => {
+        // A 402 (Pro paywall) maps to `locked`; everything else is generic `error`.
+        if (alive) setState(isPaywall(e) ? { status: "locked" } : { status: "error" });
       });
 
     return () => {

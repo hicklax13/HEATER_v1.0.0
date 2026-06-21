@@ -8,6 +8,7 @@ import type {
   ApiDraftPick,
 } from "@/lib/api/types";
 import { mockRecommend, mockSimulate } from "./draft-mock";
+import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Draft Simulator data layer. The API is STATELESS: the client owns `config`
@@ -109,8 +110,9 @@ export async function draftSimulate(config: DraftConfig, pickLog: DraftPick[]): 
         seed: null,
       });
       return apiDraftSimulateToData(api);
-    } catch {
-      // fall through to the client-side mock
+    } catch (e) {
+      if (isPaywall(e)) throw e; // 402 → useDraft locked phase
+      // else fall through to the client-side mock
     }
   }
   return mockSimulate(config, pickLog);
@@ -131,8 +133,9 @@ export async function draftRecommend(
         n_simulations: 300,
       });
       return apiDraftRecommendToData(api);
-    } catch {
-      // fall through to the client-side mock
+    } catch (e) {
+      if (isPaywall(e)) throw e; // 402 → useDraft locked phase
+      // else fall through to the client-side mock
     }
   }
   return mockRecommend(config, pickLog, topN);

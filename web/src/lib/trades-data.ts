@@ -3,6 +3,7 @@ import { apiGet, apiPost } from "@/lib/api/client";
 import { apiTradeFinderToData, apiTradeEvaluateToData } from "@/lib/api/adapters";
 import type { ApiTradeFinderResponse, ApiTradeEvaluationResponse } from "@/lib/api/types";
 import type { PlayerPick } from "./player-search";
+import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Trades data — the Finder tab's auto-suggested trades. Mock by default; live
@@ -142,8 +143,9 @@ export async function fetchTrades(delayMs = 600): Promise<TradesData> {
         limit: 10,
       });
       if ((api.suggestions?.length ?? 0) > 0) return apiTradeFinderToData(api);
-    } catch {
-      // fall through to mock
+    } catch (e) {
+      if (isPaywall(e)) throw e; // 402 → usePageData `locked` → paywall
+      // else fall through to mock
     }
   }
   return new Promise((resolve) => setTimeout(() => resolve(TRADES), delayMs));

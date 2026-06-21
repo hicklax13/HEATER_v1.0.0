@@ -13,6 +13,7 @@ import { heatColor } from "@/lib/tokens";
 import { SetupForm } from "@/components/draft/SetupForm";
 import { RecCard } from "@/components/draft/RecCard";
 import { RosterRail } from "@/components/draft/RosterRail";
+import { PageLocked } from "@/components/ui/PageStates";
 
 type Draft = ReturnType<typeof useDraft>;
 
@@ -23,6 +24,7 @@ export default function DraftPage() {
       {d.phase === "setup" && <SetupForm onStart={d.start} busy={d.busy} />}
       {d.phase === "drafting" && <Drafting d={d} />}
       {d.phase === "complete" && <Complete d={d} />}
+      {d.phase === "locked" && <PageLocked feature="The Draft Simulator" />}
     </main>
   );
 }

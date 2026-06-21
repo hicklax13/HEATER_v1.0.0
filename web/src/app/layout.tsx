@@ -3,6 +3,8 @@ import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
 import { TopBar } from "@/components/chrome/TopBar";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import { SubscriptionProvider } from "@/lib/use-subscription";
 
 // Display: Archivo variable, with the width (wdth) axis for stretched hero numerals.
 const archivo = Archivo({
@@ -35,12 +37,16 @@ export default function RootLayout({
       className={`${archivo.variable} ${inter.variable}`}
     >
       <body className="min-h-full bg-canvas text-ink">
-        <Providers>
-          <div className="flex min-h-full flex-col">
-            <TopBar />
-            {children}
-          </div>
-        </Providers>
+        <AuthProvider>
+          <SubscriptionProvider>
+            <Providers>
+              <div className="flex min-h-full flex-col">
+                <TopBar />
+                {children}
+              </div>
+            </Providers>
+          </SubscriptionProvider>
+        </AuthProvider>
       </body>
     </html>
   );

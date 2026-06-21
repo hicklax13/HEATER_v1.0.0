@@ -23,7 +23,7 @@ import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { LineupTable } from "@/components/optimizer/LineupTable";
 import { usePageData } from "@/lib/use-page-data";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageLocked } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 
 /** When optimized, move each swap's `in` player into the `out` player's slot
@@ -57,6 +57,7 @@ export default function OptimizerPage() {
     <>
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
+        {state.status === "locked" && <PageLocked feature="The Optimizer" />}
         {state.status === "error" && <PageError onRetry={retry} />}
         {state.status === "empty" && (
           <PageEmpty

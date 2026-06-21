@@ -4,6 +4,16 @@ import type { LucideIcon } from "lucide-react";
 import { CloudOff, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PaywallGate } from "@/components/billing/PaywallGate";
+
+/** Page-level Pro paywall (the `locked` PageState — a 402). */
+export function PageLocked({ feature }: { feature?: string }) {
+  return (
+    <div className="mt-10">
+      <PaywallGate feature={feature} />
+    </div>
+  );
+}
 
 /** Page-level load failure: error card + Retry. Generic copy works for every page. */
 export function PageError({ onRetry }: { onRetry: () => void }) {

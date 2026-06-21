@@ -11,8 +11,9 @@ import {
   draftRecommend,
   totalPicks,
 } from "./draft-data";
+import { isPaywall } from "@/lib/api/errors";
 
-export type DraftPhase = "setup" | "drafting" | "complete";
+export type DraftPhase = "setup" | "drafting" | "complete" | "locked";
 
 interface DraftState {
   phase: DraftPhase;
@@ -70,17 +71,22 @@ export function useDraft() {
     if (ref.current.busy) return;
     ref.current = { ...ref.current, busy: true }; // sync guard before the await
     setState({ ...INITIAL, phase: "drafting", config, busy: true });
-    const r = await advance(config, []);
-    setState({
-      phase: r.phase,
-      config,
-      pickLog: r.log,
-      myRoster: [],
-      clock: r.clock,
-      recs: r.recs,
-      summary: r.summary,
-      busy: false,
-    });
+    try {
+      const r = await advance(config, []);
+      setState({
+        phase: r.phase,
+        config,
+        pickLog: r.log,
+        myRoster: [],
+        clock: r.clock,
+        recs: r.recs,
+        summary: r.summary,
+        busy: false,
+      });
+    } catch (e) {
+      // advance only throws on a 402 paywall (other errors fall back to the mock).
+      setState({ ...INITIAL, phase: isPaywall(e) ? "locked" : "setup", config });
+    }
   }, []);
 
   const pick = useCallback(async (player: DraftPlayer) => {
@@ -98,17 +104,21 @@ export function useDraft() {
     const myRoster = [...cur.myRoster, player];
     ref.current = { ...cur, busy: true }; // sync guard so a double-click can't re-enter before the re-render
     setState((s) => ({ ...s, pickLog: baseLog, myRoster, recs: [], busy: true })); // optimistic
-    const r = await advance(config, baseLog);
-    setState((s) => ({
-      ...s,
-      phase: r.phase,
-      pickLog: r.log,
-      myRoster,
-      clock: r.clock,
-      recs: r.recs,
-      summary: r.summary,
-      busy: false,
-    }));
+    try {
+      const r = await advance(config, baseLog);
+      setState((s) => ({
+        ...s,
+        phase: r.phase,
+        pickLog: r.log,
+        myRoster,
+        clock: r.clock,
+        recs: r.recs,
+        summary: r.summary,
+        busy: false,
+      }));
+    } catch (e) {
+      setState((s) => ({ ...s, busy: false, phase: isPaywall(e) ? "locked" : s.phase }));
+    }
   }, []);
 
   const reset = useCallback(() => setState(INITIAL), []);
