@@ -64,5 +64,8 @@ httpx==0.28.1      # required by starlette.testclient.TestClient; pinned to keep
 # lives in api/auth.py (ClerkVerifier); selected by get_auth_verifier when
 # CLERK_ISSUER is set, else the interim EnvTokenVerifier.
 PyJWT[crypto]>=2.8
+# Stripe billing (M2 slice 2). PINNED EXACT (like fastapi/httpx) so the webhook
+# event schema the SDK parses can't drift under us. Bump deliberately + re-test.
+stripe==15.2.1
 SQLAlchemy>=2.0          # B2.0 engine seam (DB backend abstraction; alembic/psycopg land in B2.1/B2.2)
 alembic>=1.13             # B2.1 schema migrations (Postgres-owned schema)
