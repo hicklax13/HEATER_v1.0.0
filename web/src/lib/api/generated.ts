@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/api/billing/checkout-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checkout Session */
+        post: operations["checkout_session_api_billing_checkout_session_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/billing/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Subscription */
+        get: operations["subscription_api_billing_subscription_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/billing/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Webhook */
+        post: operations["webhook_api_billing_webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/closers": {
         parameters: {
             query?: never;
@@ -487,6 +538,22 @@ export interface components {
             win_prob: number;
             /** You */
             you: number;
+        };
+        /** CheckoutSessionRequest */
+        CheckoutSessionRequest: {
+            /** Cancel Url */
+            cancel_url?: string | null;
+            /** Success Url */
+            success_url?: string | null;
+        };
+        /** CheckoutSessionResponse */
+        CheckoutSessionResponse: {
+            /** Error */
+            error?: string | null;
+            /** Ok */
+            ok: boolean;
+            /** Url */
+            url?: string | null;
         };
         /** CloserEntry */
         CloserEntry: {
@@ -1755,6 +1822,28 @@ export interface components {
             probables?: components["schemas"]["ProbableStarter"][];
             top_pick?: components["schemas"]["StreamCandidate"] | null;
         };
+        /** SubscriptionResponse */
+        SubscriptionResponse: {
+            /** Current Period End */
+            current_period_end?: number | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Status
+             * @default none
+             */
+            status: string;
+            /**
+             * Tier
+             * @default free
+             */
+            tier: string;
+            /**
+             * Trial
+             * @default false
+             */
+            trial: boolean;
+        };
         /**
          * Swap
          * @description A recommended move: start this currently-benched player in `slot`.
@@ -1946,6 +2035,18 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WebhookResponse */
+        WebhookResponse: {
+            /** Event Type */
+            event_type?: string | null;
+            /**
+             * Handled
+             * @default false
+             */
+            handled: boolean;
+            /** Ok */
+            ok: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -1955,6 +2056,113 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    checkout_session_api_billing_checkout_session_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutSessionResponse"];
+                };
+            };
+            /** @description Authentication required: missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    subscription_api_billing_subscription_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionResponse"];
+                };
+            };
+            /** @description Authentication required: missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    webhook_api_billing_webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookResponse"];
+                };
+            };
+            /** @description Invalid or missing Stripe webhook signature. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_closers_api_closers_get: {
         parameters: {
             query?: never;
@@ -2040,7 +2248,9 @@ export interface operations {
     draft_recommend_api_draft_recommend_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2059,6 +2269,20 @@ export interface operations {
                     "application/json": components["schemas"]["DraftRecommendResponse"];
                 };
             };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -2073,7 +2297,9 @@ export interface operations {
     draft_simulate_picks_api_draft_simulate_picks_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2091,6 +2317,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DraftSimulatePicksResponse"];
                 };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2254,7 +2494,9 @@ export interface operations {
     optimize_lineup_api_lineup_optimize_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2272,6 +2514,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LineupOptimizeResponse"];
                 };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2425,7 +2681,9 @@ export interface operations {
             query: {
                 team_name: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2439,6 +2697,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PlayoffOddsResponse"];
                 };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2573,7 +2845,9 @@ export interface operations {
                 team_name?: string;
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2587,6 +2861,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TradeFinderResponse"];
                 };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2602,7 +2890,9 @@ export interface operations {
     evaluate_trade_endpoint_api_trade_evaluate_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2620,6 +2910,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TradeEvaluationResponse"];
                 };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
