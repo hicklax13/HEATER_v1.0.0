@@ -100,6 +100,28 @@ def test_send_persist_failure_returns_answer_and_still_meters(monkeypatch):
     assert metered.get("ok")  # usage recorded despite the persist failure (no cap bypass)
 
 
+def test_send_threads_reasoning_effort_into_providers(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _chat(**k):
+        captured.update(k)
+        return {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+
+    monkeypatch.setattr(cs.providers, "chat", _chat)
+    ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5", reasoning_effort="high")
+    assert captured.get("reasoning_effort") == "high"
+
+
 def test_models_filters_to_available_providers(monkeypatch):
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
     monkeypatch.setattr(cs, "_list_admin_shared_providers", lambda: [])

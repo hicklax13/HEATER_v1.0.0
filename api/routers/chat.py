@@ -44,6 +44,7 @@ def send(
             conversation_id=body.conversation_id,
             web_search=body.web_search,
             deep_research=body.deep_research,
+            reasoning_effort=body.reasoning_effort,
         )
     )
 

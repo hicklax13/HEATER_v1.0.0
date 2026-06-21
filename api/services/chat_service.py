@@ -45,6 +45,7 @@ class ChatService:
         conversation_id: int | None = None,
         web_search: bool = False,
         deep_research: bool = False,
+        reasoning_effort: str | None = None,
         page: str | None = None,
         viewer_team: str | None = None,
     ) -> dict:
@@ -74,6 +75,7 @@ class ChatService:
                 user_id=chat_user_id,
                 web_search=web_search,
                 deep_research=deep_research,
+                reasoning_effort=reasoning_effort,
             )
         except Exception as e:  # noqa: BLE001 - provider/key/cap failure -> body, never 500
             _log.warning("chat send failed before completion", exc_info=True)
