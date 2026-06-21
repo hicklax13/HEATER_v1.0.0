@@ -29,3 +29,4 @@ export type ApiTradeEvaluationResponse = components["schemas"]["TradeEvaluationR
 export type ApiDatabankResponse = components["schemas"]["DatabankResponse"];
 export type ApiLineupOptimizeResponse = components["schemas"]["LineupOptimizeResponse"];
 export type ApiLineupSlot = components["schemas"]["LineupSlot"];
+export type ApiClosersResponse = components["schemas"]["ClosersResponse"];

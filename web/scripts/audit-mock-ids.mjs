@@ -10,6 +10,7 @@ const FILES = [
   "web/src/lib/trades-data.ts",
   "web/src/lib/data.ts",
   "web/src/lib/streaming-data.ts",
+  "web/src/lib/closers-data.ts",
 ];
 
 // Extract the player NAME from a row, trying each mock shape in order.

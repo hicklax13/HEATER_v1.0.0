@@ -14,6 +14,7 @@ import type {
   ApiDatabankResponse,
   ApiLineupOptimizeResponse,
   ApiLineupSlot,
+  ApiClosersResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -31,6 +32,8 @@ import type { CompareData } from "@/lib/compare-data";
 import type { TradesData, TradePlayer, TradeEval } from "@/lib/trades-data";
 import type { DatabankData } from "@/lib/databank-data";
 import type { OptimizerData, LineupSlot as OptSlot, SlotStatus } from "@/lib/optimizer-data";
+import type { ClosersData } from "@/lib/closers-data";
+import { securityFor } from "@/lib/closer-security";
 import type {
   StreamingData,
   StreamCandidate,
@@ -612,5 +615,26 @@ export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData
       trend: (c.trend as "up" | "down" | "flat") ?? "flat",
     })),
     daily: hasDaily ? daily : undefined,
+  };
+}
+
+/** Map /api/closers → frontend ClosersData. The API is minimal (closer ref +
+ *  confidence label + role + handcuffs); we derive the 0–100 job-security from
+ *  the confidence label and leave `stats` empty until the backend exposes proj
+ *  SV/ERA/WHIP (the "Saves Finder" enhancement — see the archive spec). */
+export function apiClosersToData(api: ApiClosersResponse): ClosersData {
+  return {
+    entries: (api.entries ?? []).map((e) => {
+      const confidence = e.confidence || "Shaky";
+      return {
+        team: e.team,
+        closer: e.closer ? toPlayerRef(e.closer) : null,
+        role: e.role || (confidence === "Committee" ? "Committee" : "Closer"),
+        confidence,
+        security: securityFor(confidence),
+        handcuffs: (e.handcuffs ?? []).map(toPlayerRef),
+        stats: [], // API has no proj SV/ERA/WHIP yet (CEO track to populate)
+      };
+    }),
   };
 }
