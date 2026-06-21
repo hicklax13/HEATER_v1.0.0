@@ -1451,6 +1451,125 @@ def _enrich_pitcher_positions(progress: BootstrapProgress) -> str:
         conn.close()
 
 
+# Safety cap for the mlb_id enrichment phase. The relevant (rostered/owned)
+# null-id subset is normally tiny (~dozens); bounding the per-run resolution
+# count stops one anomalous bootstrap from firing thousands of statsapi calls.
+# A breach is logged (never silent), not silently truncated.
+_MLB_ID_ENRICH_CAP = 100
+
+
+def _enrich_mlb_ids(progress: BootstrapProgress) -> str:
+    """Phase 12b: backfill players.mlb_id for FA/roster-relevant rows that lack it.
+
+    The React frontend resolves headshots (mlb_id) and team logos (team_id) from
+    this id, so a rostered / owned player with a NULL/0 mlb_id renders a broken
+    image. This resolves the *relevant* subset — players on a league roster OR
+    with current ownership > 0 — via the shared, Muncy-DNA-safe resolver in
+    :mod:`src.player_id_resolver` (same engine the operator backfill script uses).
+
+    Safety: confident UNIQUE matches only (the resolver guarantees this); never
+    overwrites a non-null id (SQL guard); refuses to reuse an mlb_id already on
+    another player_id (collision guard); bounded by ``_MLB_ID_ENRICH_CAP``;
+    idempotent (zero network calls once everything relevant is resolved).
+    Resolution runs with NO DB connection held (read -> resolve -> write) so slow
+    lookups never pin the write lock (the SFH M1 lesson).
+    """
+    progress.phase = "Player MLB IDs"
+    progress.detail = "Backfilling missing MLB ids..."
+
+    from src.database import get_connection, update_refresh_log_auto
+    from src.player_id_resolver import resolve_mlb_id
+
+    try:
+        # Phase 1: read targets + the taken-id snapshot, then release the connection.
+        conn = get_connection()
+        try:
+            targets = conn.execute(
+                """
+                SELECT p.player_id, p.name, p.team
+                FROM players p
+                WHERE (p.mlb_id IS NULL OR p.mlb_id = 0)
+                  AND p.name IS NOT NULL AND TRIM(p.name) != ''
+                  AND (
+                    p.player_id IN (SELECT player_id FROM league_rosters)
+                    OR p.player_id IN (
+                        SELECT player_id FROM ownership_trends WHERE percent_owned > 0
+                    )
+                  )
+                ORDER BY p.player_id
+                """
+            ).fetchall()
+            taken = {
+                int(mid): int(pid)
+                for pid, mid in conn.execute(
+                    "SELECT player_id, mlb_id FROM players WHERE mlb_id IS NOT NULL AND mlb_id != 0"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+
+        capped = len(targets) > _MLB_ID_ENRICH_CAP
+        if capped:
+            logger.warning(
+                "mlb_id enrichment: %d relevant null-id players exceeds cap %d; resolving the first %d this run",
+                len(targets),
+                _MLB_ID_ENRICH_CAP,
+                _MLB_ID_ENRICH_CAP,
+            )
+            targets = targets[:_MLB_ID_ENRICH_CAP]
+
+        # Phase 2: resolve over the network with NO DB connection held.
+        resolved: list[tuple[int, int]] = []
+        assigned: dict[int, int] = {}
+        errored = 0  # lookups that ERRORED (outage) vs a genuine absence
+        for player_id, name, team in targets:
+            mlb_id, reason = resolve_mlb_id(name, team)
+            if mlb_id is None:
+                if "ERRORED" in reason:
+                    errored += 1
+                continue
+            owner = taken.get(mlb_id) or assigned.get(mlb_id)
+            if owner is not None and owner != player_id:
+                continue  # collision — never duplicate an id onto two player rows
+            assigned[mlb_id] = player_id
+            resolved.append((player_id, mlb_id))
+
+        # Phase 3: write the confident batch (fills NULL/0 only).
+        updated = 0
+        if resolved:
+            conn = get_connection()
+            try:
+                for player_id, mlb_id in resolved:
+                    cur = conn.execute(
+                        "UPDATE players SET mlb_id = ? WHERE player_id = ? AND (mlb_id IS NULL OR mlb_id = 0)",
+                        (mlb_id, player_id),
+                    )
+                    updated += cur.rowcount
+                conn.commit()
+            finally:
+                conn.close()
+
+        # A run that HAD targets but resolved none because every lookup ERRORED is
+        # a statsapi outage, not a healthy no-op — report it as error so it doesn't
+        # masquerade as success on the operator dashboard. A partial outage stays
+        # success (real work happened) but surfaces the error count in the message.
+        systemic_outage = bool(targets) and updated == 0 and errored == len(targets)
+        msg = f"{updated} mlb_ids resolved of {len(targets)} relevant null-id players"
+        if errored:
+            msg += f" ({errored} lookup errors)"
+        if capped:
+            msg += f" [capped at {_MLB_ID_ENRICH_CAP}]"
+        update_refresh_log_auto("mlb_ids", updated, expected_min=0, message=msg, error=systemic_outage)
+        logger.info("MLB id enrichment: %s", msg)
+        return f"MLB ids: {'error - ' if systemic_outage else ''}{msg}"
+    except Exception as e:
+        logger.exception("MLB id enrichment failed")
+        from src.database import update_refresh_log
+
+        update_refresh_log("mlb_ids", "error", message=str(e)[:200])
+        return f"MLB ids: error ({e})"
+
+
 # ── FP Edge Feature Phases ────────────────────────────────────────────
 
 
@@ -3513,6 +3632,13 @@ def bootstrap_all_data(
     except Exception as exc:
         logger.warning("Deduplication failed (non-fatal): %s", exc)
         results["deduplication"] = f"Skipped: {exc}"
+
+    # Phase 12b: backfill missing mlb_id for FA/roster-relevant players so the
+    # React frontend's headshots/team logos resolve. Runs AFTER dedup (enriches
+    # the final canonical rows); always runs (cheap + idempotent — zero network
+    # calls once everything relevant is resolved). Network-bounded via the timeout.
+    _notify(0.965)
+    results["mlb_ids"] = _run_with_timeout(lambda: _enrich_mlb_ids(progress), source="mlb_ids")
 
     # Phase 13: Prospect rankings
     _notify(0.97)
