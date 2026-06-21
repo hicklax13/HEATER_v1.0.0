@@ -35,6 +35,28 @@ def _avg(value) -> str:
     return f"{fval:.3f}"[1:] if 0.0 <= fval < 1.0 else f"{fval:.3f}"
 
 
+def _weekly_divisor(week) -> int:
+    """ROS projections → weekly: the rest-of-season line ÷ the weeks remaining gives a
+    per-week estimate for a weekly H2H matchup. max(1, season_weeks - week); 1 = raw."""
+    try:
+        from src.valuation import LeagueConfig
+
+        sw = int(LeagueConfig().season_weeks)
+    except Exception:
+        sw = 26
+    try:
+        w = int(week)
+    except (TypeError, ValueError):
+        w = 0
+    return max(1, sw - w)
+
+
+def _scale(value, weeks) -> float:
+    """Scale a counting stat to weekly (no-op when weeks is falsy/None — raw projection)."""
+    v = _f(value)
+    return (v / weeks) if (weeks and weeks > 0) else v
+
+
 def _format_record(wins, losses, ties, rank) -> str:
     w, l, t = int(_f(wins)), int(_f(losses)), int(_f(ties))
     r = int(_f(rank))
@@ -44,10 +66,10 @@ def _format_record(wins, losses, ties, rank) -> str:
     return f"{w}-{l}-{t} · {r}{suffix}"
 
 
-def _aggregate_totals(rows, hitter: bool) -> list[str]:
-    """Aggregate a side's roster stat line: counting stats summed, rate stats
-    weighted (AVG=Σh/Σab, OBP=Σ(h+bb+hbp)/Σ(ab+bb+hbp+sf), ERA=Σer·9/Σip,
-    WHIP=Σ(bb_allowed+h_allowed)/Σip). NaN/zero-safe."""
+def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[str]:
+    """Aggregate a side's roster stat line: counting stats summed (scaled to weekly when
+    `weeks` given), rate stats weighted (AVG=Σh/Σab, OBP=Σ(h+bb+hbp)/Σ(ab+bb+hbp+sf),
+    ERA=Σer·9/Σip, WHIP=Σ(bb_allowed+h_allowed)/Σip — scale-invariant). NaN/zero-safe."""
     import pandas as pd
 
     def _sum(col: str) -> float:
@@ -62,14 +84,14 @@ def _aggregate_totals(rows, hitter: bool) -> list[str]:
         h, ab = _sum("h"), _sum("ab")
         bb, hbp, sf = _sum("bb"), _sum("hbp"), _sum("sf")
         obp_den = ab + bb + hbp + sf
-        avg = (h / ab) if ab > 0 else 0.0
+        avg = (h / ab) if ab > 0 else 0.0  # rates from UNSCALED sums (ratio is scale-invariant)
         obp = ((h + bb + hbp) / obp_den) if obp_den > 0 else 0.0
         return [
-            f"{int(h)}/{int(ab)}",
-            str(int(_sum("r"))),
-            str(int(_sum("hr"))),
-            str(int(_sum("rbi"))),
-            str(int(_sum("sb"))),
+            f"{round(_scale(h, weeks))}/{round(_scale(ab, weeks))}",
+            str(round(_scale(_sum("r"), weeks))),
+            str(round(_scale(_sum("hr"), weeks))),
+            str(round(_scale(_sum("rbi"), weeks))),
+            str(round(_scale(_sum("sb"), weeks))),
             _avg(avg),
             _avg(obp),
         ]
@@ -78,37 +100,37 @@ def _aggregate_totals(rows, hitter: bool) -> list[str]:
     era = (er * 9.0 / ip) if ip > 0 else 0.0
     whip = ((bba + ha) / ip) if ip > 0 else 0.0
     return [
-        f"{ip:.1f}",
-        str(int(_sum("w"))),
-        str(int(_sum("l"))),
-        str(int(_sum("sv"))),
-        str(int(_sum("k"))),
+        f"{_scale(ip, weeks):.1f}",
+        str(round(_scale(_sum("w"), weeks))),
+        str(round(_scale(_sum("l"), weeks))),
+        str(round(_scale(_sum("sv"), weeks))),
+        str(round(_scale(_sum("k"), weeks))),
         f"{era:.2f}",
         f"{whip:.2f}",
     ]
 
 
-def _fmt_hitter_stats(row) -> list[str]:
+def _fmt_hitter_stats(row, weeks=None) -> list[str]:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
     return [
-        f"{int(_f(g('h')))}/{int(_f(g('ab')))}",
-        str(int(_f(g("r")))),
-        str(int(_f(g("hr")))),
-        str(int(_f(g("rbi")))),
-        str(int(_f(g("sb")))),
+        f"{round(_scale(g('h'), weeks))}/{round(_scale(g('ab'), weeks))}",
+        str(round(_scale(g("r"), weeks))),
+        str(round(_scale(g("hr"), weeks))),
+        str(round(_scale(g("rbi"), weeks))),
+        str(round(_scale(g("sb"), weeks))),
         _avg(g("avg")),
         _avg(g("obp")),
     ]
 
 
-def _fmt_pitcher_stats(row) -> list[str]:
+def _fmt_pitcher_stats(row, weeks=None) -> list[str]:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
     return [
-        f"{_f(g('ip')):.1f}",
-        str(int(_f(g("w")))),
-        str(int(_f(g("l")))),
-        str(int(_f(g("sv")))),
-        str(int(_f(g("k")))),
+        f"{_scale(g('ip'), weeks):.1f}",
+        str(round(_scale(g("w"), weeks))),
+        str(round(_scale(g("l"), weeks))),
+        str(round(_scale(g("sv"), weeks))),
+        str(round(_scale(g("k"), weeks))),
         f"{_f(g('era')):.2f}",
         f"{_f(g('whip')):.2f}",
     ]
@@ -172,6 +194,7 @@ def _to_match_player(
     state: str,
     status: str,
     roster_status: str = "",
+    weeks=None,
 ) -> MatchPlayer:
     import pandas as pd
 
@@ -184,7 +207,7 @@ def _to_match_player(
     except Exception:
         prow = None
     name = str(prow.get("name", "")) if prow is not None else ""
-    stats = (_fmt_hitter_stats(prow) if hitter else _fmt_pitcher_stats(prow)) if prow is not None else []
+    stats = (_fmt_hitter_stats(prow, weeks) if hitter else _fmt_pitcher_stats(prow, weeks)) if prow is not None else []
     return MatchPlayer(
         player=player_ref_from_pool(player_id, pool, name=name, positions=slot),
         pos=slot,
@@ -443,6 +466,9 @@ class MatchupService:
         except Exception:
             schedule = []
 
+        # Projected lines are rest-of-season — scale to weekly for this H2H matchup.
+        weeks = _weekly_divisor(week)
+
         # Filter to the two matchup teams.
         you_rosters = rosters[rosters["team_name"] == team_name].copy()
         opp_rosters = rosters[rosters["team_name"] == opponent].copy()
@@ -540,7 +566,9 @@ class MatchupService:
                     except Exception:
                         pass
                 state, status = _game_state(team_abbr, schedule, abbr_to_name)
-                mp = _to_match_player(pid, sel, side_pool, hitter, state, status, roster_status=roster_status)
+                mp = _to_match_player(
+                    pid, sel, side_pool, hitter, state, status, roster_status=roster_status, weeks=weeks
+                )
                 players.append(mp)
                 slots.append(sel)
             # Sort by slot order for a stable grid.
@@ -573,7 +601,7 @@ class MatchupService:
             sub = pool[pool["player_id"].isin(ids)]
             if "is_hitter" in sub.columns:
                 sub = sub[sub["is_hitter"].astype(bool) == is_hit]
-            return _aggregate_totals(sub, hitter=is_hit)
+            return _aggregate_totals(sub, hitter=is_hit, weeks=weeks)
 
         hitter_totals = SideTotals(you=_side_totals(you_rosters, True), opp=_side_totals(opp_rosters, True))
         pitcher_totals = SideTotals(you=_side_totals(you_rosters, False), opp=_side_totals(opp_rosters, False))
