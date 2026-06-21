@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException
 
+from api.billing_config import billing_env_configured
 from api.contracts.billing import CheckoutSessionRequest, CheckoutSessionResponse, SubscriptionResponse, WebhookResponse
 from api.gateways.stripe_gateway import BillingSignatureError, StripeGateway
 from api.stores.subscription_store import Subscription, SubscriptionStore
@@ -50,9 +51,8 @@ class BillingService:
         return os.environ.get(name, "").strip()
 
     def _configured(self) -> bool:
-        return bool(self._env("STRIPE_SECRET_KEY") and self._env("STRIPE_PRO_PRICE_ID")) and getattr(
-            self._gateway, "configured", True
-        )
+        # Shared env predicate (same one the Pro gate uses) AND a live gateway.
+        return billing_env_configured() and getattr(self._gateway, "configured", True)
 
     def _trial_days(self) -> int:
         try:

@@ -6,18 +6,20 @@ STRIPE_SECRET_KEY is set it enforces a verified Clerk caller (401) who is Pro (4
 
 from __future__ import annotations
 
-import os
-
 from fastapi import Depends, Header, HTTPException, status
 
 from api.auth import AuthVerifier, get_auth_verifier
+from api.billing_config import billing_env_configured
 from api.deps import get_subscription_store
 from api.stores.subscription_store import SubscriptionStore
 
 
 def stripe_enabled() -> bool:
-    """Billing is live (users CAN be Pro) when the Stripe secret key is set."""
-    return bool(os.environ.get("STRIPE_SECRET_KEY", "").strip())
+    """Billing is live (users CAN be Pro) ONLY when checkout is actually operable —
+    the SAME predicate the billing service uses (secret key AND price id). Gating on
+    just the secret key would paywall users during a one-var-at-a-time deploy while
+    checkout still returns 'not configured' — locking them out with no upgrade path."""
+    return billing_env_configured()
 
 
 def _payment_required() -> HTTPException:

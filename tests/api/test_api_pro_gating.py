@@ -31,14 +31,26 @@ def test_dormant_when_stripe_unset(monkeypatch):
     require_pro(authorization=None, verifier=_Verifier(raise_401=True), store=InMemorySubscriptionStore())
 
 
+def test_dormant_when_only_secret_key_set(monkeypatch):
+    # Half-configured (secret key set, price id NOT) → checkout is impossible, so the
+    # gate must stay DORMANT (no upgrade path = don't paywall). Verifier set to raise
+    # proves it's never reached.
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.delenv("STRIPE_PRO_PRICE_ID", raising=False)
+    assert stripe_enabled() is False
+    require_pro(authorization=None, verifier=_Verifier(raise_401=True), store=InMemorySubscriptionStore())
+
+
 def test_live_allows_pro(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
     v = _Verifier(principal=Principal(subject="user_abc", clerk_user_id="user_abc"))
     require_pro(authorization="Bearer x", verifier=v, store=_pro_store())  # no raise
 
 
 def test_live_blocks_free_with_402(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
     v = _Verifier(principal=Principal(subject="user_free", clerk_user_id="user_free"))
     with pytest.raises(HTTPException) as ei:
         require_pro(authorization="Bearer x", verifier=v, store=InMemorySubscriptionStore())
@@ -48,6 +60,7 @@ def test_live_blocks_free_with_402(monkeypatch):
 def test_live_blocks_non_clerk_principal_with_402(monkeypatch):
     # billing live but caller is the env-token/server path (no clerk id) → not Pro.
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
     v = _Verifier(principal=Principal(subject="api-token"))
     with pytest.raises(HTTPException) as ei:
         require_pro(authorization="Bearer x", verifier=v, store=InMemorySubscriptionStore())
@@ -56,6 +69,7 @@ def test_live_blocks_non_clerk_principal_with_402(monkeypatch):
 
 def test_live_propagates_401_when_unauthenticated(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
     with pytest.raises(HTTPException) as ei:
         require_pro(authorization=None, verifier=_Verifier(raise_401=True), store=InMemorySubscriptionStore())
     assert ei.value.status_code == 401
