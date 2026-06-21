@@ -8,6 +8,8 @@ error — returns a structured error in the response body so the route stays HTT
 
 from __future__ import annotations
 
+import logging
+
 from src.ai import budget, history, keys, providers
 from src.ai.chat import build_system_prompt as _build_system_prompt
 from src.ai.keys import list_admin_shared_providers as _list_admin_shared_providers
@@ -25,6 +27,8 @@ from src.ai.router import provider_of as _provider_of
 _CHAT_USER_ID_OFFSET = 1_000_000_000
 
 _DEFAULT_PAGE = "the app"
+
+_log = logging.getLogger(__name__)
 
 
 def chat_user_id_for(app_user_id: int) -> int:
@@ -44,6 +48,8 @@ class ChatService:
         page: str | None = None,
         viewer_team: str | None = None,
     ) -> dict:
+        # Pre-call: key/cap/prompt + the paid provider call. A failure HERE (no
+        # spend yet, or the provider itself erroring) becomes a structured error.
         try:
             provider = _provider_of(model)
             api_key = keys.get_key(chat_user_id, provider)
@@ -69,12 +75,25 @@ class ChatService:
                 web_search=web_search,
                 deep_research=deep_research,
             )
-            content = result.get("content", "")
-            t_in = int(result.get("tokens_in", 0) or 0)
-            t_out = int(result.get("tokens_out", 0) or 0)
-            p_in, p_out = _price_per_token(model)
-            cost = t_in * p_in + t_out * p_out
+        except Exception as e:  # noqa: BLE001 - provider/key/cap failure -> body, never 500
+            _log.warning("chat send failed before completion", exc_info=True)
+            return self._empty(f"Chat error: {type(e).__name__}: {str(e)[:200]}", conversation_id)
 
+        # The paid call SUCCEEDED. From here we must never discard the answer the
+        # user paid for. Meter FIRST (so a persist failure can't bypass the cap),
+        # then best-effort persist — each isolated + logged, never fatal.
+        content = result.get("content", "")
+        t_in = int(result.get("tokens_in", 0) or 0)
+        t_out = int(result.get("tokens_out", 0) or 0)
+        p_in, p_out = _price_per_token(model)
+        cost = t_in * p_in + t_out * p_out
+
+        try:
+            budget.record_usage(chat_user_id, t_in, t_out, cost)
+        except Exception:
+            _log.warning("record_usage failed (spend uncounted)", exc_info=True)
+
+        try:
             if conversation_id is None:
                 conversation_id = history.create_conversation(chat_user_id, message[:60], model=model)
             history.append_message(conversation_id, "user", message, model=model)
@@ -87,18 +106,21 @@ class ChatService:
                 tokens_out=t_out,
                 cost_usd=cost,
             )
-            budget.record_usage(chat_user_id, t_in, t_out, cost)
-            return {
-                "content": content,
-                "conversation_id": conversation_id,
-                "tokens_in": t_in,
-                "tokens_out": t_out,
-                "cost_usd": cost,
-                "tool_trace": result.get("tool_trace", []),
-                "error": None,
-            }
-        except Exception as e:  # noqa: BLE001 - chat must never 500; surface as body
-            return self._empty(f"Chat error: {type(e).__name__}: {str(e)[:200]}", conversation_id)
+        except Exception:
+            # Persistence is best-effort: a save failure must not discard the answer.
+            # (B-phase follow-up: an atomic history.append_exchange to avoid an
+            # orphaned user turn if the assistant insert is the one that fails.)
+            _log.warning("chat history persist failed (answer returned, not saved)", exc_info=True)
+
+        return {
+            "content": content,
+            "conversation_id": conversation_id,
+            "tokens_in": t_in,
+            "tokens_out": t_out,
+            "cost_usd": cost,
+            "tool_trace": result.get("tool_trace", []),
+            "error": None,
+        }
 
     def _empty(self, error: str, conversation_id: int | None = None) -> dict:
         return {
@@ -111,16 +133,20 @@ class ChatService:
             "error": error,
         }
 
+    # Reads degrade to empty (never 500 a read), but LOG the error so a real DB
+    # outage is visible in the operator log instead of looking like "no data".
     def conversations(self, chat_user_id: int) -> list[dict]:
         try:
             return history.list_conversations(chat_user_id)
         except Exception:
+            _log.warning("conversations read failed", exc_info=True)
             return []
 
     def messages(self, chat_user_id: int, conversation_id: int) -> list[dict]:
         try:
             return history.load_messages(conversation_id, user_id=chat_user_id)
         except Exception:
+            _log.warning("messages read failed", exc_info=True)
             return []
 
     def models(self, chat_user_id: int) -> list[dict]:
@@ -132,12 +158,14 @@ class ChatService:
                 if _provider_of(m) in available
             ]
         except Exception:
+            _log.warning("models read failed", exc_info=True)
             return []
 
     def list_keys(self, chat_user_id: int) -> list[dict]:
         try:
             return keys.list_keys(chat_user_id)
         except Exception:
+            _log.warning("list_keys read failed", exc_info=True)
             return []
 
     def store_key(self, chat_user_id: int, provider: str, api_key: str, label: str | None) -> tuple[bool, str]:
@@ -145,6 +173,7 @@ class ChatService:
             keys.store_key(chat_user_id, provider, api_key, label=label)
             return True, "Key saved."
         except Exception as e:  # noqa: BLE001
+            _log.warning("store_key failed", exc_info=True)
             return False, f"{type(e).__name__}: {str(e)[:200]}"
 
     def delete_key(self, chat_user_id: int, provider: str, label: str | None) -> tuple[bool, str]:
@@ -152,4 +181,5 @@ class ChatService:
             keys.delete_key(chat_user_id, provider, label=label)
             return True, "Key removed."
         except Exception as e:  # noqa: BLE001
+            _log.warning("delete_key failed", exc_info=True)
             return False, f"{type(e).__name__}: {str(e)[:200]}"
