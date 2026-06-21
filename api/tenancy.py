@@ -12,6 +12,15 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from fastapi import Depends
+from pydantic import BaseModel
+
+from api.deps import get_league_store, get_membership_store
+from api.identity import optional_app_user
+from api.stores.league_store import LeagueStore
+from api.stores.membership_store import MembershipStore
+from api.stores.user_store import AppUser
+
 
 def normalize_team_name(name: object) -> str:
     """Lowercase + strip all non-alphanumerics (emoji/whitespace/punctuation) so a
@@ -37,3 +46,37 @@ def reconcile_team_name(assigned: str, roster_names: Iterable[str]) -> str | Non
         if normalize_team_name(n) == target:
             return n
     return None
+
+
+class ViewerContext(BaseModel):
+    """The resolved viewer. team_name is None when there is no authenticated user
+    or no assignment (→ effective_team falls back to the endpoint's query param)."""
+
+    user_id: int | None = None
+    league_id: int | None = None
+    team_name: str | None = None
+
+    def effective_team(self, fallback: str | None) -> str | None:
+        """The resolved team if present, else the endpoint's current query-param
+        fallback (preserves today's behavior when dormant)."""
+        return self.team_name or fallback
+
+
+def require_viewer_context(
+    app_user: AppUser | None = Depends(optional_app_user),
+    league_store: LeagueStore = Depends(get_league_store),
+    membership_store: MembershipStore = Depends(get_membership_store),
+) -> ViewerContext:
+    """Resolve the viewer's team from their (optional) Clerk identity. Dormant when
+    no/invalid token → empty ViewerContext (the endpoint falls back to its query
+    param = today's behavior). A logged-in user with no assignment → team_name None
+    (never another user's team)."""
+    if app_user is None:
+        return ViewerContext()
+    league = league_store.get_or_create_default()
+    membership = membership_store.get_for_user(app_user.id, league.id)
+    return ViewerContext(
+        user_id=app_user.id,
+        league_id=league.id,
+        team_name=(membership.team_name if membership else None),
+    )

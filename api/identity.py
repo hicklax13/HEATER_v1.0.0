@@ -7,9 +7,9 @@ env-token path (Principal.clerk_user_id is None → no provisioning, no table)."
 
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Header, HTTPException
 
-from api.auth import Principal, require_principal
+from api.auth import AuthVerifier, Principal, get_auth_verifier, require_principal
 from api.deps import get_user_store
 from api.stores.user_store import AppUser, UserStore
 
@@ -30,4 +30,25 @@ def require_app_user(
     """FastAPI dependency: a verified caller + their provisioned local AppUser
     (None on the env-token path). Slice 2's billing routes depend on this so a
     Stripe customer can be tied to a stable local user id."""
+    return provision_app_user(principal, store)
+
+
+def optional_app_user(
+    authorization: str | None = Header(default=None),
+    verifier: AuthVerifier = Depends(get_auth_verifier),
+    store: UserStore = Depends(get_user_store),
+) -> AppUser | None:
+    """Non-raising identity for OPEN (currently-unauthenticated) read endpoints.
+
+    No Authorization header → None (reads stay open; the endpoint falls back to its
+    team_name query param = today's behavior). A present-but-invalid token also →
+    None (a bad token must not 401 a read that is open today). A valid Clerk token →
+    the provisioned AppUser. require_app_user (mandatory, fail-closed) still exists
+    for write/admin endpoints; this is the read-side complement."""
+    if not authorization:
+        return None
+    try:
+        principal = verifier.verify(authorization)
+    except HTTPException:
+        return None
     return provision_app_user(principal, store)

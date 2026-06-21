@@ -28,6 +28,8 @@ from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
 from api.services.trade_finder_service import TradeFinderService
 from api.services.trade_service import TradeService
+from api.stores.league_store import LeagueStore, SqliteLeagueStore
+from api.stores.membership_store import MembershipStore, SqliteMembershipStore
 from api.stores.subscription_store import SqliteSubscriptionStore, SubscriptionStore
 from api.stores.user_store import SqliteUserStore, UserStore
 
@@ -110,6 +112,14 @@ def get_draft_service() -> DraftService:
 
 def get_user_store() -> UserStore:
     return SqliteUserStore()
+
+
+def get_league_store() -> LeagueStore:
+    return SqliteLeagueStore()
+
+
+def get_membership_store() -> MembershipStore:
+    return SqliteMembershipStore()
 
 
 def get_stripe_gateway() -> StripeGateway:
