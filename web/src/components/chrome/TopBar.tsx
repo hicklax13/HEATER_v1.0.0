@@ -28,6 +28,7 @@ const NAV = [
   { label: "Optimizer", href: "/optimizer" },
   { label: "Streaming", href: "/streaming" },
   { label: "Probables", href: "/probables" },
+  { label: "Hitter Matchups", href: "/hitter-matchups" },
   { label: "Closers", href: "/closers" },
   { label: "Matchup", href: "/matchup" },
   { label: "Standings", href: "/standings" },
