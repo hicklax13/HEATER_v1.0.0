@@ -13,7 +13,10 @@ production passes neither (the real engine + pool are loaded lazily)."""
 from __future__ import annotations
 
 from api.contracts.draft import (
+    DraftCategoryGrade,
     DraftClock,
+    DraftGradeRequest,
+    DraftGradeResponse,
     DraftPick,
     DraftRecommendation,
     DraftRecommendRequest,
@@ -83,6 +86,57 @@ class DraftService:
                 picks=[],
                 summary="Draft simulation unavailable (no pool data in this environment).",
             )
+
+    def grade(self, req: DraftGradeRequest, pool=None) -> DraftGradeResponse:
+        """Grade the user's COMPLETED draft. Stateless: filters pick_log to the user's
+        team, maps to the grader's shape, runs grade_draft. Never raises → N/A defaults."""
+        try:
+            from src.valuation import LeagueConfig
+
+            cfg = LeagueConfig()
+            user_idx = req.config.user_team_index
+            num_teams = max(1, req.config.num_teams or 12)
+            draft_picks = [
+                {
+                    "round": (p.pick // num_teams) + 1,
+                    "pick_number": p.pick + 1,  # grader expects 1-indexed overall picks
+                    "player_id": p.player_id,
+                    "player_name": p.player_name,
+                }
+                for p in req.pick_log
+                if p.team_index == user_idx
+            ]
+            if pool is None:
+                from src.database import load_player_pool
+
+                pool = load_player_pool()
+            from src.draft_grader import grade_draft
+
+            return self._to_grade_response(grade_draft(draft_picks, pool, cfg))
+        except Exception:
+            return DraftGradeResponse()
+
+    @staticmethod
+    def _to_grade_response(result) -> DraftGradeResponse:
+        result = result if isinstance(result, dict) else {}
+        cats: list[DraftCategoryGrade] = []
+        for cat, info in (result.get("category_projections") or {}).items():
+            if isinstance(info, dict):
+                cats.append(
+                    DraftCategoryGrade(category=str(cat), total=_f(info.get("total")), z_score=_f(info.get("z_score")))
+                )
+        return DraftGradeResponse(
+            overall_grade=str(result.get("overall_grade", "N/A") or "N/A"),
+            overall_score=_f(result.get("overall_score")),
+            team_value_score=_f(result.get("team_value_score")),
+            pick_efficiency_score=_f(result.get("pick_efficiency_score")),
+            category_balance_score=_f(result.get("category_balance_score"), 0.5),
+            total_sgp=_f(result.get("total_sgp")),
+            expected_sgp=_f(result.get("expected_sgp")),
+            categories=cats,
+            strengths=[str(s) for s in (result.get("strengths") or [])],
+            weaknesses=[str(w) for w in (result.get("weaknesses") or [])],
+        )
 
     @staticmethod
     def _rebuild_state(req: DraftRecommendRequest):

@@ -67,3 +67,27 @@ class DraftSimulatePicksResponse(BaseModel):
     clock: DraftClock  # updated clock after the AI picks (whose turn now)
     picks: list[DraftPick] = []  # the NEW AI opponent picks made this call
     summary: str = ""
+
+
+class DraftGradeRequest(BaseModel):
+    config: DraftConfig = DraftConfig()
+    pick_log: list[DraftPick] = []  # ALL picks; the user's team (config.user_team_index) is graded
+
+
+class DraftCategoryGrade(BaseModel):
+    category: str
+    total: float
+    z_score: float  # how many standings points this category total represents (SGP-based)
+
+
+class DraftGradeResponse(BaseModel):
+    overall_grade: str = "N/A"  # letter grade (A+ … F)
+    overall_score: float = 0.0
+    team_value_score: float = 0.0
+    pick_efficiency_score: float = 0.0
+    category_balance_score: float = 0.5
+    total_sgp: float = 0.0
+    expected_sgp: float = 0.0
+    categories: list[DraftCategoryGrade] = []
+    strengths: list[str] = []
+    weaknesses: list[str] = []

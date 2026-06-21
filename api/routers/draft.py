@@ -6,6 +6,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from api.contracts.draft import (
+    DraftGradeRequest,
+    DraftGradeResponse,
     DraftRecommendRequest,
     DraftRecommendResponse,
     DraftSimulatePicksRequest,
@@ -43,3 +45,13 @@ def draft_simulate_picks(
     req: DraftSimulatePicksRequest, service=Depends(get_draft_service)
 ) -> DraftSimulatePicksResponse:
     return service.simulate_picks(req)
+
+
+@router.post(
+    "/draft/grade",
+    response_model=DraftGradeResponse,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
+def draft_grade(req: DraftGradeRequest, service=Depends(get_draft_service)) -> DraftGradeResponse:
+    return service.grade(req)

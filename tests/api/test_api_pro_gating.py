@@ -96,6 +96,7 @@ _HEAVY = {
     ("GET", "/api/trade-finder"),
     ("POST", "/api/draft/recommend"),
     ("POST", "/api/draft/simulate-picks"),
+    ("POST", "/api/draft/grade"),
 }
 
 _GATED_ROUTERS = (_lineup_router, _trade_router, _playoff_router, _trade_finder_router, _draft_router)

@@ -417,6 +417,29 @@
         "title": "DatabankResponse",
         "type": "object"
       },
+      "DraftCategoryGrade": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "z_score": {
+            "title": "Z Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "category",
+          "total",
+          "z_score"
+        ],
+        "title": "DraftCategoryGrade",
+        "type": "object"
+      },
       "DraftClock": {
         "properties": {
           "current_pick": {
@@ -483,6 +506,93 @@
           }
         },
         "title": "DraftConfig",
+        "type": "object"
+      },
+      "DraftGradeRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DraftConfig",
+            "default": {
+              "num_rounds": 23,
+              "num_teams": 12,
+              "user_team_index": 0
+            }
+          },
+          "pick_log": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Pick Log",
+            "type": "array"
+          }
+        },
+        "title": "DraftGradeRequest",
+        "type": "object"
+      },
+      "DraftGradeResponse": {
+        "properties": {
+          "categories": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftCategoryGrade"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "category_balance_score": {
+            "default": 0.5,
+            "title": "Category Balance Score",
+            "type": "number"
+          },
+          "expected_sgp": {
+            "default": 0.0,
+            "title": "Expected Sgp",
+            "type": "number"
+          },
+          "overall_grade": {
+            "default": "N/A",
+            "title": "Overall Grade",
+            "type": "string"
+          },
+          "overall_score": {
+            "default": 0.0,
+            "title": "Overall Score",
+            "type": "number"
+          },
+          "pick_efficiency_score": {
+            "default": 0.0,
+            "title": "Pick Efficiency Score",
+            "type": "number"
+          },
+          "strengths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Strengths",
+            "type": "array"
+          },
+          "team_value_score": {
+            "default": 0.0,
+            "title": "Team Value Score",
+            "type": "number"
+          },
+          "total_sgp": {
+            "default": 0.0,
+            "title": "Total Sgp",
+            "type": "number"
+          },
+          "weaknesses": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Weaknesses",
+            "type": "array"
+          }
+        },
+        "title": "DraftGradeResponse",
         "type": "object"
       },
       "DraftPick": {
@@ -3349,6 +3459,71 @@
         "summary": "Get Databank",
         "tags": [
           "databank"
+        ]
+      }
+    },
+    "/api/draft/grade": {
+      "post": {
+        "operationId": "draft_grade_api_draft_grade_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftGradeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftGradeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Grade",
+        "tags": [
+          "draft"
         ]
       }
     },
