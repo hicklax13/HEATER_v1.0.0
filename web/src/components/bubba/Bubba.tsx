@@ -22,6 +22,7 @@ import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
 type Phase = "loading" | "ready" | "auth" | "error";
+type Effort = "off" | "low" | "medium" | "high";
 interface UiMessage {
   role: "user" | "assistant";
   content: string;
@@ -71,6 +72,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [effort, setEffort] = useState<Effort>("off");
+  const [webSearch, setWebSearch] = useState(false);
+  const [deepResearch, setDeepResearch] = useState(false);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [epoch, setEpoch] = useState(0);
@@ -126,30 +131,67 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
     const text = input.trim();
     if (!text || sending || !model) return;
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    // Append the user turn + an empty assistant turn we stream INTO.
+    setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setSending(true);
+    setToolStatus(null);
+
+    const appendToLast = (chunk: string) =>
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === "assistant") next[next.length - 1] = { ...last, content: last.content + chunk };
+        return next;
+      });
+
     try {
-      const res = await bubba.send({ message: text, model, conversation_id: conversationId });
-      if (res.conversation_id) setConversationId(res.conversation_id);
-      setMessages((prev) => [
-        ...prev,
-        res.error
-          ? { role: "assistant", content: res.error, isError: true }
-          : { role: "assistant", content: res.content },
-      ]);
-    } catch (e) {
-      if (isAuthRequired(e)) {
+      await bubba.sendStream(
+        {
+          message: text,
+          model,
+          conversation_id: conversationId,
+          web_search: webSearch,
+          deep_research: deepResearch,
+          reasoning_effort: effort,
+        },
+        (e) => {
+          if (e.type === "text_delta") {
+            appendToLast(e.text);
+          } else if (e.type === "tool_started") {
+            setToolStatus(toolLabel(e.name));
+          } else if (e.type === "tool_result") {
+            setToolStatus(null);
+          } else if (e.type === "done") {
+            if (e.conversation_id) setConversationId(e.conversation_id);
+            setToolStatus(null);
+          } else if (e.type === "error") {
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = { role: "assistant", content: e.message, isError: true };
+              return next;
+            });
+          }
+        },
+      );
+    } catch (err) {
+      if (isAuthRequired(err)) {
         setPhase("auth");
       } else {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: "Bubba couldn't reach the server. Try again.", isError: true },
-        ]);
+        setMessages((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = {
+            role: "assistant",
+            content: "Bubba couldn't reach the server. Try again.",
+            isError: true,
+          };
+          return next;
+        });
       }
     } finally {
       setSending(false);
+      setToolStatus(null);
     }
-  }, [input, sending, model, conversationId]);
+  }, [input, sending, model, conversationId, webSearch, deepResearch, effort]);
 
   return (
     <motion.div
@@ -252,13 +294,29 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
             ))}
             {sending && (
               <div className="flex items-center gap-2 text-sm text-ink-3">
-                <Loader2 className="size-4 animate-spin text-heat" aria-hidden /> Bubba is thinking…
+                <Loader2 className="size-4 animate-spin text-heat" aria-hidden />
+                {toolStatus ?? "Bubba is thinking…"}
               </div>
             )}
           </div>
 
           {/* composer */}
           <div className="shrink-0 border-t border-line bg-surface p-2">
+            <div className="mb-2 flex items-center gap-2 text-[11px]">
+              <select
+                aria-label="Thinking effort"
+                value={effort}
+                onChange={(e) => setEffort(e.target.value as Effort)}
+                className="rounded-lg border border-line bg-canvas px-2 py-1 font-semibold text-ink outline-none focus:border-heat"
+              >
+                <option value="off">Effort: Off</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <Toggle label="Web" on={webSearch} onClick={() => setWebSearch((v) => !v)} />
+              <Toggle label="Research" on={deepResearch} onClick={() => setDeepResearch((v) => !v)} />
+            </div>
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
@@ -444,6 +502,37 @@ function IconBtn({
   );
 }
 
+function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cn(
+        "rounded-full border px-2.5 py-1 font-semibold transition-colors",
+        on ? "border-heat bg-heat/10 text-heat" : "border-line bg-canvas text-ink-3 hover:text-ink",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">{children}</div>;
+}
+
+function toolLabel(name: string): string {
+  const map: Record<string, string> = {
+    query_data: "querying the database…",
+    get_player: "looking up the player…",
+    compare_players: "comparing players…",
+    get_my_team: "reading your roster…",
+    get_standings: "checking the standings…",
+    get_free_agents: "scanning free agents…",
+    web_search: "searching the web…",
+    deep_research: "researching…",
+    request_refresh: "queuing a data refresh…",
+  };
+  return map[name] ?? `running ${name}…`;
 }
