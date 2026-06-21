@@ -7,7 +7,21 @@ import sqlite3
 
 import pytest
 
-from api.stores.user_store import AppUser, InMemoryUserStore, SqliteUserStore
+from api.stores.user_store import _CHAT_USER_ID_OFFSET, AppUser, InMemoryUserStore, SqliteUserStore
+
+
+def test_chat_user_id_is_offset_and_collision_safe():
+    # src/ai chat keys on Streamlit users.user_id (small ints) in draft_tool.db;
+    # AppUser.chat_user_id must be disjoint so API chat never mixes with Streamlit chat.
+    u = AppUser(id=7, clerk_user_id="x", created_at="now")
+    assert u.chat_user_id == _CHAT_USER_ID_OFFSET + 7
+    assert u.chat_user_id > 100_000  # clear of the live Streamlit user range
+
+
+def test_chat_user_id_is_not_a_serialized_field():
+    # Plain property, not a pydantic field → never in model_dump()/the openapi schema
+    # (so adding it does not touch the snapshot the CEO/Bubba track owns during B1).
+    assert "chat_user_id" not in AppUser(id=1, clerk_user_id="x", created_at="now").model_dump()
 
 
 def test_inmemory_get_or_create_is_idempotent():
