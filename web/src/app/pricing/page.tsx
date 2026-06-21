@@ -114,9 +114,12 @@ function ProCta({ isPro, signedIn, trial }: { isPro: boolean; signedIn: boolean;
 
   if (isPro) {
     return (
-      <div className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-ok/12 px-5 text-sm font-bold text-ok">
-        <Check className="size-4" aria-hidden /> {trial ? "Pro trial active" : "You're on Pro"}
-      </div>
+      <Link
+        href="/account"
+        className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-ok/12 px-5 text-sm font-bold text-ok transition-colors hover:bg-ok/20"
+      >
+        <Check className="size-4" aria-hidden /> {trial ? "Pro trial active — manage" : "You're on Pro — manage"}
+      </Link>
     );
   }
 

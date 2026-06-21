@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/billing/portal-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Portal Session */
+        post: operations["portal_session_api_billing_portal_session_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/billing/subscription": {
         parameters: {
             query?: never;
@@ -1529,6 +1546,20 @@ export interface components {
             /** Team */
             team: string;
         };
+        /** PortalSessionRequest */
+        PortalSessionRequest: {
+            /** Return Url */
+            return_url?: string | null;
+        };
+        /** PortalSessionResponse */
+        PortalSessionResponse: {
+            /** Error */
+            error?: string | null;
+            /** Ok */
+            ok: boolean;
+            /** Url */
+            url?: string | null;
+        };
         /** ProbableStarter */
         ProbableStarter: {
             /**
@@ -2078,6 +2109,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckoutSessionResponse"];
+                };
+            };
+            /** @description Authentication required: missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    portal_session_api_billing_portal_session_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalSessionResponse"];
                 };
             };
             /** @description Authentication required: missing or invalid bearer token. */

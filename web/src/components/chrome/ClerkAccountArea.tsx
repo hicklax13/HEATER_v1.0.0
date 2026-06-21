@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CreditCard } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { useSubscription } from "@/lib/use-subscription";
 
@@ -46,7 +47,15 @@ export function ClerkAccountArea() {
       >
         {isPro ? "PRO" : "UPGRADE"}
       </Link>
-      <UserButton />
+      <UserButton>
+        <UserButton.MenuItems>
+          <UserButton.Link
+            label="Billing & plan"
+            labelIcon={<CreditCard className="size-4" />}
+            href="/account"
+          />
+        </UserButton.MenuItems>
+      </UserButton>
     </>
   );
 }
