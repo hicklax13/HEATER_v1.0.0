@@ -9,6 +9,7 @@ from fastapi import Depends
 
 from api.gateways.stripe_gateway import LiveStripeGateway, NullStripeGateway, StripeGateway
 from api.services.billing_service import BillingService
+from api.services.chat_service import ChatService
 from api.services.closers_service import CloserService
 from api.services.compare_service import CompareService
 from api.services.databank_service import DatabankService
@@ -36,6 +37,10 @@ from api.stores.user_store import SqliteUserStore, UserStore
 
 def get_team_service() -> TeamService:
     return TeamService()
+
+
+def get_chat_service() -> ChatService:
+    return ChatService()
 
 
 def get_fa_service() -> FreeAgentService:
