@@ -3,6 +3,7 @@ import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
 import { TopBar } from "@/components/chrome/TopBar";
+import { Bubba } from "@/components/bubba/Bubba";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { SubscriptionProvider } from "@/lib/use-subscription";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
                 <TopBar />
                 {children}
               </div>
+              <Bubba />
             </Providers>
           </SubscriptionProvider>
         </AuthProvider>

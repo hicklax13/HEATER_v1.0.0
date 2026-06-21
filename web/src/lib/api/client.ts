@@ -60,3 +60,34 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }
+
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  const token = await authToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`/api${path}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError(res.status, path);
+  return (await res.json()) as T;
+}
+
+export async function apiDelete<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<T> {
+  const qs = params
+    ? "?" + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+    : "";
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = await authToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`/api${path}${qs}`, { method: "DELETE", headers });
+  if (!res.ok) throw new ApiError(res.status, path);
+  return (await res.json()) as T;
+}

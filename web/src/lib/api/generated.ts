@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+    "/api/admin/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assignments */
+        get: operations["list_assignments_api_admin_assignments_get"];
+        put?: never;
+        /** Assign Team */
+        post: operations["assign_team_api_admin_assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/billing/checkout-session": {
         parameters: {
             query?: never;
@@ -72,6 +90,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conversations */
+        get: operations["conversations_api_chat_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Messages */
+        get: operations["messages_api_chat_conversations__conversation_id__messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Keys */
+        get: operations["list_keys_api_chat_keys_get"];
+        /** Put Key */
+        put: operations["put_key_api_chat_keys_put"];
+        post?: never;
+        /** Delete Key */
+        delete: operations["delete_key_api_chat_keys_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Models */
+        get: operations["models_api_chat_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send */
+        post: operations["send_api_chat_send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/closers": {
         parameters: {
             query?: never;
@@ -117,6 +222,23 @@ export interface paths {
         get: operations["get_databank_api_databank_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/draft/grade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draft Grade */
+        post: operations["draft_grade_api_draft_grade_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -491,6 +613,38 @@ export interface components {
             /** Drop Player Key */
             drop_player_key?: string | null;
         };
+        /** Assignment */
+        Assignment: {
+            /** Clerk User Id */
+            clerk_user_id: string;
+            /** League Id */
+            league_id: number;
+            /** Team Name */
+            team_name: string;
+            /** User Id */
+            user_id: number;
+            /**
+             * Validated
+             * @default true
+             */
+            validated: boolean;
+        };
+        /** AssignmentRequest */
+        AssignmentRequest: {
+            /** Clerk User Id */
+            clerk_user_id: string;
+            /** League Id */
+            league_id?: number | null;
+            /** Team Name */
+            team_name: string;
+        };
+        /** AssignmentsResponse */
+        AssignmentsResponse: {
+            /** Assignments */
+            assignments: components["schemas"]["Assignment"][];
+            /** Available Teams */
+            available_teams: string[];
+        };
         /** BudgetStrip */
         BudgetStrip: {
             /**
@@ -556,6 +710,84 @@ export interface components {
             /** You */
             you: number;
         };
+        /** ChatMessage */
+        ChatMessage: {
+            /** Content */
+            content: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Role */
+            role: string;
+        };
+        /** ChatModel */
+        ChatModel: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+        };
+        /** ChatModelsResponse */
+        ChatModelsResponse: {
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["ChatModel"][];
+        };
+        /** ChatSendRequest */
+        ChatSendRequest: {
+            /** Conversation Id */
+            conversation_id?: number | null;
+            /**
+             * Deep Research
+             * @default false
+             */
+            deep_research: boolean;
+            /** Message */
+            message: string;
+            /** Model */
+            model: string;
+            /**
+             * Web Search
+             * @default false
+             */
+            web_search: boolean;
+        };
+        /** ChatSendResponse */
+        ChatSendResponse: {
+            /** Content */
+            content: string;
+            /** Conversation Id */
+            conversation_id: number | null;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /** Error */
+            error?: string | null;
+            /**
+             * Tokens In
+             * @default 0
+             */
+            tokens_in: number;
+            /**
+             * Tokens Out
+             * @default 0
+             */
+            tokens_out: number;
+            /**
+             * Tool Trace
+             * @default []
+             */
+            tool_trace: {
+                [key: string]: unknown;
+            }[];
+        };
         /** CheckoutSessionRequest */
         CheckoutSessionRequest: {
             /** Cancel Url */
@@ -581,17 +813,42 @@ export interface components {
              */
             confidence: string;
             /**
+             * Era
+             * @default 0
+             */
+            era: number;
+            /**
              * Handcuffs
              * @default []
              */
             handcuffs: components["schemas"]["PlayerRef"][];
             /**
+             * Job Security
+             * @default 0
+             */
+            job_security: number;
+            /**
+             * Projected Sv
+             * @default 0
+             */
+            projected_sv: number;
+            /**
              * Role
              * @default
              */
             role: string;
+            /**
+             * Security Color
+             * @default
+             */
+            security_color: string;
             /** Team */
             team: string;
+            /**
+             * Whip
+             * @default 0
+             */
+            whip: number;
         };
         /** ClosersResponse */
         ClosersResponse: {
@@ -621,6 +878,35 @@ export interface components {
              * @default []
              */
             players: components["schemas"]["ComparePlayer"][];
+        };
+        /** ConversationListResponse */
+        ConversationListResponse: {
+            /**
+             * Conversations
+             * @default []
+             */
+            conversations: components["schemas"]["ConversationSummary"][];
+        };
+        /** ConversationMessagesResponse */
+        ConversationMessagesResponse: {
+            /** Conversation Id */
+            conversation_id: number;
+            /**
+             * Messages
+             * @default []
+             */
+            messages: components["schemas"]["ChatMessage"][];
+        };
+        /** ConversationSummary */
+        ConversationSummary: {
+            /** Id */
+            id: number;
+            /** Model */
+            model?: string | null;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /**
          * DailyMeta
@@ -656,6 +942,15 @@ export interface components {
              */
             seasons: components["schemas"]["SeasonStat"][];
         };
+        /** DraftCategoryGrade */
+        DraftCategoryGrade: {
+            /** Category */
+            category: string;
+            /** Total */
+            total: number;
+            /** Z Score */
+            z_score: number;
+        };
         /** DraftClock */
         DraftClock: {
             /** Current Pick */
@@ -690,6 +985,75 @@ export interface components {
              * @default 0
              */
             user_team_index: number;
+        };
+        /** DraftGradeRequest */
+        DraftGradeRequest: {
+            /**
+             * @default {
+             *       "num_rounds": 23,
+             *       "num_teams": 12,
+             *       "user_team_index": 0
+             *     }
+             */
+            config: components["schemas"]["DraftConfig"];
+            /**
+             * Pick Log
+             * @default []
+             */
+            pick_log: components["schemas"]["DraftPick"][];
+        };
+        /** DraftGradeResponse */
+        DraftGradeResponse: {
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["DraftCategoryGrade"][];
+            /**
+             * Category Balance Score
+             * @default 0.5
+             */
+            category_balance_score: number;
+            /**
+             * Expected Sgp
+             * @default 0
+             */
+            expected_sgp: number;
+            /**
+             * Overall Grade
+             * @default N/A
+             */
+            overall_grade: string;
+            /**
+             * Overall Score
+             * @default 0
+             */
+            overall_score: number;
+            /**
+             * Pick Efficiency Score
+             * @default 0
+             */
+            pick_efficiency_score: number;
+            /**
+             * Strengths
+             * @default []
+             */
+            strengths: string[];
+            /**
+             * Team Value Score
+             * @default 0
+             */
+            team_value_score: number;
+            /**
+             * Total Sgp
+             * @default 0
+             */
+            total_sgp: number;
+            /**
+             * Weaknesses
+             * @default []
+             */
+            weaknesses: string[];
         };
         /** DraftPick */
         DraftPick: {
@@ -925,6 +1289,23 @@ export interface components {
             status: string;
             /** Target */
             target: number;
+        };
+        /** KeyMeta */
+        KeyMeta: {
+            /** Created At */
+            created_at?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Provider */
+            provider: string;
+        };
+        /** KeysResponse */
+        KeysResponse: {
+            /**
+             * Keys
+             * @default []
+             */
+            keys: components["schemas"]["KeyMeta"][];
         };
         /** LeaderRow */
         LeaderRow: {
@@ -1245,6 +1626,16 @@ export interface components {
              * @default flat
              */
             trend: string;
+        };
+        /** MutationResponse */
+        MutationResponse: {
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Ok */
+            ok: boolean;
         };
         /** MutationResult */
         MutationResult: {
@@ -1680,6 +2071,15 @@ export interface components {
             /** Value */
             value: number;
         };
+        /** StoreKeyRequest */
+        StoreKeyRequest: {
+            /** Api Key */
+            api_key: string;
+            /** Label */
+            label?: string | null;
+            /** Provider */
+            provider: string;
+        };
         /** StreamAnalyzeRequest */
         StreamAnalyzeRequest: {
             /**
@@ -2087,6 +2487,72 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_assignments_api_admin_assignments_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_team_api_admin_assignments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Assignment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     checkout_session_api_billing_checkout_session_post: {
         parameters: {
             query?: never;
@@ -2236,6 +2702,236 @@ export interface operations {
             };
         };
     };
+    conversations_api_chat_conversations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    messages_api_chat_conversations__conversation_id__messages_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationMessagesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_keys_api_chat_keys_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeysResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_key_api_chat_keys_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_key_api_chat_keys_delete: {
+        parameters: {
+            query: {
+                provider: string;
+                label?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    models_api_chat_models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatModelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_api_chat_send_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_closers_api_closers_get: {
         parameters: {
             query?: never;
@@ -2306,6 +3002,55 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DatabankResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_grade_api_draft_grade_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftGradeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftGradeResponse"];
+                };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2422,7 +3167,9 @@ export interface operations {
                 team_name: string;
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2454,7 +3201,9 @@ export interface operations {
                 team_name: string;
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2660,7 +3409,9 @@ export interface operations {
             query?: {
                 team_name?: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2691,7 +3442,9 @@ export interface operations {
             query: {
                 team_name: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2801,7 +3554,9 @@ export interface operations {
             query?: {
                 team_name?: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
