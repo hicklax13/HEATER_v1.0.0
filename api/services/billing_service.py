@@ -12,7 +12,14 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 
 from api.billing_config import billing_env_configured
-from api.contracts.billing import CheckoutSessionRequest, CheckoutSessionResponse, SubscriptionResponse, WebhookResponse
+from api.contracts.billing import (
+    CheckoutSessionRequest,
+    CheckoutSessionResponse,
+    PortalSessionRequest,
+    PortalSessionResponse,
+    SubscriptionResponse,
+    WebhookResponse,
+)
 from api.gateways.stripe_gateway import BillingSignatureError, StripeGateway
 from api.stores.subscription_store import Subscription, SubscriptionStore
 
@@ -103,6 +110,26 @@ class BillingService:
             # (bad price id, revoked key, livemode mismatch). User-facing error stays generic.
             logger.warning("create_checkout failed (%s): %s", type(exc).__name__, exc)
             return CheckoutSessionResponse(ok=False, error="Checkout could not be started.")
+
+    # --- billing portal (manage / cancel) -----------------------------------
+    def create_portal_session(self, app_user, req: PortalSessionRequest) -> PortalSessionResponse:
+        if app_user is None:
+            return PortalSessionResponse(ok=False, error="Sign in required.")
+        if not self._configured():
+            return PortalSessionResponse(ok=False, error="Billing not configured.")
+        sub = self._store.get(app_user.clerk_user_id)
+        customer_id = sub.stripe_customer_id if sub and sub.stripe_customer_id else None
+        if not customer_id:
+            return PortalSessionResponse(ok=False, error="No active subscription.")
+        return_url = (
+            (req.return_url or "").strip() or self._env("STRIPE_PORTAL_RETURN_URL") or "http://localhost:3000/account"
+        )
+        try:
+            url = self._gateway.create_portal_session(customer_id, return_url)
+            return PortalSessionResponse(ok=True, url=url)
+        except Exception as exc:
+            logger.warning("create_portal_session failed (%s): %s", type(exc).__name__, exc)
+            return PortalSessionResponse(ok=False, error="Could not open the billing portal.")
 
     # --- webhook ------------------------------------------------------------
     def handle_webhook(self, payload: bytes, sig_header: str | None) -> WebhookResponse:

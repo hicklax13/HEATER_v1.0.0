@@ -29,6 +29,9 @@ class _FakeGateway:
         self.sessions += 1
         return "https://checkout.stripe.test/session"
 
+    def create_portal_session(self, customer_id, return_url):
+        return "https://billing.stripe.test/portal"
+
     def parse_webhook_event(self, payload, sig_header, secret):
         if self._raise_sig:
             raise BillingSignatureError("bad sig")
@@ -189,6 +192,47 @@ def test_period_end_reads_item_level_fallback(monkeypatch):
     gw = _FakeGateway(event={"type": "customer.subscription.updated", "data": {"object": obj}})
     BillingService(gw, store).handle_webhook(b"{}", "sig")
     assert store.get("user_abc").current_period_end == 1900000000
+
+
+def test_portal_unconfigured_is_graceful(monkeypatch):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_PRO_PRICE_ID", raising=False)
+    from api.contracts.billing import PortalSessionRequest
+
+    resp = BillingService(_FakeGateway(), InMemorySubscriptionStore()).create_portal_session(
+        _USER, PortalSessionRequest()
+    )
+    assert resp.ok is False
+    assert "not configured" in resp.error.lower()
+
+
+def test_portal_requires_existing_customer(monkeypatch):
+    # A user who never subscribed (no stripe_customer_id) has no portal to open.
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
+    from api.contracts.billing import PortalSessionRequest
+
+    resp = BillingService(_FakeGateway(), InMemorySubscriptionStore()).create_portal_session(
+        _USER, PortalSessionRequest()
+    )
+    assert resp.ok is False
+    assert resp.url is None
+
+
+def test_portal_returns_url_for_subscriber(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
+    from api.contracts.billing import PortalSessionRequest
+
+    store = InMemorySubscriptionStore()
+    store.upsert(
+        Subscription(
+            clerk_user_id="user_abc", stripe_customer_id="cus_user_abc", tier="pro", status="active", updated_at="t"
+        )
+    )
+    resp = BillingService(_FakeGateway(), store).create_portal_session(_USER, PortalSessionRequest())
+    assert resp.ok is True
+    assert resp.url == "https://billing.stripe.test/portal"
 
 
 def test_read_subscription_defaults_free():

@@ -20,6 +20,9 @@ class _FakeGateway:
     def create_checkout_session(self, **kwargs):
         return "https://checkout.stripe.test/s"
 
+    def create_portal_session(self, customer_id, return_url):
+        return "https://billing.stripe.test/p"
+
     def parse_webhook_event(self, payload, sig_header, secret):
         return {
             "type": "customer.subscription.created",
@@ -82,11 +85,40 @@ def test_subscription_read_reflects_store():
     assert resp.json()["tier"] == "pro"
 
 
+def test_portal_session_requires_auth(monkeypatch):
+    monkeypatch.delenv("HEATER_API_WRITE_TOKEN", raising=False)
+    monkeypatch.delenv("CLERK_ISSUER", raising=False)
+    app = create_app()
+    app.dependency_overrides[get_subscription_store] = lambda: InMemorySubscriptionStore()
+    app.dependency_overrides[get_stripe_gateway] = lambda: _FakeGateway()
+    resp = TestClient(app).post("/api/billing/portal-session", json={})
+    assert resp.status_code == 401
+
+
+def test_portal_session_returns_url(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRO_PRICE_ID", "price_x")
+    store = InMemorySubscriptionStore()
+    store.upsert(
+        Subscription(
+            clerk_user_id="user_abc", stripe_customer_id="cus_user_abc", tier="pro", status="active", updated_at="t"
+        )
+    )
+    resp = TestClient(_app(store=store)).post(
+        "/api/billing/portal-session", json={}, headers={"Authorization": "Bearer x"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["url"]
+
+
 def test_openapi_documents_billing_routes():
     schema = create_app().openapi()
     assert "/api/billing/checkout-session" in schema["paths"]
     assert "/api/billing/webhook" in schema["paths"]
     assert "/api/billing/subscription" in schema["paths"]
-    # the two authed routes advertise 401; the webhook advertises 400
+    assert "/api/billing/portal-session" in schema["paths"]
+    # the authed routes advertise 401; the webhook advertises 400
     assert "401" in schema["paths"]["/api/billing/checkout-session"]["post"]["responses"]
+    assert "401" in schema["paths"]["/api/billing/portal-session"]["post"]["responses"]
     assert "400" in schema["paths"]["/api/billing/webhook"]["post"]["responses"]

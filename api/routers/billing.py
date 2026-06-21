@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, Request
 from api.contracts.billing import (
     CheckoutSessionRequest,
     CheckoutSessionResponse,
+    PortalSessionRequest,
+    PortalSessionResponse,
     SubscriptionResponse,
     WebhookResponse,
 )
@@ -33,6 +35,13 @@ async def webhook(request: Request, service=Depends(get_billing_service)) -> Web
     payload = await request.body()
     signature = request.headers.get("Stripe-Signature")
     return service.handle_webhook(payload, signature)
+
+
+@router.post("/portal-session", response_model=PortalSessionResponse, responses=_AUTH_401)
+def portal_session(
+    req: PortalSessionRequest, user=Depends(require_app_user), service=Depends(get_billing_service)
+) -> PortalSessionResponse:
+    return service.create_portal_session(user, req)
 
 
 @router.get("/subscription", response_model=SubscriptionResponse, responses=_AUTH_401)

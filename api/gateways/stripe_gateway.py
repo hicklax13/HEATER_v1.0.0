@@ -31,6 +31,8 @@ class StripeGateway(Protocol):
         clerk_user_id: str,
     ) -> str: ...
 
+    def create_portal_session(self, customer_id: str, return_url: str) -> str: ...
+
     def parse_webhook_event(self, payload: bytes, sig_header: str | None, secret: str) -> dict: ...
 
 
@@ -45,6 +47,9 @@ class NullStripeGateway:
         raise RuntimeError("Stripe not configured")
 
     def create_checkout_session(self, **kwargs) -> str:
+        raise RuntimeError("Stripe not configured")
+
+    def create_portal_session(self, customer_id: str, return_url: str) -> str:
         raise RuntimeError("Stripe not configured")
 
     def parse_webhook_event(self, payload: bytes, sig_header: str | None, secret: str) -> dict:
@@ -78,6 +83,10 @@ class LiveStripeGateway:
             client_reference_id=clerk_user_id,
             subscription_data={"trial_period_days": trial_days, "metadata": {"clerk_user_id": clerk_user_id}},
         )
+        return session.url
+
+    def create_portal_session(self, customer_id: str, return_url: str) -> str:
+        session = self._stripe.billing_portal.Session.create(customer=customer_id, return_url=return_url)
         return session.url
 
     def parse_webhook_event(self, payload: bytes, sig_header: str | None, secret: str) -> dict:

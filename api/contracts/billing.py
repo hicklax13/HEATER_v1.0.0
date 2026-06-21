@@ -17,6 +17,16 @@ class CheckoutSessionResponse(BaseModel):
     error: str | None = None
 
 
+class PortalSessionRequest(BaseModel):
+    return_url: str | None = None  # where Stripe sends the user back; falls back to STRIPE_PORTAL_RETURN_URL
+
+
+class PortalSessionResponse(BaseModel):
+    ok: bool
+    url: str | None = None  # the Stripe-hosted billing-portal URL to redirect to
+    error: str | None = None
+
+
 class SubscriptionResponse(BaseModel):
     tier: str = "free"  # "free" | "pro"
     status: str = "none"  # none|trialing|active|canceled|past_due|unpaid|incomplete

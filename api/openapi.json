@@ -2096,6 +2096,58 @@
         "title": "PlayoffTeam",
         "type": "object"
       },
+      "PortalSessionRequest": {
+        "properties": {
+          "return_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Url"
+          }
+        },
+        "title": "PortalSessionRequest",
+        "type": "object"
+      },
+      "PortalSessionResponse": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "PortalSessionResponse",
+        "type": "object"
+      },
       "ProbableStarter": {
         "properties": {
           "is_home": {
@@ -3025,6 +3077,68 @@
           }
         },
         "summary": "Checkout Session",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/billing/portal-session": {
+      "post": {
+        "operationId": "portal_session_api_billing_portal_session_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required: missing or invalid bearer token."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Portal Session",
         "tags": [
           "billing"
         ]

@@ -14,6 +14,8 @@ def test_null_gateway_is_unconfigured_and_refuses():
         )
     with pytest.raises(BillingSignatureError):
         g.parse_webhook_event(b"{}", "sig", "secret")
+    with pytest.raises(RuntimeError):
+        g.create_portal_session(customer_id="c", return_url="r")
 
 
 def test_billing_signature_error_is_exception():
