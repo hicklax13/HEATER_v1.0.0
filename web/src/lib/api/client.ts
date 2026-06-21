@@ -16,13 +16,15 @@ declare global {
   }
 }
 
-/** Bearer token from the active Clerk session, or null (dormant / signed out / SSR). */
+/** Bearer token from the active Clerk session, or null (dormant / signed out / SSR).
+ *  Call getToken AS A METHOD on the session — destructuring it loses the `this`
+ *  receiver Clerk needs and would silently yield no token (→ spurious 401s). */
 async function authToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  const getToken = window.Clerk?.session?.getToken;
-  if (!getToken) return null;
+  const session = window.Clerk?.session;
+  if (!session?.getToken) return null;
   try {
-    return await getToken();
+    return await session.getToken();
   } catch {
     return null;
   }

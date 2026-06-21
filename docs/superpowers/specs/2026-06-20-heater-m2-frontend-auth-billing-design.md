@@ -46,6 +46,13 @@ When `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is **unset** (today + the live app), th
 - **Active (Connor's activation-time check):** can't fully test without his real Clerk/Stripe keys. I verify the wiring via `tsc` against the contract + structural correctness. Document the activation steps (set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, the FastAPI Clerk/Stripe env, create the Stripe product).
 - `pnpm exec tsc --noEmit` + `pnpm run lint` + `pnpm build` green throughout.
 
+## Activation checklist (Connor, when going live)
+
+1. Create the Clerk app → set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (web) + the Clerk secret (FastAPI).
+2. Create the Stripe product/price ($7.99/mo, 7-day trial) + set the Stripe keys/webhook secret (FastAPI).
+3. **Set `NEXT_PUBLIC_HEATER_LIVE=1` together with the Clerk key** — the paywall (402→locked) only fires on the live API path; if billing goes live while `HEATER_LIVE` is unset, gated pages serve mock data instead of the paywall (code-review launch-sequencing note).
+4. Rebuild/redeploy `web/` (the env flags are inlined at build time).
+
 ## Out of scope (v1)
 
 - Proactive tier-gating (hiding Pro pages before fetch) — reactive 402 is simpler + respects granularity; can add a teaser later.
