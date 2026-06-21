@@ -20,15 +20,6 @@ from pydantic import BaseModel
 
 _DEFAULT_API_DB = os.path.join("data", "api_state.db")
 
-# src/ai chat tables (ai_conversations/keys/usage_ledger) live in draft_tool.db and
-# key on `user_id` in the Streamlit `users(user_id)` namespace (small ints, ~1-20).
-# The API's AppUser.id lives in a SEPARATE db (api_state.db) and would COLLIDE with
-# real Streamlit chat users if passed raw. This offset maps AppUser.id into a
-# disjoint range so a Clerk user's chat never mixes with a Streamlit user's.
-# M4 follow-up (Platform track): move the chat tables into the api-owned store/Postgres
-# keyed by AppUser.id and retire this offset (also removes the API→draft_tool.db write).
-_CHAT_USER_ID_OFFSET = 1_000_000
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,13 +27,6 @@ class AppUser(BaseModel):
     id: int
     clerk_user_id: str
     created_at: str
-
-    @property
-    def chat_user_id(self) -> int:
-        """Collision-free user_id for src/ai chat (history/keys/budget). Disjoint
-        from the live Streamlit users.user_id range by construction. A plain property
-        (NOT a pydantic field) so it never enters the serialized schema/openapi."""
-        return _CHAT_USER_ID_OFFSET + self.id
 
 
 class UserStore(Protocol):
