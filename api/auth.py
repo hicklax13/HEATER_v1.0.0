@@ -163,15 +163,21 @@ class ClerkVerifier:
         return Principal(subject=subject, clerk_user_id=subject)
 
 
+def clerk_configured() -> bool:
+    """True when Clerk auth is configured (CLERK_ISSUER set). The single predicate
+    for 'is real user auth live' — used by get_auth_verifier AND the read-gate flip
+    (api/tenancy.py) so they can't disagree. Read at call time."""
+    return bool(os.environ.get("CLERK_ISSUER", "").strip())
+
+
 def get_auth_verifier() -> AuthVerifier:
     """DI provider for the write-auth verifier. Returns ClerkVerifier when Clerk
     is configured (CLERK_ISSUER set), else the interim EnvTokenVerifier (the
     server-to-server/CI + dormant default). Read at call time so env changes take
     effect without reload. Tests override this."""
-    issuer = os.environ.get("CLERK_ISSUER", "").strip()
-    if issuer:
+    if clerk_configured():
         return ClerkVerifier(
-            issuer=issuer,
+            issuer=os.environ["CLERK_ISSUER"].strip(),
             audience=os.environ.get("CLERK_AUDIENCE", "").strip() or None,
             jwks_url=os.environ.get("CLERK_JWKS_URL", "").strip() or None,
         )

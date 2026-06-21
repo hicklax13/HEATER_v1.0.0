@@ -104,3 +104,64 @@ def test_resolver_clerk_user_without_assignment_resolves_none():
     body = TestClient(app).get("/probe?team_name=Fallback", headers={"Authorization": "Bearer x"}).json()
     assert body["resolved"] is None
     assert body["team"] == "Fallback"
+
+
+def test_require_login_when_clerk_configured_and_no_token(monkeypatch):
+    # Activation flip: Clerk configured + no identity → 401 (require login).
+    monkeypatch.setenv("CLERK_ISSUER", "https://example.clerk.accounts.dev")
+    app = _resolver_app()
+    app.dependency_overrides[get_user_store] = lambda: InMemoryUserStore()
+    app.dependency_overrides[get_league_store] = lambda: InMemoryLeagueStore()
+    app.dependency_overrides[get_membership_store] = lambda: InMemoryMembershipStore()
+    # No get_auth_verifier override: optional_app_user returns None for a no-header
+    # request without calling verify (no network), and the 401 comes from the
+    # CLERK_ISSUER-keyed flip in require_viewer_context.
+    r = TestClient(app).get("/probe?team_name=Team%20Hickey")
+    assert r.status_code == 401
+
+
+def test_require_login_when_clerk_configured_and_invalid_token(monkeypatch):
+    # Security-critical: Clerk configured + a present-but-forged/invalid token must
+    # also 401 (the verifier rejects it → optional_app_user → None → gate fires).
+    monkeypatch.setenv("CLERK_ISSUER", "https://example.clerk.accounts.dev")
+    app = _resolver_app()
+
+    class _Reject:  # mimics ClerkVerifier rejecting a forged token
+        def verify(self, authorization):
+            from api.auth import _unauthorized
+
+            raise _unauthorized("Invalid or expired token.")
+
+    app.dependency_overrides[get_auth_verifier] = lambda: _Reject()
+    app.dependency_overrides[get_user_store] = lambda: InMemoryUserStore()
+    app.dependency_overrides[get_league_store] = lambda: InMemoryLeagueStore()
+    app.dependency_overrides[get_membership_store] = lambda: InMemoryMembershipStore()
+    r = TestClient(app).get("/probe?team_name=x", headers={"Authorization": "Bearer forged"})
+    assert r.status_code == 401
+
+
+def test_open_when_clerk_unset_even_without_token(monkeypatch):
+    # Dormant: Clerk unset → reads stay OPEN (today's behavior).
+    monkeypatch.delenv("CLERK_ISSUER", raising=False)
+    app = _resolver_app()
+    app.dependency_overrides[get_user_store] = lambda: InMemoryUserStore()
+    app.dependency_overrides[get_league_store] = lambda: InMemoryLeagueStore()
+    app.dependency_overrides[get_membership_store] = lambda: InMemoryMembershipStore()
+    body = TestClient(app).get("/probe?team_name=Team%20Hickey").json()
+    assert body == {"team": "Team Hickey", "resolved": None}
+
+
+def test_clerk_configured_valid_token_still_resolves(monkeypatch):
+    # Clerk configured + valid token + assignment → resolves (no 401).
+    monkeypatch.setenv("CLERK_ISSUER", "https://example.clerk.accounts.dev")
+    app = _resolver_app()
+    users, leagues, members = InMemoryUserStore(), InMemoryLeagueStore(), InMemoryMembershipStore()
+    u = users.get_or_create("user_42")
+    lg = leagues.get_or_create_default()
+    members.assign(u.id, lg.id, "Bronx Bombers", team_key=None, assigned_by=u.id)
+    app.dependency_overrides[get_auth_verifier] = lambda: _ClerkVerifier()
+    app.dependency_overrides[get_user_store] = lambda: users
+    app.dependency_overrides[get_league_store] = lambda: leagues
+    app.dependency_overrides[get_membership_store] = lambda: members
+    body = TestClient(app).get("/probe?team_name=x", headers={"Authorization": "Bearer x"}).json()
+    assert body["resolved"] == "Bronx Bombers"

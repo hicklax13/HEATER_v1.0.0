@@ -12,9 +12,10 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from pydantic import BaseModel
 
+from api.auth import clerk_configured
 from api.deps import get_league_store, get_membership_store
 from api.identity import optional_app_user
 from api.stores.league_store import LeagueStore
@@ -72,6 +73,15 @@ def require_viewer_context(
     param = today's behavior). A logged-in user with no assignment → team_name None
     (never another user's team)."""
     if app_user is None:
+        # Activation flip: once Clerk is live, an open read with no valid login is
+        # rejected (each user must log in → only sees their own team). Dormant until
+        # CLERK_ISSUER is set, so today's open reads + existing tests are unchanged.
+        if clerk_configured():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Login required.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return ViewerContext()
     league = league_store.get_or_create_default()
     membership = membership_store.get_for_user(app_user.id, league.id)
