@@ -333,6 +333,23 @@
             "title": "Model",
             "type": "string"
           },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
           "web_search": {
             "default": false,
             "title": "Web Search",
@@ -4539,6 +4556,63 @@
           }
         },
         "summary": "Send",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/send-stream": {
+      "post": {
+        "operationId": "send_stream_api_chat_send_stream_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Stream",
         "tags": [
           "chat"
         ]

@@ -5,6 +5,7 @@ Chat is inherently per-user, so an unauthenticated caller (no Clerk) gets 401.""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from api.contracts.chat import (
     ChatModelsResponse,
@@ -46,6 +47,26 @@ def send(
             deep_research=body.deep_research,
             reasoning_effort=body.reasoning_effort,
         )
+    )
+
+
+@router.post("/send-stream")
+def send_stream(
+    body: ChatSendRequest,
+    app_user: AppUser | None = Depends(require_app_user),
+    svc: ChatService = Depends(get_chat_service),
+) -> StreamingResponse:
+    return StreamingResponse(
+        svc.send_stream(
+            chat_user_id=_uid(app_user),
+            message=body.message,
+            model=body.model,
+            conversation_id=body.conversation_id,
+            web_search=body.web_search,
+            deep_research=body.deep_research,
+            reasoning_effort=body.reasoning_effort,
+        ),
+        media_type="text/event-stream",
     )
 
 

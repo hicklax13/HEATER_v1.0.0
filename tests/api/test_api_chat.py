@@ -43,6 +43,10 @@ class _FakeChatService:
     def delete_key(self, *a):
         return True, "Key removed."
 
+    def send_stream(self, **k):  # noqa: ARG002
+        yield 'data: {"type": "text_delta", "text": "hi"}\n\n'
+        yield 'data: {"type": "done", "content": "hi", "conversation_id": 1, "cost_usd": 0.0, "tokens_in": 1, "tokens_out": 1, "tool_trace": []}\n\n'
+
 
 def _client(user=_FakeUser()):
     app = FastAPI()
@@ -59,6 +63,18 @@ def test_send_ok():
 
 def test_unauthenticated_is_401():
     r = _client(user=None).post("/api/chat/send", json={"message": "hi", "model": "gpt-5"})
+    assert r.status_code == 401
+
+
+def test_send_stream_returns_event_stream():
+    r = _client().post("/api/chat/send-stream", json={"message": "hi", "model": "gpt-5"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert '"type": "text_delta"' in r.text and '"type": "done"' in r.text
+
+
+def test_send_stream_unauthenticated_is_401():
+    r = _client(user=None).post("/api/chat/send-stream", json={"message": "hi", "model": "gpt-5"})
     assert r.status_code == 401
 
 
