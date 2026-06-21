@@ -579,6 +579,25 @@ export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData
     }))
     .filter((s) => s.in);
   const ip = api.daily?.ip_pace;
+  const d = api.daily;
+  const daily = d
+    ? {
+        winning: d.winning ?? [],
+        losing: d.losing ?? [],
+        tied: d.tied ?? [],
+        rateModes: d.rate_modes ?? {},
+        urgency: d.urgency ?? {},
+        recommendations: d.recommendations ?? [],
+      }
+    : undefined;
+  // Attach only when the engine returned something to show (no live Yahoo → all empty → hide the panel).
+  const hasDaily =
+    !!daily &&
+    (daily.winning.length > 0 ||
+      daily.losing.length > 0 ||
+      daily.tied.length > 0 ||
+      Object.keys(daily.rateModes).length > 0 ||
+      daily.recommendations.length > 0);
   return {
     date: api.date || "Today",
     optimal: api.optimal ?? false,
@@ -592,5 +611,6 @@ export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData
       proj: c.proj,
       trend: (c.trend as "up" | "down" | "flat") ?? "flat",
     })),
+    daily: hasDaily ? daily : undefined,
   };
 }

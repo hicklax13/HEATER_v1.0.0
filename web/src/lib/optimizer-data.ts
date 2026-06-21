@@ -37,6 +37,17 @@ export interface OptimizerSwap {
   gain?: string; // mock only — the daily API ranks by heat value, not an SGP delta
 }
 
+/** Day-level matchup context from the daily optimizer's `daily{}` meta.
+ *  Populated only in daily mode with live Yahoo data; the panel hides when empty. */
+export interface DailyContext {
+  winning: string[]; // category keys you're currently winning
+  losing: string[]; // …losing (these are the focus cats)
+  tied: string[];
+  rateModes: Record<string, string>; // ERA/WHIP → "protect" | "compete" | "abandon"
+  urgency: Record<string, number>; // category → 0..1 urgency weight (orders the focus cats)
+  recommendations: string[]; // plain-language daily advice
+}
+
 export interface OptimizerData {
   date: string;
   optimal: boolean; // is the current lineup already optimal?
@@ -46,6 +57,7 @@ export interface OptimizerData {
   movesLeft?: { value: number; total: number }; // not in the optimize contract
   swaps: OptimizerSwap[];
   impact: CatImpact[];
+  daily?: DailyContext; // daily-mode matchup context (urgency/rate-modes/game-state/recs)
 }
 
 const p = (
@@ -93,6 +105,17 @@ export const OPTIMIZER: OptimizerData = {
     { key: "K", proj: "29", trend: "up" },
     { key: "SV", proj: "1.4", trend: "flat" },
   ],
+  daily: {
+    winning: ["HR", "R", "OBP", "K"],
+    losing: ["SB", "SV", "AVG"],
+    tied: ["RBI"],
+    rateModes: { ERA: "compete", WHIP: "protect" },
+    urgency: { SB: 0.82, SV: 0.74, AVG: 0.5, HR: 0.18 },
+    recommendations: [
+      "Start Merrill over Soto vs the RHP — SB upside in a category you're losing.",
+      "Hold Clase for the save; WHIP is a protect category this week.",
+    ],
+  },
 };
 
 export async function fetchOptimizer(): Promise<OptimizerData | null> {

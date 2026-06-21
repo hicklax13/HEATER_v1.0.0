@@ -11,6 +11,7 @@ import {
   ArrowDown,
   Clock,
   Repeat,
+  Target,
 } from "lucide-react";
 import { fetchOptimizer, type OptimizerData, type CatImpact } from "@/lib/optimizer-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
@@ -103,6 +104,7 @@ function Loaded({ data }: { data: OptimizerData }) {
         </div>
         <aside className="space-y-4">
           <SwapCard swaps={data.swaps} starters={data.starters} bench={data.bench} optimized={optimized} />
+          {data.daily && <DailyPlanCard daily={data.daily} />}
           {(data.ipPace || data.movesLeft) && <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />}
           {data.impact.length > 0 && <ImpactCard impact={data.impact} />}
         </aside>
@@ -217,6 +219,86 @@ function SwapCard({
         </div>
       )}
     </Card>
+  );
+}
+
+const RATE_MODE_TONE: Record<string, string> = {
+  protect: "bg-ok/12 text-ok",
+  compete: "bg-heat/12 text-heat",
+  abandon: "bg-surface-2 text-ink-3",
+};
+
+/** Daily-mode matchup context: posture (W/T/L), focus categories (losing, ordered
+ *  by urgency), rate-stat stance (ERA/WHIP protect|compete|abandon), and the
+ *  engine's plain-language recommendations. Rendered only when the daily meta exists. */
+function DailyPlanCard({ daily }: { daily: NonNullable<OptimizerData["daily"]> }) {
+  const focus = [...daily.losing].sort((a, b) => (daily.urgency[b] ?? 0) - (daily.urgency[a] ?? 0));
+  const rateCats = Object.keys(daily.rateModes);
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-navy">
+        <Target className="size-4 text-heat" aria-hidden />
+        Daily Plan
+      </div>
+      <div className="mb-3 grid grid-cols-3 gap-1.5 text-center">
+        <StatePill n={daily.winning.length} label="Winning" tone="ok" />
+        <StatePill n={daily.tied.length} label="Tied" tone="steel" />
+        <StatePill n={daily.losing.length} label="Losing" tone="ember" />
+      </div>
+      {focus.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-3">Focus</div>
+          <div className="flex flex-wrap gap-1.5">
+            {focus.map((c) => (
+              <span key={c} className="rounded-md bg-heat/12 px-2 py-0.5 text-[11px] font-bold text-heat">
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {rateCats.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-3">Rate stance</div>
+          <div className="flex flex-wrap gap-1.5">
+            {rateCats.map((c) => {
+              const mode = daily.rateModes[c];
+              return (
+                <span
+                  key={c}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[11px] font-bold capitalize",
+                    RATE_MODE_TONE[mode] ?? "bg-surface-2 text-ink-3",
+                  )}
+                >
+                  {c} · {mode}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {daily.recommendations.length > 0 && (
+        <ul className="space-y-1.5 border-t border-line pt-3">
+          {daily.recommendations.map((r, i) => (
+            <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-ink-2">
+              <span className="mt-[5px] size-1.5 shrink-0 rounded-full bg-heat" aria-hidden />
+              {r}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function StatePill({ n, label, tone }: { n: number; label: string; tone: "ok" | "steel" | "ember" }) {
+  const toneCls = tone === "ok" ? "text-ok" : tone === "ember" ? "text-ember" : "text-steel";
+  return (
+    <div className="rounded-lg bg-surface py-1.5">
+      <div className={cn("tnum font-display text-lg font-bold leading-none", toneCls)}>{n}</div>
+      <div className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-ink-3">{label}</div>
+    </div>
   );
 }
 
