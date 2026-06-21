@@ -135,7 +135,7 @@ export function HitterMatchupGrid({ data }: { data: HitterMatchupsData }) {
                       <span className="mx-0.5 text-ink-3">·</span>
                       <span className="text-navy">R{row.totals.vsRhp}</span>
                       <span className="mx-0.5 text-ink-3">·</span>
-                      <span className="text-ok">L{row.totals.vsLhp}</span>
+                      <span className="text-navy">L{row.totals.vsLhp}</span>
                     </div>
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -173,14 +173,7 @@ function Cell({ c, dim }: { c: HitterCell; dim: boolean }) {
           {c.isHome ? "vs" : "@"} {c.opponent}
         </span>
         {c.oppSpThrows && (
-          <span
-            className={cn(
-              "rounded px-1 font-bold",
-              c.oppSpThrows === "L"
-                ? "bg-ok/15 text-ok"
-                : "bg-surface-2 text-ink-3",
-            )}
-          >
+          <span className="rounded bg-surface-2 px-1 font-bold text-ink-3">
             {c.oppSpThrows}
           </span>
         )}
