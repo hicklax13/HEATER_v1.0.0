@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
 
     from api.routers.admin import router as admin_router
     from api.routers.billing import router as billing_router
+    from api.routers.chat import router as chat_router
     from api.routers.closers import router as closers_router
     from api.routers.compare import router as compare_router
     from api.routers.databank import router as databank_router
@@ -78,4 +79,5 @@ def create_app() -> FastAPI:
     app.include_router(players_router)
     app.include_router(billing_router)
     app.include_router(admin_router)
+    app.include_router(chat_router)
     return app
