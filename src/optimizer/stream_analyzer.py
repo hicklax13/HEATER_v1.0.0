@@ -135,6 +135,48 @@ def get_opponent_offense_context(
     }
 
 
+def compute_hitter_matchup_score(
+    opp_sp_stats: Any,
+    team_offense: Any,
+    park_factor: float = 1.0,
+    hitters_home: bool = True,
+) -> float:
+    """Calibrated inverse of the pitcher matchup, for the batting team's side.
+
+    Mirrors ``score_stream_candidate``'s matchup block (same input extraction) so the
+    result is the EXACT complement of the Probable grid's ``matchup_score``: a starter
+    who is a great stream against this offense is, by construction, a tough matchup for
+    these bats.
+
+    Args:
+        opp_sp_stats: The opposing starter's pool row (dict/Series): reads
+            ``k_bb_pct``/``xfip``/``csw_pct``/``era``/``whip`` (missing -> engine defaults).
+        team_offense: The batting team's offense vs the SP's hand: ``wrc_plus`` and
+            ``k_pct`` (in PERCENT, as ``get_opponent_offense_context`` emits).
+        park_factor: Venue park factor (the batting team's park when they are home).
+        hitters_home: True if the batting team is at home.
+
+    Returns:
+        0-100, higher = better hitting matchup. NaN-safe, never raises.
+    """
+    pitcher_stats = {
+        key: val
+        for key in ("k_bb_pct", "xfip", "csw_pct", "era", "whip")
+        if (val := _get_num(opp_sp_stats, key)) is not None
+    }
+    opp_stats = {
+        "wrc_plus": _get_num(team_offense, "wrc_plus", _TEAM_NEUTRAL["wrc_plus"]),
+        "k_pct": _get_num(team_offense, "k_pct", _TEAM_NEUTRAL["k_pct"]) / 100.0,
+    }
+    pitcher_score = compute_pitcher_matchup_score(
+        pitcher_stats,
+        opponent_team_stats=opp_stats,
+        park_factor=park_factor,
+        is_home=not hitters_home,
+    )
+    return round(max(0.0, min(100.0, (10.0 - pitcher_score) * 10.0)), 1)
+
+
 # ── Component helpers ────────────────────────────────────────────────
 
 
