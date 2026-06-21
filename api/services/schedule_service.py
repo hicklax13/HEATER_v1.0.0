@@ -9,6 +9,7 @@ verified live.
 
 from __future__ import annotations
 
+import logging
 import math
 
 from api.contracts.schedule import (
@@ -21,6 +22,8 @@ from api.contracts.schedule import (
     ProbableTeamRow,
 )
 from api.services.player_ref import make_player_ref
+
+logger = logging.getLogger(__name__)
 
 # Difficulty bands over the 0-100 streamability score (higher = easier matchup).
 _BAND_EASY = 60.0
@@ -246,12 +249,14 @@ class ScheduleService:
                 try:
                     board = build_stream_board(ctx, date, include_rostered=True)
                     rows = [] if board is None or board.empty else [r for _, r in board.iterrows()]
-                except Exception:
+                except Exception as exc:
+                    logger.debug("schedule board failed for %s: %s", date, exc)
                     rows = []
                 boards_by_day.append(rows)
 
             return _assemble_grid(boards_by_day, date_list, roster_map, user_ids)
-        except Exception:
+        except Exception as exc:
+            logger.warning("ScheduleService.probables failed: %s", exc)
             return ProbableGridResponse(days=date_list, teams=[])
 
     @staticmethod
@@ -268,7 +273,8 @@ class ScheduleService:
                 except (TypeError, ValueError):
                     continue
             return out
-        except Exception:
+        except Exception as exc:
+            logger.warning("ScheduleService._roster_map failed: %s", exc)
             return {}
 
     def hitter_matchups(self, days: int = 7, team_name: str | None = None) -> HitterMatchupGridResponse:
@@ -299,12 +305,14 @@ class ScheduleService:
                 try:
                     board = build_stream_board(ctx, date, include_rostered=True)
                     rows = [] if board is None or board.empty else [r for _, r in board.iterrows()]
-                except Exception:
+                except Exception as exc:
+                    logger.debug("schedule board failed for %s: %s", date, exc)
                     rows = []
                 boards_by_day.append(rows)
 
             return _assemble_hitter_grid(boards_by_day, date_list, pool_stats, user_hitter_teams)
-        except Exception:
+        except Exception as exc:
+            logger.warning("ScheduleService.hitter_matchups failed: %s", exc)
             return HitterMatchupGridResponse(days=date_list, teams=[])
 
     @staticmethod
@@ -325,7 +333,8 @@ class ScheduleService:
                 except (TypeError, ValueError):
                     continue
             return out
-        except Exception:
+        except Exception as exc:
+            logger.debug("ScheduleService._pool_pitcher_stats failed: %s", exc)
             return out
 
     @staticmethod
@@ -342,5 +351,6 @@ class ScheduleService:
             if "is_hitter" in sub.columns:
                 sub = sub[sub["is_hitter"] == 1]
             return {str(t) for t in sub["team"].dropna().unique() if str(t)}
-        except Exception:
+        except Exception as exc:
+            logger.debug("ScheduleService._user_hitter_teams failed: %s", exc)
             return set()
