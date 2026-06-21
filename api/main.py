@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    from api.routers.billing import router as billing_router
     from api.routers.closers import router as closers_router
     from api.routers.compare import router as compare_router
     from api.routers.databank import router as databank_router
@@ -74,4 +75,5 @@ def create_app() -> FastAPI:
     app.include_router(draft_router)
     app.include_router(playoff_router)
     app.include_router(players_router)
+    app.include_router(billing_router)
     return app

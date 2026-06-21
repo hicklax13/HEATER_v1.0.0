@@ -3,6 +3,12 @@ app.dependency_overrides so they never touch the live data layer."""
 
 from __future__ import annotations
 
+import os
+
+from fastapi import Depends
+
+from api.gateways.stripe_gateway import LiveStripeGateway, NullStripeGateway, StripeGateway
+from api.services.billing_service import BillingService
 from api.services.closers_service import CloserService
 from api.services.compare_service import CompareService
 from api.services.databank_service import DatabankService
@@ -22,6 +28,7 @@ from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
 from api.services.trade_finder_service import TradeFinderService
 from api.services.trade_service import TradeService
+from api.stores.subscription_store import SqliteSubscriptionStore, SubscriptionStore
 from api.stores.user_store import SqliteUserStore, UserStore
 
 
@@ -103,3 +110,19 @@ def get_draft_service() -> DraftService:
 
 def get_user_store() -> UserStore:
     return SqliteUserStore()
+
+
+def get_stripe_gateway() -> StripeGateway:
+    key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    return LiveStripeGateway(key) if key else NullStripeGateway()
+
+
+def get_subscription_store() -> SubscriptionStore:
+    return SqliteSubscriptionStore()
+
+
+def get_billing_service(
+    gateway: StripeGateway = Depends(get_stripe_gateway),
+    store: SubscriptionStore = Depends(get_subscription_store),
+) -> BillingService:
+    return BillingService(gateway, store)

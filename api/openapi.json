@@ -144,6 +144,69 @@
         "title": "CategoryLine",
         "type": "object"
       },
+      "CheckoutSessionRequest": {
+        "properties": {
+          "cancel_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Url"
+          },
+          "success_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Url"
+          }
+        },
+        "title": "CheckoutSessionRequest",
+        "type": "object"
+      },
+      "CheckoutSessionResponse": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "CheckoutSessionResponse",
+        "type": "object"
+      },
       "CloserEntry": {
         "properties": {
           "closer": {
@@ -2496,6 +2559,49 @@
         "title": "StreamingResponse",
         "type": "object"
       },
+      "SubscriptionResponse": {
+        "properties": {
+          "current_period_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Period End"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "status": {
+            "default": "none",
+            "title": "Status",
+            "type": "string"
+          },
+          "tier": {
+            "default": "free",
+            "title": "Tier",
+            "type": "string"
+          },
+          "trial": {
+            "default": false,
+            "title": "Trial",
+            "type": "boolean"
+          }
+        },
+        "title": "SubscriptionResponse",
+        "type": "object"
+      },
       "Swap": {
         "description": "A recommended move: start this currently-benched player in `slot`.",
         "properties": {
@@ -2824,6 +2930,35 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WebhookResponse": {
+        "properties": {
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "handled": {
+            "default": false,
+            "title": "Handled",
+            "type": "boolean"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "WebhookResponse",
+        "type": "object"
       }
     }
   },
@@ -2833,6 +2968,144 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/billing/checkout-session": {
+      "post": {
+        "operationId": "checkout_session_api_billing_checkout_session_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required: missing or invalid bearer token."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Checkout Session",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/billing/subscription": {
+      "get": {
+        "operationId": "subscription_api_billing_subscription_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required: missing or invalid bearer token."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscription",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/billing/webhook": {
+      "post": {
+        "operationId": "webhook_api_billing_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid or missing Stripe webhook signature."
+          }
+        },
+        "summary": "Webhook",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
     "/api/closers": {
       "get": {
         "operationId": "get_closers_api_closers_get",
