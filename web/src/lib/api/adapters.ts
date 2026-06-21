@@ -695,8 +695,10 @@ export function apiDraftRecommendToData(api: ApiDraftRecommendResponse): RecResu
     recs: (api.recommendations ?? []).map((r) => ({
       player: toDraftPlayer(r.player),
       rank: r.rank,
-      score: r.score,
-      projectedSgp: r.projected_sgp,
+      // The engine returns raw floats (e.g. 97.3529…); round for display (matches
+      // the mock's clean integers) — the heat bar still uses the value directly.
+      score: Math.round(r.score),
+      projectedSgp: Math.round(r.projected_sgp * 10) / 10,
       confidence: r.confidence ?? null,
       tag: r.tag ?? null,
       reason: r.reason ?? "",
