@@ -97,11 +97,19 @@ class LineupService:
                 matchup = None
             schedule = self._schedule_today(resolved_date)
 
+            pool = self._load_pool()
+            inputs = self._daily_inputs(roster, pool, schedule)
             pipeline = LineupOptimizerPipeline(roster, mode="daily", config=LeagueConfig())
-            result = pipeline.optimize(matchup=matchup, schedule_today=schedule)
+            result = pipeline.optimize(
+                matchup=matchup,
+                schedule_today=schedule,
+                park_factors=inputs["park_factors"],
+                confirmed_lineups=inputs["confirmed_lineups"],
+                recent_form=inputs["recent_form"],
+                team_strength=inputs["team_strength"],
+            )
             result = result if isinstance(result, dict) else {}
 
-            pool = self._load_pool()
             slots, bench = self._daily_slots(
                 result.get("daily_dcv"), result.get("daily_lineup"), roster, pool, schedule
             )
@@ -121,6 +129,100 @@ class LineupService:
             mode="daily",
             daily=daily,
         )
+
+    def _daily_inputs(self, roster, pool, schedule) -> dict:
+        """Build the richer daily-DCV inputs directly from the engine helpers — each
+        graceful (failure → empty), so the daily path never breaks on missing live data."""
+        park_factors: dict = {}
+        try:
+            from src.database import load_park_factors
+
+            park_factors = load_park_factors() or {}
+        except Exception:
+            park_factors = {}
+        confirmed_lineups: dict = {}
+        try:
+            from src.game_day import get_todays_lineups
+
+            confirmed_lineups = get_todays_lineups(schedule) or {}
+        except Exception:
+            confirmed_lineups = {}
+        return {
+            "park_factors": park_factors,
+            "confirmed_lineups": confirmed_lineups,
+            "team_strength": self._team_strength(schedule),
+            "recent_form": self._recent_form(roster, pool),
+        }
+
+    @staticmethod
+    def _team_strength(schedule) -> dict:
+        """{abbr: strength} for the teams playing today (from the schedule's team names)."""
+        out: dict = {}
+        try:
+            from src.game_day import get_team_strength
+            from src.valuation import canonicalize_team, team_name_to_abbr
+
+            abbrs: set[str] = set()
+            for g in schedule or []:
+                if not isinstance(g, dict):
+                    continue
+                for k in ("home_name", "away_name", "home_team", "away_team"):
+                    v = g.get(k)
+                    if v:
+                        abbr = canonicalize_team(team_name_to_abbr(str(v))).upper().strip()
+                        if abbr:
+                            abbrs.add(abbr)
+            for a in abbrs:
+                try:
+                    ts = get_team_strength(a)
+                    if ts:
+                        out[a] = ts
+                except Exception:
+                    continue
+        except Exception:
+            return {}
+        return out
+
+    def _recent_form(self, roster, pool) -> dict:
+        """{player_id: form} for the roster's players (form fetched by mlb_id, keyed by
+        player_id to match the optimizer ctx's recent_form shape, shared_data_layer.py:914)."""
+        import pandas as pd
+
+        out: dict = {}
+        try:
+            from src.game_day import get_player_recent_form_cached
+
+            if not isinstance(roster, pd.DataFrame) or roster.empty or "player_id" not in roster.columns:
+                return {}
+            mlb_by_pid: dict[int, int] = {}
+            if (
+                isinstance(pool, pd.DataFrame)
+                and not pool.empty
+                and "player_id" in pool.columns
+                and "mlb_id" in pool.columns
+            ):
+                for pr in pool.to_dict("records"):
+                    try:
+                        mlb_by_pid[int(pr.get("player_id", 0) or 0)] = int(pr.get("mlb_id", 0) or 0)
+                    except (TypeError, ValueError):
+                        continue
+            for r in roster.to_dict("records"):
+                try:
+                    pid = int(r.get("player_id", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                mlb = mlb_by_pid.get(pid, 0)
+                if not pid or not mlb:
+                    continue
+                try:
+                    form = get_player_recent_form_cached(mlb)
+                    if form:
+                        out[pid] = form
+                except Exception:
+                    continue
+        except Exception:
+            return {}
+        return out
 
     def _daily_slots(self, dcv, daily_lineup, roster, pool, schedule) -> tuple[list[LineupSlot], list[LineupSlot]]:
         """Build starter/bench LineupSlots from the daily DCV table.
