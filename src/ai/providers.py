@@ -33,7 +33,9 @@ def _rebuild(chunks: list, messages: list[dict]):
 
 def _tool_ok(result: str) -> bool:
     """A tool result is a JSON string; dispatch_tool emits {"error": ...} on
-    failure. The chip is cosmetic, so be lenient: non-JSON counts as ok."""
+    failure. The chip is cosmetic, so be lenient: non-JSON counts as ok. The
+    top-level "error" key is the load-bearing failure signal — a tool that
+    returns {"error": ...} as legitimate success data would show a false-red chip."""
     try:
         parsed = json.loads(result)
     except (ValueError, TypeError):
@@ -83,6 +85,21 @@ def _chat_events(
                 yield {"type": "text_delta", "text": piece}
 
         resp = _rebuild(chunks, convo)
+        # litellm.stream_chunk_builder returns None for an empty stream (provider
+        # opened then closed with zero chunks — keepalive-only, mid-handshake
+        # reset, soft gateway error). Terminate gracefully so BOTH consumers keep
+        # the "exactly one done" contract chat()'s drain relies on — never let
+        # None reach .choices (that AttributeError would crash the live Streamlit
+        # app's chat() hot path, which has no try/except around the drain).
+        if resp is None or getattr(resp, "choices", None) is None:
+            yield {
+                "type": "done",
+                "content": "The model returned an empty response. Please try again.",
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "tool_trace": tool_trace,
+            }
+            return
         usage = getattr(resp, "usage", None)
         if usage is not None:
             tokens_in += int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -163,7 +180,11 @@ def chat(
     ):
         if event["type"] == "done":
             done = event
-    # _chat_events ALWAYS yields exactly one terminal done.
+    # _chat_events always yields exactly one terminal done; guard anyway so a
+    # future protocol regression downgrades to an empty (logged-elsewhere) answer
+    # rather than a TypeError on None — the live Streamlit app must never crash here.
+    if done is None:
+        return {"content": "", "tokens_in": 0, "tokens_out": 0, "tool_trace": []}
     return {
         "content": done["content"],
         "tokens_in": done["tokens_in"],

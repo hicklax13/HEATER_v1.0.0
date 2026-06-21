@@ -147,7 +147,12 @@ class ChatService:
         then iterates providers._chat_events. Meters + persists on the `done`
         event BEFORE yielding the terminal frame, so a client that drops at the
         final frame is still billed. Never raises — failures become an `error`
-        frame (the HTTP response is already 200)."""
+        frame (the HTTP response is already 200).
+
+        Billing caveat: only a COMPLETED answer (one that reaches `done`) is
+        metered. If the engine raises mid-stream AFTER some tokens were produced,
+        those tokens are not billed (a documented under-count — surfacing partial
+        usage through the generator is a follow-up; see B2.1 plan Finding 2)."""
         try:
             provider = _provider_of(model)
             api_key = keys.get_key(chat_user_id, provider)
@@ -202,7 +207,10 @@ class ChatService:
                 )
                 return
         except Exception as e:  # noqa: BLE001 - engine failure mid-stream -> error frame
-            _log.warning("chat send_stream failed mid-stream", exc_info=True)
+            # Partial-answer tokens already produced this turn are NOT metered
+            # (documented under-count, see docstring). Log loudly so an operator
+            # sees it rather than mistaking it for a no-spend failure.
+            _log.warning("chat send_stream failed mid-stream (partial usage uncounted)", exc_info=True)
             yield _sse({"type": "error", "message": f"Chat error: {type(e).__name__}: {str(e)[:200]}"})
 
     def _meter_and_persist(

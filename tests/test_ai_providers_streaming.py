@@ -119,3 +119,27 @@ def test_loop_cap_still_returns_graceful_message(monkeypatch):
         max_tool_rounds=3,
     )
     assert out["content"] and out["tool_trace"]  # graceful, not a hang
+
+
+def test_empty_stream_rebuild_none_yields_graceful_done_not_crash(monkeypatch):
+    """litellm.stream_chunk_builder returns None for an empty stream (zero chunks).
+    _chat_events must terminate gracefully (exactly one `done`) and chat() must NOT
+    crash on resp.choices — it is the live Streamlit app's hot path."""
+    monkeypatch.setattr(providers, "_completion", lambda **kw: iter([]))  # zero chunks
+    monkeypatch.setattr(providers, "_rebuild", lambda chunks, messages: None)
+    events = list(
+        providers._chat_events(
+            model="anthropic/claude-haiku-4-5",
+            messages=[{"role": "user", "content": "hi"}],
+            api_key="sk-test",
+            user_id=99,
+        )
+    )
+    assert [e["type"] for e in events] == ["done"]
+    out = providers.chat(
+        model="anthropic/claude-haiku-4-5",
+        messages=[{"role": "user", "content": "hi"}],
+        api_key="sk-test",
+        user_id=99,
+    )
+    assert out["content"] and out["tokens_in"] == 0 and out["tool_trace"] == []

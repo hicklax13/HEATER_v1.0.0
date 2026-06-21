@@ -164,6 +164,20 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           } else if (e.type === "done") {
             if (e.conversation_id) setConversationId(e.conversation_id);
             setToolStatus(null);
+            // An empty completion (model returned no text) would leave a blank
+            // bubble that looks like a UI bug — surface it instead of nothing.
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === "assistant" && !last.content.trim()) {
+                next[next.length - 1] = {
+                  role: "assistant",
+                  content: "Bubba returned an empty response — try rephrasing.",
+                  isError: true,
+                };
+              }
+              return next;
+            });
           } else if (e.type === "error") {
             setMessages((prev) => {
               const next = [...prev];
