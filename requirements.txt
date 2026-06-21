@@ -59,5 +59,10 @@ pytest-xdist>=3.5.0
 # change. Regenerate the snapshot (python scripts/export_openapi.py) when bumping this.
 fastapi==0.137.1
 httpx==0.28.1      # required by starlette.testclient.TestClient; pinned to keep the api-test stack deterministic
+# Clerk JWT verification (M2 slice 1): local RS256 verification against Clerk's
+# JWKS. Brings `cryptography` (already present from the Yahoo stack). Verifier
+# lives in api/auth.py (ClerkVerifier); selected by get_auth_verifier when
+# CLERK_ISSUER is set, else the interim EnvTokenVerifier.
+PyJWT[crypto]>=2.8
 SQLAlchemy>=2.0          # B2.0 engine seam (DB backend abstraction; alembic/psycopg land in B2.1/B2.2)
 alembic>=1.13             # B2.1 schema migrations (Postgres-owned schema)
