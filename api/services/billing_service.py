@@ -29,6 +29,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _period_end(obj) -> int | None:
+    """current_period_end moved from the subscription top-level to the item level in
+    recent Stripe API versions; read whichever the webhook payload carries (display-only)."""
+    val = obj.get("current_period_end")
+    if val is not None:
+        return val
+    items = (obj.get("items") or {}).get("data") or []
+    return items[0].get("current_period_end") if items else None
+
+
 class BillingService:
     def __init__(self, gateway: StripeGateway, store: SubscriptionStore) -> None:
         self._gateway = gateway
@@ -88,14 +98,26 @@ class BillingService:
             )
             return CheckoutSessionResponse(ok=True, url=url)
         except Exception as exc:
-            logger.warning("create_checkout failed: %s", type(exc).__name__)
+            # Log the full Stripe message server-side (NOT a secret — Stripe errors
+            # don't contain the API key) so the operator can see WHICH config is wrong
+            # (bad price id, revoked key, livemode mismatch). User-facing error stays generic.
+            logger.warning("create_checkout failed (%s): %s", type(exc).__name__, exc)
             return CheckoutSessionResponse(ok=False, error="Checkout could not be started.")
 
     # --- webhook ------------------------------------------------------------
     def handle_webhook(self, payload: bytes, sig_header: str | None) -> WebhookResponse:
         secret = self._env("STRIPE_WEBHOOK_SECRET")
         if not secret:
-            return WebhookResponse(ok=False, handled=False)  # 200-ignore: not configured
+            # If Stripe is otherwise live (secret key set) but the webhook secret is
+            # unset/typo'd, we'd silently drop EVERY real event (paying users stay free)
+            # and Stripe sees 200 = healthy → no retry, no alert. Make that operator-
+            # visible. A fully-dormant install (no secret key) stays quiet.
+            if self._env("STRIPE_SECRET_KEY"):
+                logger.warning(
+                    "Stripe webhook received but STRIPE_WEBHOOK_SECRET is unset — DROPPING "
+                    "event (subscription state will NOT update). Set the webhook secret."
+                )
+            return WebhookResponse(ok=False, handled=False)
         try:
             event = self._gateway.parse_webhook_event(payload, sig_header, secret)
         except BillingSignatureError as exc:
@@ -108,32 +130,38 @@ class BillingService:
         return WebhookResponse(ok=True, event_type=etype, handled=handled)
 
     def _apply_event(self, etype, obj) -> bool:
+        # Returns whether subscription state was actually written. An event we can't
+        # attribute to a user returns False so handle_webhook reports handled=False
+        # (honest — not a false success that hides a dropped event).
         if etype in _SUB_EVENTS:
             status = "canceled" if etype.endswith("deleted") else (obj.get("status") or "none")
-            self._record(
+            return self._record(
                 clerk=(obj.get("metadata") or {}).get("clerk_user_id"),
                 customer_id=obj.get("customer"),
                 status=status,
-                period_end=obj.get("current_period_end"),
+                period_end=_period_end(obj),
             )
-            return True
         if etype == "checkout.session.completed":
-            self._record(
+            # LINK-ONLY: ensure the clerk<->customer link without forcing a status. The
+            # customer.subscription.* events own tier/status, so an out-of-order completed
+            # event can't re-activate a canceled user or null current_period_end.
+            return self._ensure_link(
                 clerk=obj.get("client_reference_id") or (obj.get("metadata") or {}).get("clerk_user_id"),
                 customer_id=obj.get("customer"),
-                status="trialing",
-                period_end=None,
             )
-            return True
         return False
 
-    def _record(self, *, clerk, customer_id, status, period_end) -> None:
+    def _resolve_clerk(self, clerk, customer_id):
         if not clerk and customer_id:
             found = self._store.get_by_customer(customer_id)
-            clerk = found.clerk_user_id if found else None
+            return found.clerk_user_id if found else None
+        return clerk
+
+    def _record(self, *, clerk, customer_id, status, period_end) -> bool:
+        clerk = self._resolve_clerk(clerk, customer_id)
         if not clerk:
-            logger.warning("Stripe event without resolvable clerk_user_id (customer=%s)", customer_id)
-            return
+            logger.warning("Stripe event without resolvable clerk_user_id (customer=%s) — not handled", customer_id)
+            return False
         self._store.upsert(
             Subscription(
                 clerk_user_id=clerk,
@@ -144,6 +172,37 @@ class BillingService:
                 updated_at=_now(),
             )
         )
+        return True
+
+    def _ensure_link(self, *, clerk, customer_id) -> bool:
+        clerk = self._resolve_clerk(clerk, customer_id)
+        if not clerk:
+            logger.warning(
+                "checkout.session.completed without resolvable clerk_user_id (customer=%s) — not handled", customer_id
+            )
+            return False
+        existing = self._store.get(clerk)
+        if existing is not None:
+            if existing.stripe_customer_id == customer_id:
+                return True  # link already correct — preserve the authoritative status
+            self._store.upsert(
+                Subscription(
+                    clerk_user_id=clerk,
+                    stripe_customer_id=customer_id,
+                    tier=existing.tier,
+                    status=existing.status,
+                    current_period_end=existing.current_period_end,
+                    updated_at=_now(),
+                )
+            )
+            return True
+        # No row yet — create a free link row; the subscription.* events set the real status.
+        self._store.upsert(
+            Subscription(
+                clerk_user_id=clerk, stripe_customer_id=customer_id, tier="free", status="none", updated_at=_now()
+            )
+        )
+        return True
 
     # --- read ---------------------------------------------------------------
     def read_subscription(self, app_user) -> SubscriptionResponse:

@@ -135,6 +135,62 @@ def test_webhook_unknown_event_type_is_ignored(monkeypatch):
     assert resp.handled is False
 
 
+def test_webhook_unresolvable_clerk_is_not_handled(monkeypatch, caplog):
+    # A subscription event we can't attribute to a user must report handled=False
+    # (honest) + WARNING — not a false success that hides the dropped event.
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
+    store = InMemorySubscriptionStore()
+    obj = {"customer": "cus_unknown", "status": "active", "metadata": {}}
+    gw = _FakeGateway(event={"type": "customer.subscription.updated", "data": {"object": obj}})
+    with caplog.at_level(logging.WARNING):
+        resp = BillingService(gw, store).handle_webhook(b"{}", "sig")
+    assert resp.handled is False
+    assert store.get("user_abc") is None
+    assert "not handled" in caplog.text
+
+
+def test_webhook_secret_unset_but_key_set_warns(monkeypatch, caplog):
+    # Live Stripe (key set) + unset webhook secret = dropping real events — must warn.
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    with caplog.at_level(logging.WARNING):
+        resp = BillingService(_FakeGateway(), InMemorySubscriptionStore()).handle_webhook(b"{}", "sig")
+    assert resp.handled is False
+    assert "STRIPE_WEBHOOK_SECRET is unset" in caplog.text
+
+
+def test_checkout_completed_is_link_only_does_not_reactivate(monkeypatch):
+    # An out-of-order checkout.session.completed must NOT flip a canceled user to pro.
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
+    store = InMemorySubscriptionStore()
+    store.upsert(
+        Subscription(
+            clerk_user_id="user_abc", stripe_customer_id="cus_user_abc", tier="free", status="canceled", updated_at="t"
+        )
+    )
+    obj = {"client_reference_id": "user_abc", "customer": "cus_user_abc"}
+    gw = _FakeGateway(event={"type": "checkout.session.completed", "data": {"object": obj}})
+    resp = BillingService(gw, store).handle_webhook(b"{}", "sig")
+    assert resp.handled is True  # link ensured...
+    assert store.get("user_abc").tier == "free"  # ...but NOT re-activated
+    assert store.get("user_abc").status == "canceled"
+
+
+def test_period_end_reads_item_level_fallback(monkeypatch):
+    # Recent Stripe API versions put current_period_end at the item level.
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
+    store = InMemorySubscriptionStore()
+    obj = {
+        "customer": "cus_user_abc",
+        "status": "active",
+        "metadata": {"clerk_user_id": "user_abc"},
+        "items": {"data": [{"current_period_end": 1900000000}]},
+    }
+    gw = _FakeGateway(event={"type": "customer.subscription.updated", "data": {"object": obj}})
+    BillingService(gw, store).handle_webhook(b"{}", "sig")
+    assert store.get("user_abc").current_period_end == 1900000000
+
+
 def test_read_subscription_defaults_free():
     resp = BillingService(_FakeGateway(), InMemorySubscriptionStore()).read_subscription(_USER)
     assert resp.tier == "free"
