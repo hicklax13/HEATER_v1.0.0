@@ -27,6 +27,7 @@ const NAV = [
   { label: "Team", href: "/" },
   { label: "Optimizer", href: "/optimizer" },
   { label: "Streaming", href: "/streaming" },
+  { label: "Probables", href: "/probables" },
   { label: "Closers", href: "/closers" },
   { label: "Matchup", href: "/matchup" },
   { label: "Standings", href: "/standings" },

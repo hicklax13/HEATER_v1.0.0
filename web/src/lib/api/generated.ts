@@ -483,6 +483,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedule/probables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Probables */
+        get: operations["probables_api_schedule_probables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/standings": {
         parameters: {
             query?: never;
@@ -1951,6 +1968,65 @@ export interface components {
             /** Url */
             url?: string | null;
         };
+        /** ProbableCell */
+        ProbableCell: {
+            /**
+             * Availability
+             * @default available
+             */
+            availability: string;
+            /**
+             * Band
+             * @default medium
+             */
+            band: string;
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+            /**
+             * Difficulty
+             * @default 0
+             */
+            difficulty: number;
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            /**
+             * Opponent
+             * @default
+             */
+            opponent: string;
+            pitcher?: components["schemas"]["PlayerRef"] | null;
+            /** Rostered By */
+            rostered_by?: string | null;
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+            /**
+             * Two Start
+             * @default false
+             */
+            two_start: boolean;
+        };
+        /** ProbableGridResponse */
+        ProbableGridResponse: {
+            /**
+             * Days
+             * @default []
+             */
+            days: string[];
+            /**
+             * Teams
+             * @default []
+             */
+            teams: components["schemas"]["ProbableTeamRow"][];
+        };
         /** ProbableStarter */
         ProbableStarter: {
             /**
@@ -1978,6 +2054,16 @@ export interface components {
              * Team
              * @default
              */
+            team: string;
+        };
+        /** ProbableTeamRow */
+        ProbableTeamRow: {
+            /**
+             * Cells
+             * @default []
+             */
+            cells: (components["schemas"]["ProbableCell"] | null)[];
+            /** Team */
             team: string;
         };
         /** PuntCategory */
@@ -3569,6 +3655,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PuntResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probables_api_schedule_probables_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                /** @description Viewer's team — enables the 'yours' tag */
+                team_name?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbableGridResponse"];
                 };
             };
             /** @description Validation Error */
