@@ -34,3 +34,4 @@ export type ApiDraftRecommendResponse = components["schemas"]["DraftRecommendRes
 export type ApiDraftSimulateResponse = components["schemas"]["DraftSimulatePicksResponse"];
 export type ApiDraftConfig = components["schemas"]["DraftConfig"];
 export type ApiDraftPick = components["schemas"]["DraftPick"];
+export type ApiDraftClock = components["schemas"]["DraftClock"];

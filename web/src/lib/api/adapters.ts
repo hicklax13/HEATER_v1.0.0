@@ -17,6 +17,8 @@ import type {
   ApiClosersResponse,
   ApiDraftRecommendResponse,
   ApiDraftSimulateResponse,
+  ApiDraftClock,
+  ApiDraftPick,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -649,7 +651,7 @@ export function apiClosersToData(api: ApiClosersResponse): ClosersData {
 }
 
 // --- Draft Simulator (snake_case API → camelCase view-models) ---
-function toVMDraftClock(c: ApiDraftRecommendResponse["clock"]): VMDraftClock {
+function toVMDraftClock(c: ApiDraftClock): VMDraftClock {
   return {
     currentPick: c.current_pick,
     round: c.round,
@@ -659,7 +661,7 @@ function toVMDraftClock(c: ApiDraftRecommendResponse["clock"]): VMDraftClock {
   };
 }
 
-function toVMDraftPick(p: ApiDraftSimulateResponse["picks"][number]): VMDraftPick {
+function toVMDraftPick(p: ApiDraftPick): VMDraftPick {
   return {
     pick: p.pick,
     teamIndex: p.team_index,

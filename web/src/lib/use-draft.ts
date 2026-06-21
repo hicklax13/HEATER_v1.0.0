@@ -67,6 +67,8 @@ export function useDraft() {
   }
 
   const start = useCallback(async (config: DraftConfig) => {
+    if (ref.current.busy) return;
+    ref.current = { ...ref.current, busy: true }; // sync guard before the await
     setState({ ...INITIAL, phase: "drafting", config, busy: true });
     const r = await advance(config, []);
     setState({
@@ -94,6 +96,7 @@ export function useDraft() {
     };
     const baseLog = [...cur.pickLog, userPick];
     const myRoster = [...cur.myRoster, player];
+    ref.current = { ...cur, busy: true }; // sync guard so a double-click can't re-enter before the re-render
     setState((s) => ({ ...s, pickLog: baseLog, myRoster, recs: [], busy: true })); // optimistic
     const r = await advance(config, baseLog);
     setState((s) => ({

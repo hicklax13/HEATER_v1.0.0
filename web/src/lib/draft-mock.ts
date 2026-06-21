@@ -86,14 +86,17 @@ function fillerPlayer(seq: number): DraftPlayer {
 }
 
 /** Best-available players (lowest ADP first), padded with generic fillers so a
- *  full draft can complete past the ~40 real names. */
+ *  full draft can complete past the ~40 real names. The filler budget scales with
+ *  how many players are already drafted (NOT `limit`), so even a 20×30 = 600-pick
+ *  draft always finds `limit` undrafted fillers instead of stalling. */
 function available(draftedIds: Set<number>, limit: number): DraftPlayer[] {
   const out = MOCK_POOL.filter((p) => !draftedIds.has(p.id));
+  const budget = draftedIds.size + limit + 100; // always enough headroom
   let seq = 1;
   while (out.length < limit) {
     const f = fillerPlayer(seq++);
     if (!draftedIds.has(f.id)) out.push(f);
-    if (seq > limit + 50) break; // safety
+    if (seq > budget) break; // backstop (cannot be hit in normal use)
   }
   return out.slice(0, limit);
 }
