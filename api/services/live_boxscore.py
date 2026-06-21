@@ -19,9 +19,6 @@ _PITCHER_KEY = "pitcher"
 _TTL_SECS = 90
 _CACHE: dict[str, tuple[float, dict]] = {}
 
-_FINAL = {"final", "game over", "completed early"}
-_LIVE = {"in progress", "live", "warmup", "delayed", "manager challenge"}
-
 
 def reset_cache() -> None:
     """Test hook — clear the TTL cache between tests."""
@@ -60,7 +57,7 @@ def _pitcher_line(pit: dict) -> list[str]:
     from src.live_stats import _ip_outs_to_decimal
 
     ip = _ip_outs_to_decimal(pit.get("inningsPitched"))
-    note = str(pit.get("note", "") or "")
+    note = str(pit.get("note", "") or "").strip()
     # The per-GAME decision is in `note` ("(W, 5)"/"(L, 3)"/"(S, 12)"), not the
     # season wins/losses fields on the player line.
     w = 1 if note.startswith("(W") else 0
@@ -81,10 +78,14 @@ def _pitcher_line(pit: dict) -> list[str]:
 
 
 def _state_of(status: str) -> str:
+    # Use the SAME canonical sets matchup_service._game_state uses, so a row labeled
+    # final/live (and thus override-eligible) is exactly what we fetch a boxscore for.
+    from src.game_day import FINAL_GAME_STATUSES, LOCKED_GAME_STATUSES
+
     s = (status or "").strip().lower()
-    if s in _FINAL:
+    if s in FINAL_GAME_STATUSES:
         return "final"
-    if s in _LIVE or "in progress" in s:
+    if s in LOCKED_GAME_STATUSES:
         return "live"
     return "sched"
 
