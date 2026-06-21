@@ -8,7 +8,9 @@ error — returns a structured error in the response body so the route stays HTT
 
 from __future__ import annotations
 
+import json as _json
 import logging
+from collections.abc import Generator
 
 from src.ai import budget, history, keys, providers
 from src.ai.chat import build_system_prompt as _build_system_prompt
@@ -29,6 +31,11 @@ _CHAT_USER_ID_OFFSET = 1_000_000_000
 _DEFAULT_PAGE = "the app"
 
 _log = logging.getLogger(__name__)
+
+
+def _sse(payload: dict) -> str:
+    """Format one Server-Sent-Events frame."""
+    return f"data: {_json.dumps(payload)}\n\n"
 
 
 def chat_user_id_for(app_user_id: int) -> int:
@@ -123,6 +130,113 @@ class ChatService:
             "tool_trace": result.get("tool_trace", []),
             "error": None,
         }
+
+    def send_stream(
+        self,
+        chat_user_id: int,
+        message: str,
+        model: str,
+        conversation_id: int | None = None,
+        web_search: bool = False,
+        deep_research: bool = False,
+        reasoning_effort: str | None = None,
+        page: str | None = None,
+        viewer_team: str | None = None,
+    ) -> Generator[str, None, None]:
+        """Stream the chat as SSE frames. Mirrors send()'s pre-call validation,
+        then iterates providers._chat_events. Meters + persists on the `done`
+        event BEFORE yielding the terminal frame, so a client that drops at the
+        final frame is still billed. Never raises — failures become an `error`
+        frame (the HTTP response is already 200)."""
+        try:
+            provider = _provider_of(model)
+            api_key = keys.get_key(chat_user_id, provider)
+            if not api_key:
+                yield _sse({"type": "error", "message": f"No API key for {provider}. Add one in settings to chat."})
+                return
+            on_own_key = any(k.get("provider") == provider for k in keys.list_keys(chat_user_id))
+            if budget.is_over_cap(chat_user_id, on_own_key=on_own_key):
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "You've reached today's usage limit. Add your own API key for unlimited use.",
+                    }
+                )
+                return
+
+            prior = history.load_messages(conversation_id, user_id=chat_user_id) if conversation_id else []
+            convo = [{"role": "system", "content": _build_system_prompt(page or _DEFAULT_PAGE, viewer_team)}]
+            convo += [{"role": m["role"], "content": m["content"]} for m in prior]
+            convo.append({"role": "user", "content": message})
+        except Exception as e:  # noqa: BLE001 - pre-call failure -> error frame, never 500
+            _log.warning("chat send_stream failed before streaming", exc_info=True)
+            yield _sse({"type": "error", "message": f"Chat error: {type(e).__name__}: {str(e)[:200]}"})
+            return
+
+        try:
+            for event in providers._chat_events(
+                model=model,
+                messages=convo,
+                api_key=api_key,
+                user_id=chat_user_id,
+                web_search=web_search,
+                deep_research=deep_research,
+                reasoning_effort=reasoning_effort,
+            ):
+                if event["type"] != "done":
+                    yield _sse(event)
+                    continue
+                # Terminal: meter + persist FIRST (so a disconnect at the done
+                # frame is still billed), then emit the enriched done frame.
+                cost, conversation_id = self._meter_and_persist(chat_user_id, model, message, event, conversation_id)
+                yield _sse(
+                    {
+                        "type": "done",
+                        "conversation_id": conversation_id,
+                        "cost_usd": cost,
+                        "content": event["content"],
+                        "tokens_in": event["tokens_in"],
+                        "tokens_out": event["tokens_out"],
+                        "tool_trace": event["tool_trace"],
+                    }
+                )
+                return
+        except Exception as e:  # noqa: BLE001 - engine failure mid-stream -> error frame
+            _log.warning("chat send_stream failed mid-stream", exc_info=True)
+            yield _sse({"type": "error", "message": f"Chat error: {type(e).__name__}: {str(e)[:200]}"})
+
+    def _meter_and_persist(
+        self, chat_user_id: int, model: str, message: str, done: dict, conversation_id: int | None
+    ) -> tuple[float, int | None]:
+        """Record usage + append history for a completed answer. Each side is
+        isolated + logged + never fatal (mirrors send()). Returns (cost, conversation_id)."""
+        t_in = int(done.get("tokens_in", 0) or 0)
+        t_out = int(done.get("tokens_out", 0) or 0)
+        p_in, p_out = _price_per_token(model)
+        cost = t_in * p_in + t_out * p_out
+
+        try:
+            budget.record_usage(chat_user_id, t_in, t_out, cost)
+        except Exception:
+            _log.warning("record_usage failed (spend uncounted)", exc_info=True)
+
+        try:
+            if conversation_id is None:
+                conversation_id = history.create_conversation(chat_user_id, message[:60], model=model)
+            history.append_message(conversation_id, "user", message, model=model)
+            history.append_message(
+                conversation_id,
+                "assistant",
+                done.get("content", ""),
+                model=model,
+                tokens_in=t_in,
+                tokens_out=t_out,
+                cost_usd=cost,
+            )
+        except Exception:
+            _log.warning("chat history persist failed (answer streamed, not saved)", exc_info=True)
+
+        return cost, conversation_id
 
     def _empty(self, error: str, conversation_id: int | None = None) -> dict:
         return {
