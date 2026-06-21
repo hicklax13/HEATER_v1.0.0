@@ -3,7 +3,7 @@
 **Date:** 2026-06-21
 **Lane:** CEO — full-stack (`api/` + `src/ai/` + `web/`).
 **Parent spec:** `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md` (Phase B2, first wave).
-**Status:** design — approved by owner 2026-06-21 ("Premium feel" wave first).
+**Status:** SHIPPED 2026-06-21 — built via plan `docs/superpowers/plans/2026-06-21-heater-bubba-b2-1-streaming.md` (8 TDD tasks; both pr-review-toolkit reviewers ran, findings applied incl. the critical empty-stream guard).
 
 ## Scope
 
