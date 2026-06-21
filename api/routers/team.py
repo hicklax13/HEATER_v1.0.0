@@ -7,10 +7,15 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.my_team import MyTeamResponse
 from api.deps import get_team_service
+from api.tenancy import ViewerContext, require_viewer_context
 
 router = APIRouter(prefix="/api", tags=["team"])
 
 
 @router.get("/me/team", response_model=MyTeamResponse)
-def get_my_team(team_name: str, service=Depends(get_team_service)) -> MyTeamResponse:
-    return service.get_my_team(team_name)
+def get_my_team(
+    team_name: str,
+    ctx: ViewerContext = Depends(require_viewer_context),
+    service=Depends(get_team_service),
+) -> MyTeamResponse:
+    return service.get_my_team(ctx.effective_team(team_name))

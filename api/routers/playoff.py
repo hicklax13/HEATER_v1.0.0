@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from api.contracts.playoff import PlayoffOddsResponse
 from api.deps import get_playoff_service
 from api.gating import require_pro
+from api.tenancy import ViewerContext, require_viewer_context
 
 router = APIRouter(prefix="/api", tags=["playoff"])
 
@@ -23,5 +24,9 @@ _PRO_GATE = {
     dependencies=[Depends(require_pro)],
     responses=_PRO_GATE,
 )
-def get_playoff_odds(team_name: str, service=Depends(get_playoff_service)) -> PlayoffOddsResponse:
-    return service.get_playoff_odds(team_name)
+def get_playoff_odds(
+    team_name: str,
+    ctx: ViewerContext = Depends(require_viewer_context),
+    service=Depends(get_playoff_service),
+) -> PlayoffOddsResponse:
+    return service.get_playoff_odds(ctx.effective_team(team_name))

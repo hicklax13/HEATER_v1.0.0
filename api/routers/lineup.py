@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from api.contracts.lineup import LineupOptimizeRequest, LineupOptimizeResponse
 from api.deps import get_lineup_service
 from api.gating import require_pro
+from api.tenancy import ViewerContext, require_viewer_context
 
 router = APIRouter(prefix="/api", tags=["lineup"])
 
@@ -24,5 +25,9 @@ _PRO_GATE = {
     dependencies=[Depends(require_pro)],
     responses=_PRO_GATE,
 )
-def optimize_lineup(req: LineupOptimizeRequest, service=Depends(get_lineup_service)) -> LineupOptimizeResponse:
-    return service.optimize(req.team_name, req.date, req.scope, req.mode)
+def optimize_lineup(
+    req: LineupOptimizeRequest,
+    ctx: ViewerContext = Depends(require_viewer_context),
+    service=Depends(get_lineup_service),
+) -> LineupOptimizeResponse:
+    return service.optimize(ctx.effective_team(req.team_name), req.date, req.scope, req.mode)
