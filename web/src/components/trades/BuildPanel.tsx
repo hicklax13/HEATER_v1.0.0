@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { searchPlayers, type PlayerPick } from "@/lib/player-search";
 import { evaluateTrade, type TradeEval } from "@/lib/trades-data";
+import { isPaywall } from "@/lib/api/errors";
+import { PaywallGate } from "@/components/billing/PaywallGate";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,14 +22,17 @@ export function BuildPanel() {
   const [receiving, setReceiving] = useState<PlayerPick[]>([]);
   const [result, setResult] = useState<TradeEval | null>(null);
   const [evaluating, setEvaluating] = useState(false);
+  const [locked, setLocked] = useState(false); // 402 paywall on /api/trade/evaluate
 
   const add = (side: "give" | "get", p: PlayerPick) => {
     (side === "give" ? setGiving : setReceiving)((cur) => (cur.some((x) => x.id === p.id) ? cur : [...cur, p]));
     setResult(null);
+    setLocked(false);
   };
   const remove = (side: "give" | "get", id: number) => {
     (side === "give" ? setGiving : setReceiving)((cur) => cur.filter((x) => x.id !== id));
     setResult(null);
+    setLocked(false);
   };
 
   const ready = giving.length > 0 && receiving.length > 0;
@@ -36,8 +41,12 @@ export function BuildPanel() {
   const onEvaluate = () => {
     if (!ready) return;
     setEvaluating(true);
+    setLocked(false);
     evaluateTrade(giving, receiving)
       .then(setResult)
+      .catch((e) => {
+        if (isPaywall(e)) setLocked(true); // signed-in Free user → paywall
+      })
       .finally(() => setEvaluating(false));
   };
 
@@ -66,6 +75,8 @@ export function BuildPanel() {
 
       {evaluating ? (
         <Skeleton className="h-44 w-full rounded-2xl" />
+      ) : locked ? (
+        <PaywallGate feature="Trade evaluation" />
       ) : result ? (
         <ResultCard result={result} />
       ) : (

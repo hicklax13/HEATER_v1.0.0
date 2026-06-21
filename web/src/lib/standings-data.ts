@@ -1,6 +1,7 @@
 import { apiGet } from "@/lib/api/client";
 import { apiStandingsToData, applyPlayoffOdds } from "@/lib/api/adapters";
 import type { ApiStandingsResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
+import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Standings data. The standings table wires to GET /api/standings (Yahoo-
@@ -28,6 +29,7 @@ export interface TeamStanding {
 export interface StandingsData {
   teams: TeamStanding[];
   playoffSpots: number; // top-N make the playoffs (cut line)
+  playoffOddsLocked?: boolean; // 402 on /api/playoff-odds (Pro) → panel shows a gate
 }
 
 const team = (
@@ -79,13 +81,17 @@ export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
     try {
       // Standings + playoff odds in parallel; the odds sim (~2.4s) is best-effort
       // — a failure leaves the table + panel without odds (graceful empty-state).
-      const [stdg, odds] = await Promise.all([
+      const [stdg, oddsResult] = await Promise.all([
         apiGet<ApiStandingsResponse>("/standings"),
-        apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: "Team Hickey" }).catch(() => null),
+        apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: "Team Hickey" })
+          .then((odds) => ({ odds, locked: false }))
+          // a 402 here gates only the odds panel — the free standings table still renders.
+          .catch((e) => ({ odds: null as ApiPlayoffOddsResponse | null, locked: isPaywall(e) })),
       ]);
       if ((stdg.teams?.length ?? 0) > 0) {
-        const data = apiStandingsToData(stdg);
-        return odds ? applyPlayoffOdds(data, odds) : data;
+        let data = apiStandingsToData(stdg);
+        if (oddsResult.odds) data = applyPlayoffOdds(data, oddsResult.odds);
+        return { ...data, playoffOddsLocked: oddsResult.locked };
       }
     } catch {
       // fall through to mock

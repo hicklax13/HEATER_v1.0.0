@@ -1,6 +1,7 @@
 "use client";
 
-import { Trophy } from "lucide-react";
+import Link from "next/link";
+import { Trophy, Lock, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { heatColor } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,20 @@ export function PlayoffOddsPanel({ data }: { data: StandingsData }) {
       <p className="mb-4 text-[12px] text-ink-3">
         Monte-Carlo playoff probability. Top {data.playoffSpots} make the playoffs.
       </p>
-      {!anyOdds ? (
+      {data.playoffOddsLocked ? (
+        <div className="flex flex-col items-center gap-2 py-4 text-center">
+          <span className="flex size-9 items-center justify-center rounded-full bg-heat/12 text-heat">
+            <Lock className="size-4" aria-hidden />
+          </span>
+          <p className="text-[13px] font-semibold text-navy">Playoff odds are a Pro feature</p>
+          <Link
+            href="/pricing"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-gradient-to-b from-heat-bright to-heat px-4 text-[13px] font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
+          >
+            <Sparkles className="size-3.5" aria-hidden /> See Pro plans
+          </Link>
+        </div>
+      ) : !anyOdds ? (
         <div className="text-[13px] text-ink-2">
           Playoff odds need the season-simulation endpoint (a backend add) — not available on live data yet.
         </div>

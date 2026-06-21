@@ -210,7 +210,8 @@ export async function evaluateTrade(
         enable_mc: false,
       });
       return apiTradeEvaluateToData(api);
-    } catch {
+    } catch (e) {
+      if (isPaywall(e)) throw e; // 402 → BuildPanel paywall gate
       return null;
     }
   }
