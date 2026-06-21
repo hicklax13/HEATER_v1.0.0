@@ -9,6 +9,7 @@ impl drops in behind the same Protocol. Dormant until a Clerk user authenticates
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
@@ -18,6 +19,8 @@ from typing import Protocol
 from pydantic import BaseModel
 
 _DEFAULT_API_DB = os.path.join("data", "api_state.db")
+
+logger = logging.getLogger(__name__)
 
 
 class AppUser(BaseModel):
@@ -66,15 +69,22 @@ class SqliteUserStore:
         if parent:
             os.makedirs(parent, exist_ok=True)
         conn = sqlite3.connect(self._db_path, timeout=60.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=60000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS api_users ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "clerk_user_id TEXT UNIQUE NOT NULL, "
-            "created_at TEXT NOT NULL)"
-        )
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=60000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS api_users ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "clerk_user_id TEXT UNIQUE NOT NULL, "
+                "created_at TEXT NOT NULL)"
+            )
+        except Exception:
+            # A PRAGMA / CREATE TABLE failure (locked DB, full disk, corrupt file)
+            # after a successful connect() would otherwise leak this handle — the
+            # caller's finally:close only runs once _connect RETURNS. Close our own.
+            conn.close()
+            raise
         return conn
 
     def get_or_create(self, clerk_user_id: str) -> AppUser:
@@ -94,5 +104,15 @@ class SqliteUserStore:
                 )
                 conn.commit()
                 return AppUser(id=int(cur.lastrowid), clerk_user_id=clerk_user_id, created_at=created_at)
+            except Exception as exc:
+                # Surface (never swallow), but leave a house-style breadcrumb — a bare
+                # 500 from a provisioning failure is otherwise causeless. clerk_user_id
+                # is an opaque Clerk subject (not a secret); never log tokens.
+                # NOTE (cross-process race, M4): a 2nd API replica first-calling the same
+                # brand-new clerk_user_id loses the UNIQUE bet → IntegrityError → 500 (a
+                # retry succeeds). Acceptable at numReplicas=1; when multi-replica lands,
+                # catch IntegrityError here and re-SELECT the row the winner wrote.
+                logger.warning("SqliteUserStore.get_or_create failed for clerk_user_id=%r: %s", clerk_user_id, exc)
+                raise
             finally:
                 conn.close()

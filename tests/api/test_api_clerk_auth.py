@@ -108,6 +108,25 @@ def test_missing_subject_denied():
     assert ei.value.status_code == 401
 
 
+def test_jwks_failure_denies_and_warns(caplog):
+    # A JWKS/key-resolution failure (auth misconfigured/down) must still deny (401)
+    # but be operator-visible at WARNING — NOT logged at debug like a bad user token.
+    import logging
+
+    from jwt.exceptions import PyJWKClientError
+
+    def _boom(_t):
+        raise PyJWKClientError("JWKS unreachable")
+
+    priv, _ = _keypair()
+    v = ClerkVerifier(issuer=_ISS, signing_key_resolver=_boom)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(HTTPException) as ei:
+            v.verify(f"Bearer {_token(priv)}")
+    assert ei.value.status_code == 401
+    assert "JWKS" in caplog.text or "misconfigured" in caplog.text  # operator can see it
+
+
 def test_selector_returns_clerk_when_issuer_set(monkeypatch):
     monkeypatch.setenv("CLERK_ISSUER", _ISS)
     assert isinstance(get_auth_verifier(), ClerkVerifier)

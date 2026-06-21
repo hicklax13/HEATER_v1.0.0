@@ -18,10 +18,13 @@ from typing import Protocol
 
 import jwt
 from fastapi import Depends, Header, HTTPException, status
-from jwt import PyJWKClient
+from jwt import PyJWKClient, PyJWTError
+from jwt.exceptions import PyJWKClientError
 from pydantic import BaseModel
 
 _TOKEN_ENV = "HEATER_API_WRITE_TOKEN"
+# Fail fast on a JWKS outage rather than stalling PyJWKClient's 30s default per request.
+_JWKS_TIMEOUT_SECS = 10
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +121,9 @@ class ClerkVerifier:
         if self._resolver is not None:
             return self._resolver(token)
         if self._client is None:
-            # PyJWKClient caches keys and refetches on an unknown kid (rotation).
-            self._client = PyJWKClient(self._jwks_url)
+            # PyJWKClient caches the JWK SET and refetches on an unknown kid (so key
+            # rotation works). Explicit timeout so a JWKS outage degrades fast (deny).
+            self._client = PyJWKClient(self._jwks_url, timeout=_JWKS_TIMEOUT_SECS)
         return self._client.get_signing_key_from_jwt(token).key
 
     def verify(self, authorization: str | None) -> Principal:
@@ -137,10 +141,21 @@ class ClerkVerifier:
                 leeway=self._leeway,
                 options={"require": ["exp", "iss", "sub"], "verify_aud": self._audience is not None},
             )
+        except PyJWKClientError as exc:
+            # JWKS unreachable / no key for the token's kid / wrong jwks_url → auth is
+            # MISCONFIGURED or DOWN, NOT a user error. Operator-visible (warning); the
+            # message carries the JWKS url + cause, never the token/claims.
+            logger.warning("Clerk JWKS/key resolution failed (auth may be misconfigured): %s", exc)
+            raise _unauthorized("Authentication temporarily unavailable.")
+        except PyJWTError as exc:
+            # Expected user-side token faults (expired / bad sig / wrong iss|aud /
+            # malformed). Quiet (debug) + type only — high-volume, uninteresting.
+            logger.debug("Clerk token rejected: %s", type(exc).__name__)
+            raise _unauthorized("Invalid or expired token.")
         except Exception as exc:
-            # Fail closed on ANY error (bad sig, expired, wrong iss/aud, unreachable
-            # JWKS, malformed). Log the failure TYPE only (never the token/claims).
-            logger.debug("Clerk token verification failed: %s", type(exc).__name__)
+            # Truly unexpected (e.g. a resolver returning the wrong type). Surface at
+            # warning so it isn't mistaken for a routine bad token. Still fail closed.
+            logger.warning("Unexpected error during Clerk verification: %s", type(exc).__name__)
             raise _unauthorized("Invalid or expired token.")
         subject = claims.get("sub")
         if not subject:

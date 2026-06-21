@@ -2,6 +2,11 @@
 draft_tool.db). Proves get_or_create is idempotent and that the sqlite impl owns
 its OWN separate file."""
 
+import logging
+import sqlite3
+
+import pytest
+
 from api.stores.user_store import AppUser, InMemoryUserStore, SqliteUserStore
 
 
@@ -39,3 +44,29 @@ def test_sqlite_store_distinct_users(tmp_path):
     db = tmp_path / "api_state.db"
     store = SqliteUserStore(db_path=str(db))
     assert store.get_or_create("u1").id != store.get_or_create("u2").id
+
+
+def test_sqlite_store_logs_and_propagates_and_closes_on_failure(tmp_path, monkeypatch, caplog):
+    # A failure during the SELECT/INSERT must PROPAGATE (never silently no-op),
+    # leave a WARNING breadcrumb, and still close the connection (finally).
+    store = SqliteUserStore(db_path=str(tmp_path / "x.db"))
+
+    class _BoomConn:
+        closed = False
+
+        def execute(self, *a, **k):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        def commit(self):  # pragma: no cover - not reached
+            pass
+
+        def close(self):
+            self.closed = True
+
+    boom = _BoomConn()
+    monkeypatch.setattr(store, "_connect", lambda: boom)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(sqlite3.OperationalError):
+            store.get_or_create("u")
+    assert "get_or_create failed" in caplog.text  # operator breadcrumb
+    assert boom.closed is True  # connection released despite the error
