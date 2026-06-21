@@ -6,10 +6,23 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.lineup import LineupOptimizeRequest, LineupOptimizeResponse
 from api.deps import get_lineup_service
+from api.gating import require_pro
 
 router = APIRouter(prefix="/api", tags=["lineup"])
 
+# Pro-gated (dormant until Stripe is configured). 402 = not Pro; 401 = unauthenticated
+# once billing is live. Both only fire when STRIPE_SECRET_KEY is set.
+_PRO_GATE = {
+    402: {"description": "Pro subscription required (when billing is enabled)."},
+    401: {"description": "Authentication required (when billing is enabled)."},
+}
 
-@router.post("/lineup/optimize", response_model=LineupOptimizeResponse)
+
+@router.post(
+    "/lineup/optimize",
+    response_model=LineupOptimizeResponse,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
 def optimize_lineup(req: LineupOptimizeRequest, service=Depends(get_lineup_service)) -> LineupOptimizeResponse:
     return service.optimize(req.team_name, req.date, req.scope, req.mode)

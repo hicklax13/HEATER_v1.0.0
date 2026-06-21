@@ -12,16 +12,33 @@ from api.contracts.draft import (
     DraftSimulatePicksResponse,
 )
 from api.deps import get_draft_service
+from api.gating import require_pro
 
 router = APIRouter(prefix="/api", tags=["draft"])
 
+# Pro-gated (dormant until Stripe is configured).
+_PRO_GATE = {
+    402: {"description": "Pro subscription required (when billing is enabled)."},
+    401: {"description": "Authentication required (when billing is enabled)."},
+}
 
-@router.post("/draft/recommend", response_model=DraftRecommendResponse)
+
+@router.post(
+    "/draft/recommend",
+    response_model=DraftRecommendResponse,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
 def draft_recommend(req: DraftRecommendRequest, service=Depends(get_draft_service)) -> DraftRecommendResponse:
     return service.recommend(req)
 
 
-@router.post("/draft/simulate-picks", response_model=DraftSimulatePicksResponse)
+@router.post(
+    "/draft/simulate-picks",
+    response_model=DraftSimulatePicksResponse,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
 def draft_simulate_picks(
     req: DraftSimulatePicksRequest, service=Depends(get_draft_service)
 ) -> DraftSimulatePicksResponse:

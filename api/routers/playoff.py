@@ -6,10 +6,22 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.playoff import PlayoffOddsResponse
 from api.deps import get_playoff_service
+from api.gating import require_pro
 
 router = APIRouter(prefix="/api", tags=["playoff"])
 
+# Pro-gated (dormant until Stripe is configured).
+_PRO_GATE = {
+    402: {"description": "Pro subscription required (when billing is enabled)."},
+    401: {"description": "Authentication required (when billing is enabled)."},
+}
 
-@router.get("/playoff-odds", response_model=PlayoffOddsResponse)
+
+@router.get(
+    "/playoff-odds",
+    response_model=PlayoffOddsResponse,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
 def get_playoff_odds(team_name: str, service=Depends(get_playoff_service)) -> PlayoffOddsResponse:
     return service.get_playoff_odds(team_name)

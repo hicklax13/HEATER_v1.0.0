@@ -3216,6 +3216,24 @@
     "/api/draft/recommend": {
       "post": {
         "operationId": "draft_recommend_api_draft_recommend_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3237,6 +3255,12 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3257,6 +3281,24 @@
     "/api/draft/simulate-picks": {
       "post": {
         "operationId": "draft_simulate_picks_api_draft_simulate_picks_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3277,6 +3319,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
           },
           "422": {
             "content": {
@@ -3529,6 +3577,24 @@
     "/api/lineup/optimize": {
       "post": {
         "operationId": "optimize_lineup_api_lineup_optimize_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3549,6 +3615,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
           },
           "422": {
             "content": {
@@ -3778,6 +3850,22 @@
               "title": "Team Name",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -3790,6 +3878,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
           },
           "422": {
             "content": {
@@ -3995,6 +4089,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -4007,6 +4117,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
           },
           "422": {
             "content": {
@@ -4028,6 +4144,24 @@
     "/api/trade/evaluate": {
       "post": {
         "operationId": "evaluate_trade_endpoint_api_trade_evaluate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4048,6 +4182,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
           },
           "422": {
             "content": {

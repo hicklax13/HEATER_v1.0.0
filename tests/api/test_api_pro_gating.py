@@ -59,3 +59,59 @@ def test_live_propagates_401_when_unauthenticated(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         require_pro(authorization=None, verifier=_Verifier(raise_401=True), store=InMemorySubscriptionStore())
     assert ei.value.status_code == 401
+
+
+# --- structural guard: the compute-heavy endpoints must carry the gate ----------
+# Introspect the ROUTER objects directly (their routes are materialized with the full
+# prefixed path + .dependant). app.routes can't be walked here: FastAPI 0.137's lazy
+# include_router stores _IncludedRouter wrappers whose nested APIRoutes aren't expanded.
+
+from api.routers.draft import router as _draft_router  # noqa: E402
+from api.routers.lineup import router as _lineup_router  # noqa: E402
+from api.routers.playoff import router as _playoff_router  # noqa: E402
+from api.routers.standings import router as _standings_router  # noqa: E402
+from api.routers.trade import router as _trade_router  # noqa: E402
+from api.routers.trade_finder import router as _trade_finder_router  # noqa: E402
+
+# The canonical compute-heavy endpoints. Adding a new heavy endpoint? Add it here AND
+# its router below AND gate it with dependencies=[Depends(require_pro)] — this fails until you do.
+_HEAVY = {
+    ("POST", "/api/lineup/optimize"),
+    ("POST", "/api/trade/evaluate"),
+    ("GET", "/api/playoff-odds"),
+    ("GET", "/api/trade-finder"),
+    ("POST", "/api/draft/recommend"),
+    ("POST", "/api/draft/simulate-picks"),
+}
+
+_GATED_ROUTERS = (_lineup_router, _trade_router, _playoff_router, _trade_finder_router, _draft_router)
+
+
+def _route_map(*routers):
+    out = {}
+    for rtr in routers:
+        for r in rtr.routes:
+            path = getattr(r, "path", None)
+            for m in getattr(r, "methods", None) or set():
+                out[(m, path)] = r
+    return out
+
+
+def _dep_calls(route):
+    return [d.call for d in route.dependant.dependencies]
+
+
+def test_heavy_endpoints_carry_require_pro():
+    routes = _route_map(*_GATED_ROUTERS)
+    for key in _HEAVY:
+        route = routes.get(key)
+        assert route is not None, f"{key} not found on its router"
+        assert require_pro in _dep_calls(route), f"{key} is missing the require_pro gate"
+
+
+def test_read_endpoint_is_not_gated():
+    # A free read endpoint must NOT carry the Pro gate.
+    routes = _route_map(_standings_router)
+    route = routes.get(("GET", "/api/standings"))
+    assert route is not None
+    assert require_pro not in _dep_calls(route)
