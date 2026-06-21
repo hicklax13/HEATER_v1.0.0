@@ -15,6 +15,8 @@ import type {
   ApiLineupOptimizeResponse,
   ApiLineupSlot,
   ApiClosersResponse,
+  ApiDraftRecommendResponse,
+  ApiDraftSimulateResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -34,6 +36,13 @@ import type { DatabankData } from "@/lib/databank-data";
 import type { OptimizerData, LineupSlot as OptSlot, SlotStatus } from "@/lib/optimizer-data";
 import type { ClosersData } from "@/lib/closers-data";
 import { securityFor } from "@/lib/closer-security";
+import type {
+  DraftClock as VMDraftClock,
+  DraftPick as VMDraftPick,
+  DraftPlayer,
+  RecResult,
+  SimResult,
+} from "@/lib/draft-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -636,5 +645,59 @@ export function apiClosersToData(api: ApiClosersResponse): ClosersData {
         stats: [], // API has no proj SV/ERA/WHIP yet (CEO track to populate)
       };
     }),
+  };
+}
+
+// --- Draft Simulator (snake_case API → camelCase view-models) ---
+function toVMDraftClock(c: ApiDraftRecommendResponse["clock"]): VMDraftClock {
+  return {
+    currentPick: c.current_pick,
+    round: c.round,
+    pickInRound: c.pick_in_round,
+    pickingTeamIndex: c.picking_team_index,
+    isUserTurn: c.is_user_turn,
+  };
+}
+
+function toVMDraftPick(p: ApiDraftSimulateResponse["picks"][number]): VMDraftPick {
+  return {
+    pick: p.pick,
+    teamIndex: p.team_index,
+    playerId: p.player_id,
+    playerName: p.player_name,
+    positions: p.positions,
+  };
+}
+
+function toDraftPlayer(p: {
+  id: number;
+  name: string;
+  positions: string;
+  mlb_id?: number | null;
+  team_abbr?: string | null;
+  team_id?: number | null;
+}): DraftPlayer {
+  return { ...toPlayerRef(p), id: p.id };
+}
+
+/** Map POST /api/draft/simulate-picks → the new AI picks + fresh clock. */
+export function apiDraftSimulateToData(api: ApiDraftSimulateResponse): SimResult {
+  return { clock: toVMDraftClock(api.clock), picks: (api.picks ?? []).map(toVMDraftPick) };
+}
+
+/** Map POST /api/draft/recommend → recommendations + clock + summary. */
+export function apiDraftRecommendToData(api: ApiDraftRecommendResponse): RecResult {
+  return {
+    clock: toVMDraftClock(api.clock),
+    summary: api.summary ?? "",
+    recs: (api.recommendations ?? []).map((r) => ({
+      player: toDraftPlayer(r.player),
+      rank: r.rank,
+      score: r.score,
+      projectedSgp: r.projected_sgp,
+      confidence: r.confidence ?? null,
+      tag: r.tag ?? null,
+      reason: r.reason ?? "",
+    })),
   };
 }

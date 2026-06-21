@@ -33,6 +33,7 @@ const NAV = [
   { label: "Players", href: "/players" },
   { label: "Research", href: "/research" },
   { label: "Databank", href: "/databank" },
+  { label: "Draft", href: "/draft" },
 ];
 
 export function TopBar() {

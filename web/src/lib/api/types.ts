@@ -30,3 +30,7 @@ export type ApiDatabankResponse = components["schemas"]["DatabankResponse"];
 export type ApiLineupOptimizeResponse = components["schemas"]["LineupOptimizeResponse"];
 export type ApiLineupSlot = components["schemas"]["LineupSlot"];
 export type ApiClosersResponse = components["schemas"]["ClosersResponse"];
+export type ApiDraftRecommendResponse = components["schemas"]["DraftRecommendResponse"];
+export type ApiDraftSimulateResponse = components["schemas"]["DraftSimulatePicksResponse"];
+export type ApiDraftConfig = components["schemas"]["DraftConfig"];
+export type ApiDraftPick = components["schemas"]["DraftPick"];
