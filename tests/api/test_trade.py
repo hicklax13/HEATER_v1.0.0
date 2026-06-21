@@ -1,5 +1,6 @@
 from starlette.testclient import TestClient
 
+from api.auth import Principal, get_auth_verifier
 from api.contracts.common import PlayerRef
 from api.contracts.trade import (
     CategoryImpact,
@@ -7,8 +8,11 @@ from api.contracts.trade import (
     TradeEvaluateRequest,
     TradeEvaluationResponse,
 )
-from api.deps import get_trade_service
+from api.deps import get_league_store, get_membership_store, get_trade_service, get_user_store
 from api.main import create_app
+from api.stores.league_store import InMemoryLeagueStore
+from api.stores.membership_store import InMemoryMembershipStore
+from api.stores.user_store import InMemoryUserStore
 
 
 def test_trade_contract_shape():
@@ -90,3 +94,68 @@ def test_post_trade_evaluate_with_mc_opt_in():
     assert resp.status_code == 200
     body = resp.json()
     assert body["mc_enabled"] is True
+
+
+# ── M3-1 viewer-team resolution (the trade EVALUATOR was missed in the first wiring) ──
+
+
+class _SpyTradeService:
+    """Captures the team_name the router forwarded to the engine."""
+
+    def __init__(self):
+        self.seen = None
+
+    def evaluate(self, team_name, giving_ids, receiving_ids, enable_mc=False):
+        self.seen = team_name
+        return TradeEvaluationResponse(
+            grade="A",
+            verdict="Accept",
+            confidence_pct=85.0,
+            surplus_sgp=1.5,
+            grade_range=GradeRange(grade="A", low=1.0, center=1.5, high=2.0),
+            giving=[],
+            receiving=[],
+            mc_enabled=enable_mc,
+            summary="ok",
+        )
+
+
+class _ClerkVerifier:
+    def verify(self, authorization):
+        return Principal(subject="user_42", clerk_user_id="user_42")
+
+
+def test_trade_evaluate_resolves_assigned_team_over_body():
+    # A logged-in user's assigned team OVERRIDES the body team_name (closes the gap
+    # where the evaluator trusted a client-supplied team).
+    app = create_app()
+    spy = _SpyTradeService()
+    users, leagues, members = InMemoryUserStore(), InMemoryLeagueStore(), InMemoryMembershipStore()
+    u = users.get_or_create("user_42")
+    lg = leagues.get_or_create_default()
+    members.assign(u.id, lg.id, "Bronx Bombers", team_key=None, assigned_by=u.id)
+    app.dependency_overrides[get_trade_service] = lambda: spy
+    app.dependency_overrides[get_auth_verifier] = lambda: _ClerkVerifier()
+    app.dependency_overrides[get_user_store] = lambda: users
+    app.dependency_overrides[get_league_store] = lambda: leagues
+    app.dependency_overrides[get_membership_store] = lambda: members
+    resp = TestClient(app).post(
+        "/api/trade/evaluate",
+        json={"team_name": "Team Hickey", "giving_ids": [], "receiving_ids": []},
+        headers={"Authorization": "Bearer x"},
+    )
+    assert resp.status_code == 200
+    assert spy.seen == "Bronx Bombers"  # resolved viewer team, NOT the body's team_name
+
+
+def test_trade_evaluate_dormant_uses_body_team():
+    # Clerk off / no token → body team_name honored (byte-for-byte today's behavior).
+    app = create_app()
+    spy = _SpyTradeService()
+    app.dependency_overrides[get_trade_service] = lambda: spy
+    resp = TestClient(app).post(
+        "/api/trade/evaluate",
+        json={"team_name": "Team Hickey", "giving_ids": [], "receiving_ids": []},
+    )
+    assert resp.status_code == 200
+    assert spy.seen == "Team Hickey"
