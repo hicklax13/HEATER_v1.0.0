@@ -81,7 +81,7 @@ It is an **index + sequence**, not a re-statement: each milestone points at the 
 
 ### M6 — 🔧 Owner manual tasks *(consolidated — batched at the very end, owner-set 2026-06-20)*
 **Outcome:** the hands-on setup only the owner (Connor) can do, gathered into ONE checklist so it isn't done piecemeal. Each task is technically needed at its milestone (noted), but bundled here per owner request — **keep building; Connor runs these together when prompted, with click-by-click steps provided per task.**
-- **Clerk** (for the M2 frontend / M3 beta): create the Clerk application → provide `CLERK_ISSUER` (+ `CLERK_AUDIENCE` if using a JWT template) → set in Railway. *(Backend verifier already built + dormant.)*
+- **Clerk** (for the M2 frontend / M3 beta): create the Clerk application → set the backend `CLERK_ISSUER` (+ `CLERK_AUDIENCE` if using a JWT template) in Railway **AND** the frontend `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `NEXT_PUBLIC_HEATER_LIVE=1` in Vercel — the two frontend vars must be set TOGETHER or gated pages serve mock data instead of the paywall (CMO activation note). *(Backend verifier + frontend UI already built + dormant.)*
 - **Stripe** (for M3 beta billing): create a Stripe account → a "HEATER Pro" product at **$7.99/mo with a 7-day trial** → a webhook endpoint for the 4 subscription events → set `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRO_PRICE_ID` in Railway. *(Backend already built + dormant.)*
 - **Yahoo `fspt-w` write scope** (for live lineup / add-drop writes): re-register / re-authorize the Yahoo app with write scope (currently read-only → live writes 401).
 - **Beta onboarding** (M3): invite the 12 FourzynBurn leaguemates onto the React product (revoke testuser → invite → approve/assign).
