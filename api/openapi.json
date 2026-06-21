@@ -224,6 +224,11 @@
             "title": "Confidence",
             "type": "string"
           },
+          "era": {
+            "default": 0.0,
+            "title": "Era",
+            "type": "number"
+          },
           "handcuffs": {
             "default": [],
             "items": {
@@ -232,14 +237,34 @@
             "title": "Handcuffs",
             "type": "array"
           },
+          "job_security": {
+            "default": 0.0,
+            "title": "Job Security",
+            "type": "number"
+          },
+          "projected_sv": {
+            "default": 0.0,
+            "title": "Projected Sv",
+            "type": "number"
+          },
           "role": {
             "default": "",
             "title": "Role",
             "type": "string"
           },
+          "security_color": {
+            "default": "",
+            "title": "Security Color",
+            "type": "string"
+          },
           "team": {
             "title": "Team",
             "type": "string"
+          },
+          "whip": {
+            "default": 0.0,
+            "title": "Whip",
+            "type": "number"
           }
         },
         "required": [
