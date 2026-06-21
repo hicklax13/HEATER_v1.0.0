@@ -15,6 +15,7 @@ from api.contracts.matchup import (
     SideTotals,
     TeamSide,
 )
+from api.services.live_boxscore import fetch_live_player_lines
 from api.services.player_ref import player_ref_from_pool
 
 _HITTER_COLUMNS = ["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"]
@@ -206,6 +207,35 @@ def _pair_rows(you: list, opp: list, slots: list) -> list[RosterRow]:
             )
         )
     return rows
+
+
+def _apply_live_lines(hitters, pitchers, schedule, date_key: str) -> None:
+    """Override MatchPlayer.stats + status with today's ACTUAL line for any player
+    whose game is live/final. No-op (never raises) on any failure — the projected
+    line stays as the fallback."""
+    try:
+        live = fetch_live_player_lines(schedule, date_key=date_key)
+    except Exception:
+        return
+    if not live:
+        return
+
+    def _override(rows, key: str) -> None:
+        for row in rows:
+            for mp in (row.you, row.opp):
+                if mp is None or mp.state not in ("live", "final"):
+                    continue
+                mid = getattr(mp.player, "mlb_id", None)
+                entry = live.get(int(mid)) if mid else None
+                if not entry:
+                    continue
+                line = entry.get(key) or []
+                if line:
+                    mp.stats = line
+                    mp.status = entry.get("status") or mp.status
+
+    _override(hitters, "hitter")
+    _override(pitchers, "pitcher")
 
 
 class MatchupService:
@@ -406,6 +436,7 @@ class MatchupService:
 
         # Fetch today's schedule for game-state resolution (graceful on failure).
         schedule: list[dict] = []
+        game_date = ""  # always bound (used as the live-lines cache key below)
         try:
             game_date = get_target_game_date()
             schedule = statsapi.schedule(date=game_date) or []
@@ -530,6 +561,9 @@ class MatchupService:
 
         hitters = _pair_rows(you_hitters, opp_hitters, you_h_slots)
         pitchers = _pair_rows(you_pitchers, opp_pitchers, you_p_slots)
+
+        # Overlay today's live in-game lines (no-op when no games are live/final).
+        _apply_live_lines(hitters, pitchers, schedule, date_key=str(game_date))
 
         # Aggregate per-side totals from the pool rows for each side's players.
         def _side_totals(side_rosters: pd.DataFrame, is_hit: bool) -> list[str]:
