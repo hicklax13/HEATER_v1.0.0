@@ -94,7 +94,8 @@ It is an **index + sequence**, not a re-statement: each milestone points at the 
 
 Product features (not migration phases) to fold into the React app — captured here so they aren't lost. Each is a future spec→plan→build (TDD + review), integrated into the relevant page.
 
-### Probable Pitcher schedule + Hitter Matchup schedule *(new — owner-requested 2026-06-20)*
+### Probable Pitcher schedule + Hitter Matchup schedule *(new — owner-requested 2026-06-20; SPEC'D)*
+**Spec: `docs/superpowers/specs/2026-06-20-heater-probable-pitcher-schedule-design.md`** (full-stack CEO; ~85% composes the existing stream_analyzer engine + one new hitter-vs-SP scorer; free/read endpoints; 2 phases).
 A FantasyPros-style **7-day Probable Pitchers grid** (model: `https://www.fantasypros.com/mlb/probable-pitchers.php`), added as a **new tab on the Pitcher Streaming page/tool**. Requirements (from the owner + the FantasyPros reference screenshots):
 - **Grid:** TEAM rows × the next-7-days columns; each cell = the probable SP (name, W-L record, SP rank), the opponent (`@SF` / `vs`), home/away.
 - **League-connected:** per pitcher show **Rostered** (your team) / **Taken** (another league team) / **Available** (free agent), with toggle filters for each (the screenshot's Roster / Taken / Available checkboxes). Uses the league rosters + FA pool already in the backend.
@@ -103,8 +104,8 @@ A FantasyPros-style **7-day Probable Pitchers grid** (model: `https://www.fantas
 - **The inverse — "Hitter Matchup schedule"** (model: FantasyPros "Hitter Matchup Planner"): TEAM rows showing each team's **batting squad's** weekly matchup — the opposing probable SP per day (+ L/R handedness), a per-team totals strip (games, vs RHP, vs LHP) and a **matchups-rank**, color-coded easy/tough, same league-connection + filters.
 - **Lane:** CEO (engine/contract — much already exists in `stream_analyzer` + `game_day` probables/team-strength) + CMO (the grid UI). **Status: captured only — future spec → plan → build → integrate. NOT built.**
 
-### AI chat assistant — port to React *(carry-forward — owner-flagged 2026-06-20)*
-The multi-provider **AI chat assistant is LIVE in the Streamlit app** on every page (`src/ai/`, spec `docs/superpowers/specs/2026-06-11-ai-chat-assistant-design.md` + `...-phase1.md`; memory `project_ai_chat_assistant`). It is **NOT yet in the React migration plan** — it must be **ported to the React app** (a cross-cutting embedded component against an API chat endpoint) so parity includes it. **Status: future — its own spec → plan → build** in the migration (fold into M1 page parity or a dedicated slice).
+### "Bubba" — AI assistant, full-access + monetized *(EXPANDED + SPEC'D 2026-06-20)*
+**Spec: `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md`** (full-stack CEO; 4 phases). The Streamlit AI chat (`src/ai/`, spec `...-2026-06-11-ai-chat-assistant-design.md`; memory `project_ai_chat_assistant`) is being **expanded, not just ported**, into **Bubba** — an every-page AI assistant (an "Ask Bubba" ember-spark button → a claude.ai-grade pop-up) with **full read access AND confirm-gated control over ANY/ALL app data** (historical/live/future), rich features (select-to-tag, web/deep-research, file + page + device-window screenshots, reasoning-effort toggle, message queue, saved prompts), and a **monetization model (LOCKED, CEO decision 2026-06-20):** BYO-keys **free for everyone**; managed "Bubba" on a good-better-best ladder — **Free** (data + BYO + a small recurring free taste) / **Pro $7.99** (tools + BYO) / **Plus ~$14.99** (tools + managed allowance) / **Max ~$29.99** (tools + big allowance); the recurring free monthly allowance IS the funnel/trial. The `src/ai/` engine is reused unchanged behind new `/api/chat/*` endpoints (identity seam: Clerk AppUser → chat user_id). **Status: spec'd — 4 phases (B1 chat MVP → B2 rich features → B3 monetization → B4 control), each its own plan → build.**
 
 ---
 
