@@ -74,6 +74,21 @@ def test_admin_assigns_and_canonicalizes_team_name(monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["team_name"] == "🏆 Team Hickey"  # reconciled to the exact roster name
+    assert r.json()["validated"] is True  # matched against a non-empty roster list
+
+
+def test_admin_assign_cold_db_persists_unvalidated(monkeypatch):
+    # Roster source cold/empty → name accepted as-is (cold-start seeding), but the
+    # response flags validated=False so the unvalidated write is observable.
+    c = _client("admin_1", monkeypatch, names=())
+    r = c.post(
+        "/api/admin/assignments",
+        json={"clerk_user_id": "member_a", "team_name": "Team Hickee"},  # typo, can't be caught cold
+        headers={"Authorization": "Bearer x"},
+    )
+    assert r.status_code == 200
+    assert r.json()["team_name"] == "Team Hickee"
+    assert r.json()["validated"] is False
 
 
 def test_admin_assign_unknown_team_is_422(monkeypatch):

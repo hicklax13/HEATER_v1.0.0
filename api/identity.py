@@ -48,6 +48,9 @@ def optional_app_user(
     if not authorization:
         return None
     try:
+        # Contract: AuthVerifier.verify raises ONLY HTTPException (api/auth.py). Keep
+        # verify() the sole call inside this try — provisioning MUST stay outside so a
+        # store failure for a VALID token 500s, never silently degrades to anonymous.
         principal = verifier.verify(authorization)
     except HTTPException:
         return None

@@ -46,6 +46,11 @@
           "user_id": {
             "title": "User Id",
             "type": "integer"
+          },
+          "validated": {
+            "default": true,
+            "title": "Validated",
+            "type": "boolean"
           }
         },
         "required": [
