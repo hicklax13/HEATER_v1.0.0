@@ -34,3 +34,33 @@ class ProbableTeamRow(BaseModel):
 class ProbableGridResponse(BaseModel):
     days: list[str] = []  # the date columns, YYYY-MM-DD, ascending
     teams: list[ProbableTeamRow] = []
+
+
+class HitterMatchupCell(BaseModel):
+    opp_sp: PlayerRef | None = None
+    opp_sp_throws: str = ""  # "L" | "R" | ""
+    opponent: str = ""  # the MLB team the batting team plays (the SP's team)
+    is_home: bool = False  # the BATTING team's home/away
+    difficulty: float = 0.0  # 0-100, higher = better for the hitters
+    band: str = "medium"  # easy | medium | tough
+    status: str = ""
+    confidence: str = ""
+
+
+class HitterTeamTotals(BaseModel):
+    games: int = 0
+    vs_rhp: int = 0
+    vs_lhp: int = 0
+
+
+class HitterMatchupTeamRow(BaseModel):
+    team: str  # batting team abbreviation
+    cells: list[HitterMatchupCell | None] = []  # aligned to HitterMatchupGridResponse.days
+    totals: HitterTeamTotals = HitterTeamTotals()
+    matchups_rank: int = 0  # 1 = easiest weekly hitting schedule
+    availability: str = "other"  # "yours" if the viewer rosters >=1 hitter from this MLB team
+
+
+class HitterMatchupGridResponse(BaseModel):
+    days: list[str] = []
+    teams: list[HitterMatchupTeamRow] = []

@@ -11,7 +11,15 @@ from __future__ import annotations
 
 import math
 
-from api.contracts.schedule import ProbableCell, ProbableGridResponse, ProbableTeamRow
+from api.contracts.schedule import (
+    HitterMatchupCell,
+    HitterMatchupGridResponse,
+    HitterMatchupTeamRow,
+    HitterTeamTotals,
+    ProbableCell,
+    ProbableGridResponse,
+    ProbableTeamRow,
+)
 from api.services.player_ref import make_player_ref
 
 # Difficulty bands over the 0-100 streamability score (higher = easier matchup).
@@ -108,6 +116,92 @@ def _assemble_grid(
     return ProbableGridResponse(days=date_list, teams=team_rows)
 
 
+def _to_hitter_cell(sp_row, sp_pool_stats) -> tuple[str, HitterMatchupCell]:
+    """Map a starter's board row onto its OPPONENT's (the batting team's) cell.
+
+    Returns (batting_team, cell). The batting team faces this starter; the cell carries
+    the inverse-of-the-pitcher-matchup difficulty (higher = better for the bats)."""
+    from src.optimizer.stream_analyzer import compute_hitter_matchup_score
+
+    batting_team = str(_g(sp_row, "opponent", "") or "")
+    hitters_home = not bool(_g(sp_row, "is_home", False))
+    team_offense = {"wrc_plus": _g(sp_row, "opp_wrc_plus"), "k_pct": _g(sp_row, "opp_k_pct")}
+    difficulty = compute_hitter_matchup_score(
+        sp_pool_stats or {},
+        team_offense,
+        park_factor=_f(_g(sp_row, "park_factor"), 1.0),
+        hitters_home=hitters_home,
+    )
+    try:
+        pid = int(_g(sp_row, "player_id", 0) or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    cell = HitterMatchupCell(
+        opp_sp=make_player_ref(
+            id=pid,
+            name=str(_g(sp_row, "player_name", "") or ""),
+            positions="SP",
+            mlb_id=_g(sp_row, "mlb_id"),
+            team_abbr=_g(sp_row, "team"),
+        ),
+        opp_sp_throws=str(_g(sp_row, "throws", "") or ""),
+        opponent=str(_g(sp_row, "team", "") or ""),
+        is_home=hitters_home,
+        difficulty=difficulty,
+        band=_band(difficulty),
+        status=str(_g(sp_row, "status", "") or ""),
+        confidence=str(_g(sp_row, "confidence", "") or ""),
+    )
+    return batting_team, cell
+
+
+def _hitter_team_row(team, cells, user_hitter_teams) -> HitterMatchupTeamRow:
+    populated = [c for c in cells if c is not None]
+    vs_rhp = sum(1 for c in populated if (c.opp_sp_throws or "").upper() == "R")
+    vs_lhp = sum(1 for c in populated if (c.opp_sp_throws or "").upper() == "L")
+    return HitterMatchupTeamRow(
+        team=team,
+        cells=cells,
+        totals=HitterTeamTotals(games=len(populated), vs_rhp=vs_rhp, vs_lhp=vs_lhp),
+        availability="yours" if team in (user_hitter_teams or set()) else "other",
+    )
+
+
+def _assemble_hitter_grid(
+    boards_by_day: list,
+    date_list: list[str],
+    pool_stats: dict,
+    user_hitter_teams: set,
+) -> HitterMatchupGridResponse:
+    """Pure assembly: each starter row -> its opponent's batting cell; then totals + rank."""
+    cell_map: dict[tuple[str, int], HitterMatchupCell] = {}
+    teams: set[str] = set()
+    for day_index, rows in enumerate(boards_by_day):
+        for row in rows or []:
+            sp_stats = (pool_stats or {}).get(_g(row, "mlb_id")) or {}
+            batting_team, cell = _to_hitter_cell(row, sp_stats)
+            if not batting_team:
+                continue
+            teams.add(batting_team)
+            cell_map[(batting_team, day_index)] = cell
+    team_rows = [
+        _hitter_team_row(
+            team,
+            [cell_map.get((team, i)) for i in range(len(date_list))],
+            user_hitter_teams,
+        )
+        for team in sorted(teams)
+    ]
+
+    def _mean_diff(r: HitterMatchupTeamRow) -> float:
+        vals = [c.difficulty for c in r.cells if c is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    for rank, r in enumerate(sorted(team_rows, key=_mean_diff, reverse=True), start=1):
+        r.matchups_rank = rank
+    return HitterMatchupGridResponse(days=date_list, teams=team_rows)
+
+
 def _date_range(days: int) -> list[str]:
     """[today, ..., today+days-1] as YYYY-MM-DD. today = the engine's target date."""
     from datetime import UTC, datetime, timedelta
@@ -176,3 +270,77 @@ class ScheduleService:
             return out
         except Exception:
             return {}
+
+    def hitter_matchups(self, days: int = 7, team_name: str | None = None) -> HitterMatchupGridResponse:
+        """7-day hitter matchup grid: batting-team rows x day columns, each cell the
+        opposing starter + calibrated-inverse difficulty. Reuses build_stream_board x7
+        (same board as the Probable grid). team_name enables the 'yours' row tag.
+        Never raises -> empty grid."""
+        days = max(1, min(int(days or 7), _MAX_DAYS))
+        date_list = _date_range(days)
+        try:
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.optimizer.stream_analyzer import build_stream_board
+            from src.valuation import LeagueConfig
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            ctx = build_optimizer_context(
+                scope="rest_of_season",
+                yds=get_yahoo_data_service(),
+                config=LeagueConfig(),
+                user_team_name=team_name or None,
+                level_filter="MLB only",
+            )
+            pool_stats = self._pool_pitcher_stats(ctx)
+            user_hitter_teams = self._user_hitter_teams(ctx)
+
+            boards_by_day = []
+            for date in date_list:
+                try:
+                    board = build_stream_board(ctx, date, include_rostered=True)
+                    rows = [] if board is None or board.empty else [r for _, r in board.iterrows()]
+                except Exception:
+                    rows = []
+                boards_by_day.append(rows)
+
+            return _assemble_hitter_grid(boards_by_day, date_list, pool_stats, user_hitter_teams)
+        except Exception:
+            return HitterMatchupGridResponse(days=date_list, teams=[])
+
+    @staticmethod
+    def _pool_pitcher_stats(ctx) -> dict:
+        """{mlb_id: {k_bb_pct, xfip, csw_pct, era, whip}} from ctx.player_pool (never-raise -> {})."""
+        out: dict = {}
+        try:
+            pool = getattr(ctx, "player_pool", None)
+            if pool is None or pool.empty or "mlb_id" not in pool.columns:
+                return out
+            keys = [c for c in ("k_bb_pct", "xfip", "csw_pct", "era", "whip") if c in pool.columns]
+            for _, r in pool.iterrows():
+                mid = r.get("mlb_id")
+                try:
+                    if mid is None or (isinstance(mid, float) and math.isnan(mid)):
+                        continue
+                    out[int(mid)] = {k: r.get(k) for k in keys}
+                except (TypeError, ValueError):
+                    continue
+            return out
+        except Exception:
+            return out
+
+    @staticmethod
+    def _user_hitter_teams(ctx) -> set:
+        """MLB team abbrs the viewer rosters >=1 hitter from (never-raise -> set())."""
+        try:
+            uids = {int(p) for p in getattr(ctx, "user_roster_ids", []) or []}
+            if not uids:
+                return set()
+            pool = getattr(ctx, "player_pool", None)
+            if pool is None or pool.empty or "player_id" not in pool.columns or "team" not in pool.columns:
+                return set()
+            sub = pool[pool["player_id"].isin(uids)]
+            if "is_hitter" in sub.columns:
+                sub = sub[sub["is_hitter"] == 1]
+            return {str(t) for t in sub["team"].dropna().unique() if str(t)}
+        except Exception:
+            return set()
