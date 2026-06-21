@@ -115,3 +115,25 @@ def price_per_token(model: str) -> tuple[float, float]:
     if model.startswith("ollama/"):
         return (0.0, 0.0)
     return _PRICE_PER_TOKEN.get(model, (0.0, 0.0))
+
+
+# Thinking-effort dial (Bubba B2.1). The UI offers Off/Low/Med/High; off/low map
+# to {} (fastest, no reasoning) so the dial defaults to zero overhead. Only
+# medium/high spend reasoning. Per-provider: Anthropic takes a thinking-budget
+# (token count); OpenAI takes reasoning_effort ("medium"/"high"). Providers
+# without a reasoning param (DeepSeek, Gemini, xAI, OpenRouter, ollama) -> {}:
+# the dial still renders but is a silent no-op there (documented).
+_ANTHROPIC_THINKING_BUDGET = {"medium": 4096, "high": 12288}
+
+
+def thinking_params_for_model(model: str, effort: str | None) -> dict:
+    """Map the effort dial to litellm completion kwargs for `model`. {} = no-op."""
+    if effort in (None, "off", "low"):
+        return {}
+    provider = provider_of(model)
+    if provider == "anthropic":
+        budget = _ANTHROPIC_THINKING_BUDGET.get(effort)
+        return {"thinking": {"type": "enabled", "budget_tokens": budget}} if budget else {}
+    if provider == "openai":
+        return {"reasoning_effort": effort}
+    return {}
