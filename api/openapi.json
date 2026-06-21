@@ -1360,6 +1360,146 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HitterMatchupCell": {
+        "properties": {
+          "band": {
+            "default": "medium",
+            "title": "Band",
+            "type": "string"
+          },
+          "confidence": {
+            "default": "",
+            "title": "Confidence",
+            "type": "string"
+          },
+          "difficulty": {
+            "default": 0.0,
+            "title": "Difficulty",
+            "type": "number"
+          },
+          "is_home": {
+            "default": false,
+            "title": "Is Home",
+            "type": "boolean"
+          },
+          "opp_sp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opp_sp_throws": {
+            "default": "",
+            "title": "Opp Sp Throws",
+            "type": "string"
+          },
+          "opponent": {
+            "default": "",
+            "title": "Opponent",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "HitterMatchupCell",
+        "type": "object"
+      },
+      "HitterMatchupGridResponse": {
+        "properties": {
+          "days": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "teams": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HitterMatchupTeamRow"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "title": "HitterMatchupGridResponse",
+        "type": "object"
+      },
+      "HitterMatchupTeamRow": {
+        "properties": {
+          "availability": {
+            "default": "other",
+            "title": "Availability",
+            "type": "string"
+          },
+          "cells": {
+            "default": [],
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HitterMatchupCell"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "matchups_rank": {
+            "default": 0,
+            "title": "Matchups Rank",
+            "type": "integer"
+          },
+          "team": {
+            "title": "Team",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/HitterTeamTotals",
+            "default": {
+              "games": 0,
+              "vs_lhp": 0,
+              "vs_rhp": 0
+            }
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "title": "HitterMatchupTeamRow",
+        "type": "object"
+      },
+      "HitterTeamTotals": {
+        "properties": {
+          "games": {
+            "default": 0,
+            "title": "Games",
+            "type": "integer"
+          },
+          "vs_lhp": {
+            "default": 0,
+            "title": "Vs Lhp",
+            "type": "integer"
+          },
+          "vs_rhp": {
+            "default": 0,
+            "title": "Vs Rhp",
+            "type": "integer"
+          }
+        },
+        "title": "HitterTeamTotals",
+        "type": "object"
+      },
       "IpPace": {
         "description": "Weekly innings-pitched pacing for the daily view (from ip_tracker).",
         "properties": {
@@ -5385,6 +5525,69 @@
         "summary": "Get Punt",
         "tags": [
           "punt"
+        ]
+      }
+    },
+    "/api/schedule/hitter-matchups": {
+      "get": {
+        "operationId": "hitter_matchups_api_schedule_hitter_matchups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "maximum": 14,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Viewer's team \u2014 enables the 'yours' tag",
+            "in": "query",
+            "name": "team_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Viewer's team \u2014 enables the 'yours' tag",
+              "title": "Team Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HitterMatchupGridResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hitter Matchups",
+        "tags": [
+          "schedule"
         ]
       }
     },

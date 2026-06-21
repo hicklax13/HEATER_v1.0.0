@@ -483,6 +483,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedule/hitter-matchups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Hitter Matchups */
+        get: operations["hitter_matchups_api_schedule_hitter_matchups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedule/probables": {
         parameters: {
             query?: never;
@@ -1284,6 +1301,104 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HitterMatchupCell */
+        HitterMatchupCell: {
+            /**
+             * Band
+             * @default medium
+             */
+            band: string;
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+            /**
+             * Difficulty
+             * @default 0
+             */
+            difficulty: number;
+            /**
+             * Is Home
+             * @default false
+             */
+            is_home: boolean;
+            opp_sp?: components["schemas"]["PlayerRef"] | null;
+            /**
+             * Opp Sp Throws
+             * @default
+             */
+            opp_sp_throws: string;
+            /**
+             * Opponent
+             * @default
+             */
+            opponent: string;
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+        };
+        /** HitterMatchupGridResponse */
+        HitterMatchupGridResponse: {
+            /**
+             * Days
+             * @default []
+             */
+            days: string[];
+            /**
+             * Teams
+             * @default []
+             */
+            teams: components["schemas"]["HitterMatchupTeamRow"][];
+        };
+        /** HitterMatchupTeamRow */
+        HitterMatchupTeamRow: {
+            /**
+             * Availability
+             * @default other
+             */
+            availability: string;
+            /**
+             * Cells
+             * @default []
+             */
+            cells: (components["schemas"]["HitterMatchupCell"] | null)[];
+            /**
+             * Matchups Rank
+             * @default 0
+             */
+            matchups_rank: number;
+            /** Team */
+            team: string;
+            /**
+             * @default {
+             *       "games": 0,
+             *       "vs_lhp": 0,
+             *       "vs_rhp": 0
+             *     }
+             */
+            totals: components["schemas"]["HitterTeamTotals"];
+        };
+        /** HitterTeamTotals */
+        HitterTeamTotals: {
+            /**
+             * Games
+             * @default 0
+             */
+            games: number;
+            /**
+             * Vs Lhp
+             * @default 0
+             */
+            vs_lhp: number;
+            /**
+             * Vs Rhp
+             * @default 0
+             */
+            vs_rhp: number;
         };
         /**
          * IpPace
@@ -3655,6 +3770,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PuntResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hitter_matchups_api_schedule_hitter_matchups_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                /** @description Viewer's team — enables the 'yours' tag */
+                team_name?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HitterMatchupGridResponse"];
                 };
             };
             /** @description Validation Error */
