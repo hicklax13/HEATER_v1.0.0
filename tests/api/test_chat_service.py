@@ -1,0 +1,80 @@
+"""ChatService tests — every src/ai call is monkeypatched (DB-free, no network).
+Mirrors the canonical send orchestration in src/ai/chat.py::_handle_send."""
+
+import api.services.chat_service as cs
+from api.services.chat_service import ChatService, chat_user_id_for
+
+
+def test_chat_user_id_is_namespaced_above_streamlit_ids():
+    # must not collide with draft_tool.db users.user_id (1..N) the Streamlit chat writes
+    assert chat_user_id_for(1) >= 1_000_000_000
+    assert chat_user_id_for(2) == chat_user_id_for(1) + 1
+
+
+def test_send_records_usage_and_appends_history(monkeypatch):
+    calls = {"append": 0}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda cid, user_id=None: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda uid, title, model=None: 42)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: calls.__setitem__("usage", True))
+
+    def _append(*a, **k):
+        calls["append"] += 1
+        return 1
+
+    monkeypatch.setattr(cs.history, "append_message", _append)
+    monkeypatch.setattr(
+        cs.providers,
+        "chat",
+        lambda **k: {"content": "hi back", "tokens_in": 3, "tokens_out": 5, "tool_trace": []},
+    )
+
+    out = ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5")
+    assert out["content"] == "hi back" and out["conversation_id"] == 42 and out["error"] is None
+    assert calls.get("usage") and calls["append"] == 2  # user + assistant
+
+
+def test_send_no_key_returns_error(monkeypatch):
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: None)
+    out = ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5")
+    assert out["error"] and "no api key" in out["error"].lower() and out["content"] == ""
+
+
+def test_send_over_cap_returns_structured_error(monkeypatch):
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-shared")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [])  # no own key -> shared -> capped
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: True)
+    out = ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5")
+    assert out["error"] and "limit" in out["error"].lower() and out["content"] == ""
+
+
+def test_send_provider_error_is_graceful(monkeypatch):
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+
+    def boom(**k):
+        raise RuntimeError("provider 500")
+
+    monkeypatch.setattr(cs.providers, "chat", boom)
+    out = ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5")
+    assert out["error"] and out["content"] == ""  # never raises
+
+
+def test_models_filters_to_available_providers(monkeypatch):
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs, "_list_admin_shared_providers", lambda: [])
+    monkeypatch.setattr(cs, "_model_catalog", lambda: [("GPT-5", "gpt-5"), ("Claude", "claude-x")])
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai" if m == "gpt-5" else "anthropic")
+    out = ChatService().models(chat_user_id=1)
+    assert [m["id"] for m in out] == ["gpt-5"]  # only the provider with a key
