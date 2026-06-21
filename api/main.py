@@ -54,6 +54,7 @@ def create_app() -> FastAPI:
     from api.routers.playoff import router as playoff_router
     from api.routers.punt import router as punt_router
     from api.routers.roster_write import router as roster_write_router
+    from api.routers.schedule import router as schedule_router
     from api.routers.standings import router as standings_router
     from api.routers.streaming import router as streaming_router
     from api.routers.team import router as team_router
@@ -80,4 +81,5 @@ def create_app() -> FastAPI:
     app.include_router(billing_router)
     app.include_router(admin_router)
     app.include_router(chat_router)
+    app.include_router(schedule_router)
     return app

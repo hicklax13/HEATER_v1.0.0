@@ -24,6 +24,7 @@ from api.services.playoff_service import PlayoffService
 from api.services.punt_service import PuntService
 from api.services.roster_query_service import RosterQueryService
 from api.services.roster_write_service import RosterWriteService
+from api.services.schedule_service import ScheduleService
 from api.services.standings_service import StandingsService
 from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
@@ -41,6 +42,10 @@ def get_team_service() -> TeamService:
 
 def get_chat_service() -> ChatService:
     return ChatService()
+
+
+def get_schedule_service() -> ScheduleService:
+    return ScheduleService()
 
 
 def get_fa_service() -> FreeAgentService:
