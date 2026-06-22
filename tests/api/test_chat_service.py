@@ -185,3 +185,33 @@ def test_models_filters_to_available_providers(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai" if m == "gpt-5" else "anthropic")
     out = ChatService().models(chat_user_id=1)
     assert [m["id"] for m in out] == ["gpt-5"]  # only the provider with a key
+
+
+def test_saved_prompts_roundtrip_with_injected_store():
+    from api.stores.prompt_store import InMemoryPromptStore
+
+    svc = ChatService(prompt_store=InMemoryPromptStore())
+    ok, _ = svc.save_prompt(1_000_000_001, "Start SS?", "Who should I start at SS tonight?")
+    assert ok
+    prompts = svc.saved_prompts(1_000_000_001)
+    assert len(prompts) == 1 and prompts[0]["name"] == "Start SS?"
+    pid = prompts[0]["id"]
+    assert svc.delete_prompt(1_000_000_001, pid)[0] is True
+    assert svc.saved_prompts(1_000_000_001) == []
+
+
+def test_save_prompt_rejects_empty():
+    from api.stores.prompt_store import InMemoryPromptStore
+
+    svc = ChatService(prompt_store=InMemoryPromptStore())
+    ok, msg = svc.save_prompt(1, "", "")
+    assert ok is False and "required" in msg.lower()
+
+
+def test_saved_prompts_read_degrades_on_store_error():
+    class _Boom:
+        def list(self, owner_id):
+            raise RuntimeError("db down")
+
+    svc = ChatService(prompt_store=_Boom())
+    assert svc.saved_prompts(1) == []  # never raises

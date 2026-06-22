@@ -12,6 +12,7 @@ import json as _json
 import logging
 from collections.abc import Generator
 
+from api.stores.prompt_store import PromptStore, SqlitePromptStore
 from src.ai import budget, history, keys, providers
 from src.ai.chat import build_system_prompt as _build_system_prompt
 from src.ai.keys import list_admin_shared_providers as _list_admin_shared_providers
@@ -63,6 +64,10 @@ def chat_user_id_for(app_user_id: int) -> int:
 
 
 class ChatService:
+    def __init__(self, prompt_store: PromptStore | None = None) -> None:
+        # Saved prompts live in the api-owned api_state.db (NOT the live draft_tool.db).
+        self._prompts = prompt_store or SqlitePromptStore()
+
     def send(
         self,
         chat_user_id: int,
@@ -329,4 +334,30 @@ class ChatService:
             return True, "Key removed."
         except Exception as e:  # noqa: BLE001
             _log.warning("delete_key failed", exc_info=True)
+            return False, f"{type(e).__name__}: {str(e)[:200]}"
+
+    def saved_prompts(self, chat_user_id: int) -> list[dict]:
+        try:
+            return [p.model_dump() for p in self._prompts.list(chat_user_id)]
+        except Exception:
+            _log.warning("saved_prompts read failed", exc_info=True)
+            return []
+
+    def save_prompt(self, chat_user_id: int, name: str, text: str) -> tuple[bool, str]:
+        name, text = (name or "").strip(), (text or "").strip()
+        if not name or not text:
+            return False, "Name and prompt text are required."
+        try:
+            self._prompts.create(chat_user_id, name, text)
+            return True, "Prompt saved."
+        except Exception as e:  # noqa: BLE001
+            _log.warning("save_prompt failed", exc_info=True)
+            return False, f"{type(e).__name__}: {str(e)[:200]}"
+
+    def delete_prompt(self, chat_user_id: int, prompt_id: int) -> tuple[bool, str]:
+        try:
+            removed = self._prompts.delete(chat_user_id, prompt_id)
+            return (True, "Prompt removed.") if removed else (False, "Prompt not found.")
+        except Exception as e:  # noqa: BLE001
+            _log.warning("delete_prompt failed", exc_info=True)
             return False, f"{type(e).__name__}: {str(e)[:200]}"
