@@ -45,6 +45,7 @@ interface UiMessage {
   role: "user" | "assistant";
   content: string;
   isError?: boolean;
+  nudge?: "over_cap";
 }
 
 const PROVIDERS = ["deepseek", "anthropic", "openai", "gemini", "xai", "openrouter", "ollama"];
@@ -331,7 +332,12 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           } else if (e.type === "error") {
             setMessages((prev) => {
               const next = [...prev];
-              next[next.length - 1] = { role: "assistant", content: e.message, isError: true };
+              next[next.length - 1] = {
+                role: "assistant",
+                content: e.message,
+                isError: true,
+                ...(e.code === "over_cap" ? { nudge: "over_cap" as const } : {}),
+              };
               return next;
             });
           }
@@ -491,9 +497,13 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                   : "Ask Bubba anything about your league, players, or matchups."}
               </p>
             )}
-            {messages.map((m, i) => (
-              <Bubble key={i} message={m} />
-            ))}
+            {messages.map((m, i) =>
+              m.nudge === "over_cap" ? (
+                <OverCapNudge key={i} message={m.content} onAddKey={() => setShowSettings(true)} />
+              ) : (
+                <Bubble key={i} message={m} />
+              ),
+            )}
             {sending && (
               <div className="flex items-center gap-2 text-sm text-ink-3">
                 <Loader2 className="size-4 animate-spin text-heat" aria-hidden />
@@ -699,6 +709,31 @@ function Bubble({ message }: { message: UiMessage }) {
         )}
       >
         {message.content}
+      </div>
+    </div>
+  );
+}
+
+function OverCapNudge({ message, onAddKey }: { message: string; onAddKey: () => void }) {
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] space-y-2 rounded-2xl border border-heat/30 bg-heat/5 px-3 py-2 text-sm text-ink">
+        <p>{message}</p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/pricing"
+            className="rounded-lg bg-heat px-2.5 py-1 text-xs font-semibold text-white hover:bg-heat-bright"
+          >
+            Upgrade
+          </a>
+          <button
+            type="button"
+            onClick={onAddKey}
+            className="rounded-lg border border-line bg-canvas px-2.5 py-1 text-xs font-semibold text-ink hover:text-heat"
+          >
+            Add your own key
+          </button>
+        </div>
       </div>
     </div>
   );

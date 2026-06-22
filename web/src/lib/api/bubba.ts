@@ -74,7 +74,7 @@ export type BubbaStreamEvent =
       tokens_out: number;
       tool_trace: unknown[];
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: string };
 
 /** POST the chat and invoke onEvent() per SSE frame. Mirrors apiPost's auth
  *  header (Clerk bearer). Throws ApiError on a non-OK status (401 -> sign in). */
