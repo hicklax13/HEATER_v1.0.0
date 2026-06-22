@@ -611,6 +611,24 @@ class TestDraftStateFix:
         expected = (160 + 60 + 5) / (550 + 60 + 5 + 4)
         assert all_totals[0]["OBP"] == pytest.approx(expected, rel=1e-3)
 
+    def test_all_team_roster_totals_handles_nan_stats(self):
+        """A NaN counting/IP stat (sparse minor-leaguer rows) must not raise:
+        ``int(nan or 0)`` raises ValueError because NaN is truthy → ``int(nan)``."""
+        from src.draft_state import DraftState
+
+        ds = DraftState(num_teams=2, num_rounds=1, user_team_index=0)
+        pool = self._make_pool()
+        pool.loc[pool["player_id"] == 1, "r"] = float("nan")  # hitter, NaN run total
+        pool.loc[pool["player_id"] == 2, "ip"] = float("nan")  # pitcher, NaN IP (float path)
+
+        ds.make_pick(1, "Hitter One", "SS")  # team 0
+        ds.make_pick(2, "Pitcher One", "SP")  # team 1
+
+        all_totals = ds.get_all_team_roster_totals(pool)  # must not raise
+        assert all_totals[0]["R"] == 0  # NaN → 0
+        assert all_totals[0]["HR"] == 30  # rest of the line intact
+        assert all_totals[1]["ip"] == 0.0  # NaN IP → 0 (no ERA divide-by-NaN)
+
 
 # ---------------------------------------------------------------------------
 # upsert_player_bulk with new fields tests

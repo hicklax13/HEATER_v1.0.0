@@ -132,6 +132,18 @@ def _judge_row(status: str = "active") -> dict:
     }
 
 
+def test_nan_stat_does_not_raise():
+    """A NaN counting stat (sparse pool rows) must not raise: ``int(nan or 0)``
+    raises ValueError because NaN is truthy → ``int(nan)``."""
+    row = _judge_row("active")
+    row["r"] = float("nan")  # NaN run total
+    row["ip"] = float("nan")  # NaN IP (float path)
+    pool = pd.DataFrame([row])
+    totals = _roster_category_totals([200], pool)  # must not raise
+    assert totals["R"] == 0.0  # NaN → 0
+    assert totals["HR"] == 40.0  # rest of the line intact
+
+
 def test_active_player_contributes_full_projection():
     """Active player → weight 1.0 → full projection counts."""
     pool = pd.DataFrame([_judge_row("active")])

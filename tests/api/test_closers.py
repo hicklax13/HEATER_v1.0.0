@@ -6,6 +6,27 @@ from api.deps import get_closer_service
 from api.main import create_app
 
 
+def test_to_entry_nan_mlb_id_does_not_raise():
+    """A NaN mlb_id must not raise: ``int(mlb_id) if mlb_id is not None`` does NOT
+    catch NaN (``nan is not None`` is True) → ``int(nan)`` ValueError."""
+    from api.services.closers_service import CloserService
+
+    row = {
+        "team": "NYY",
+        "closer_name": "Devin Williams",
+        "setup_names": "",
+        "job_security": 0.8,
+        "projected_sv": 30.0,
+        "era": 2.50,
+        "whip": 1.05,
+        "mlb_id": float("nan"),
+    }
+    entry = CloserService._to_entry(row, None)  # must not raise
+    assert entry.team == "NYY"
+    assert entry.closer is not None
+    assert entry.closer.mlb_id in (None, 0)  # NaN id degrades, never crashes
+
+
 def test_closers_contract_shape():
     resp = ClosersResponse(
         entries=[
