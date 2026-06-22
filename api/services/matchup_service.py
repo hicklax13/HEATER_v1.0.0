@@ -4,6 +4,7 @@ degrades to an empty categories list rather than raising."""
 
 from __future__ import annotations
 
+import logging
 import math
 
 from api.contracts.matchup import (
@@ -17,6 +18,8 @@ from api.contracts.matchup import (
 )
 from api.services.live_boxscore import fetch_live_player_lines
 from api.services.player_ref import player_ref_from_pool
+
+logger = logging.getLogger(__name__)
 
 _HITTER_COLUMNS = ["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"]
 _PITCHER_COLUMNS = ["IP", "W", "L", "SV", "K", "ERA", "WHIP"]
@@ -261,6 +264,31 @@ def _apply_live_lines(hitters, pitchers, schedule, date_key: str) -> None:
     _override(pitchers, "pitcher")
 
 
+_PITCHER_SLOTS = frozenset({"SP", "RP", "P"})
+
+
+def _is_pitcher(pid, eligible: str, side_pool) -> bool:
+    """Classify hitter vs pitcher. The pool's ``is_hitter`` flag is authoritative
+    when present; on a pool miss (or is_hitter None) fall back to the player's
+    ELIGIBLE positions (SP/RP/P → pitcher). Use eligible positions, NOT the
+    assigned slot — a benched/IL pitcher's slot is 'BN'/'IL'. Unknown → hitter
+    (logged), the conservative default."""
+    if side_pool is not None and not side_pool.empty:
+        try:
+            pmatch = side_pool[side_pool["player_id"] == pid]
+            if not pmatch.empty:
+                flag = pmatch.iloc[0].get("is_hitter")
+                if flag is not None:
+                    return not bool(flag)
+        except Exception:
+            pass
+    toks = {t.strip().upper() for t in str(eligible or "").replace("/", ",").split(",") if t.strip()}
+    if toks & _PITCHER_SLOTS:
+        return True
+    logger.debug("matchup: unresolved player_id=%s (eligible=%r) → defaulting to hitter", pid, eligible)
+    return False
+
+
 class MatchupService:
     def get_matchup(self, team_name: str) -> MatchupResponse:
         from src.yahoo_data_service import get_yahoo_data_service
@@ -499,26 +527,6 @@ class MatchupService:
                     return len(order) + 1
                 return len(order)
 
-        _PITCHER_SLOTS = frozenset({"SP", "RP", "P"})
-
-        def _is_pitcher_by_pool(pid, roster_status: str, side_pool: pd.DataFrame) -> bool:
-            """Classify hitter vs pitcher using the pool's is_hitter flag.
-
-            Falls back to slot-string heuristic only when the player is absent
-            from the pool (never raises).
-            """
-            if side_pool is not None and not side_pool.empty:
-                try:
-                    pmatch = side_pool[side_pool["player_id"] == pid]
-                    if not pmatch.empty:
-                        flag = pmatch.iloc[0].get("is_hitter")
-                        if flag is not None:
-                            return not bool(flag)
-                except Exception:
-                    pass
-            # Fallback: use roster status/IL as pitcher-leaning default
-            return False
-
         def _build_side(
             side_rosters: pd.DataFrame,
             side_pool: pd.DataFrame,
@@ -546,8 +554,10 @@ class MatchupService:
                 pid = row.get("player_id")
                 roster_status = str(row.get("status") or "").strip()
 
-                # Classify using pool is_hitter flag (handles BN/IL/SP,RP swingmen).
-                is_pit = _is_pitcher_by_pool(pid, sel, side_pool)
+                # Classify by pool is_hitter; on a pool miss, by ELIGIBLE positions
+                # (roster_slot), never the assigned slot `sel` (which may be BN/IL).
+                eligible = str(row.get("roster_slot") or "").strip() or sel
+                is_pit = _is_pitcher(pid, eligible, side_pool)
 
                 if hitter and is_pit:
                     continue
