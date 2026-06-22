@@ -7,6 +7,11 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class ChatAttachment(BaseModel):
+    kind: Literal["image"] = "image"
+    data_url: str  # a data:image/...;base64,... URL
+
+
 class ChatSendRequest(BaseModel):
     message: str
     model: str
@@ -14,6 +19,8 @@ class ChatSendRequest(BaseModel):
     web_search: bool = False
     deep_research: bool = False
     reasoning_effort: Literal["off", "low", "medium", "high"] | None = None
+    attached_text: str | None = None
+    attachments: list[ChatAttachment] | None = None
 
 
 class ChatSendResponse(BaseModel):

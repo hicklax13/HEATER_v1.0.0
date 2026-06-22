@@ -46,6 +46,8 @@ def send(
             web_search=body.web_search,
             deep_research=body.deep_research,
             reasoning_effort=body.reasoning_effort,
+            attached_text=body.attached_text,
+            attachments=body.attachments,
         )
     )
 
@@ -65,6 +67,8 @@ def send_stream(
             web_search=body.web_search,
             deep_research=body.deep_research,
             reasoning_effort=body.reasoning_effort,
+            attached_text=body.attached_text,
+            attachments=body.attachments,
         ),
         media_type="text/event-stream",
     )

@@ -230,6 +230,25 @@
         "title": "CategoryLine",
         "type": "object"
       },
+      "ChatAttachment": {
+        "properties": {
+          "data_url": {
+            "title": "Data Url",
+            "type": "string"
+          },
+          "kind": {
+            "const": "image",
+            "default": "image",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_url"
+        ],
+        "title": "ChatAttachment",
+        "type": "object"
+      },
       "ChatMessage": {
         "properties": {
           "content": {
@@ -309,6 +328,31 @@
       },
       "ChatSendRequest": {
         "properties": {
+          "attached_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attached Text"
+          },
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ChatAttachment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachments"
+          },
           "conversation_id": {
             "anyOf": [
               {
