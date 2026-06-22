@@ -13,6 +13,15 @@ def test_top_need_picks_most_negative_gap():
     assert _top_need({}) == ""
 
 
+def test_top_need_normalizes_to_uppercase():
+    """ctx.category_gaps keys are LOWERCASE ('sb'); the frontend filters/matches
+    top_need against the FA's UPPERCASE best_category/fit (players/page.tsx
+    `p.fit !== data.topNeed`), so it must be uppercased — sibling of the
+    documented lever .upper() bug. Lowercase silently broke the 'need' filter."""
+    assert _top_need({"r": 1.2, "sb": -3.4, "hr": -0.5}) == "SB"
+    assert _top_need({"era": -2.1, "whip": -0.3}) == "ERA"
+
+
 def test_tag_from_regression_flag():
     assert _tag_from("BUY_LOW") == "Buy Low"
     assert _tag_from("SELL_HIGH") == "Sell High"

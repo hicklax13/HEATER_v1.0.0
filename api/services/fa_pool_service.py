@@ -41,10 +41,15 @@ def _safe_float(raw, default: float = 0.0) -> float:
 
 
 def _top_need(category_gaps: dict) -> str:
-    """User's biggest need = the most-negative gap (gap < 0 ⇒ behind). '' if none."""
+    """User's biggest need = the most-negative gap (gap < 0 ⇒ behind). '' if none.
+
+    Uppercased: ctx.category_gaps keys are lowercase ('sb') but the frontend
+    matches top_need against the FA's UPPERCASE best_category/fit, so a lowercase
+    value silently broke the 'need' filter (sibling of the lever .upper() bug).
+    """
     if not category_gaps:
         return ""
-    return min(category_gaps, key=category_gaps.get)
+    return str(min(category_gaps, key=category_gaps.get)).upper()
 
 
 def _key_stats(row, hitter: bool) -> list[StatItem]:

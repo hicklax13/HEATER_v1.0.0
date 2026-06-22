@@ -392,14 +392,37 @@ class TeamService:
 
     @staticmethod
     def _matchup(raw_matchup: dict | None, cfg) -> MatchupHero | None:
+        """Build the matchup hero from the raw Yahoo matchup (``MatchupResult``).
+
+        Its keys are ``opp_name`` + the live category record ``wins``/``losses``/
+        ``ties`` — NOT ``opponent``/``win_prob`` (the old code read non-existent
+        keys, so the hero was always hollow: blank opponent, 0% gauge).
+
+        The raw matchup carries no win-probability, so win/tie/loss are the
+        CURRENT category-lead share (fraction of decided categories led/tied/lost
+        — a mid-week standings snapshot, sums to 1). A true forward win-prob needs
+        the H2H matchup engine (follow-up). Returns None when there's no real
+        opponent so the page never renders a hollow 'vs ' header.
+        """
         if not raw_matchup:
             return None
+        opponent = str(raw_matchup.get("opp_name", "") or "").strip()
+        if not opponent:
+            return None
+        wins = _f(raw_matchup.get("wins"), 0.0)
+        losses = _f(raw_matchup.get("losses"), 0.0)
+        ties = _f(raw_matchup.get("ties"), 0.0)
+        decided = wins + losses + ties
+        if decided > 0:
+            win_prob, tie_prob, loss_prob = wins / decided, ties / decided, losses / decided
+        else:
+            win_prob = tie_prob = loss_prob = 0.0
         return MatchupHero(
-            opponent=str(raw_matchup.get("opponent", "")),
-            week=int(raw_matchup.get("week", 0)),
-            win_prob=float(raw_matchup.get("win_prob", 0.0)),
-            tie_prob=float(raw_matchup.get("tie_prob", 0.0)),
-            loss_prob=float(raw_matchup.get("loss_prob", 0.0)),
+            opponent=opponent,
+            week=int(_f(raw_matchup.get("week"), 0.0)),
+            win_prob=win_prob,
+            tie_prob=tie_prob,
+            loss_prob=loss_prob,
         )
 
     @staticmethod
