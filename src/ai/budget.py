@@ -69,7 +69,8 @@ def spent_today(user_id: int) -> float:
         conn.close()
 
 
-def is_over_cap(user_id: int, on_own_key: bool = False) -> bool:
+def is_over_cap(user_id: int, on_own_key: bool = False, cap_usd: float | None = None) -> bool:
     if on_own_key:
         return False
-    return spent_today(user_id) >= daily_cap_usd()
+    cap = cap_usd if cap_usd is not None else daily_cap_usd()
+    return spent_today(user_id) >= cap
