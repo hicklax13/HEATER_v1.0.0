@@ -79,6 +79,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [selectMode, setSelectMode] = useState(false);
   const [tags, setTags] = useState<{ id: string; kind: "text" | "player"; label: string; text: string }[]>([]);
   const [shots, setShots] = useState<{ id: string; dataUrl: string }[]>([]);
+  const [snapError, setSnapError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -165,6 +166,25 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const startNew = useCallback(() => {
     setConversationId(null);
     setMessages([]);
+  }, []);
+
+  const snapPage = useCallback(async () => {
+    setSnapError(null);
+    try {
+      const { toPng } = await import("html-to-image");
+      const node = (document.querySelector("main") as HTMLElement | null) ?? document.body;
+      const width = node.offsetWidth || 1280;
+      const pixelRatio = Math.min(1, 1280 / width); // cap output width ~1280px
+      const dataUrl = await toPng(node, {
+        pixelRatio,
+        cacheBust: true,
+        // exclude the Bubba panel + the select-mode glow from the snapshot
+        filter: (n) => !(n instanceof HTMLElement && n.dataset?.bubbaPanel === "1"),
+      });
+      setShots((s) => [...s, { id: crypto.randomUUID(), dataUrl }]);
+    } catch {
+      setSnapError("Couldn't snapshot the page.");
+    }
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -412,7 +432,16 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               >
                 <MousePointerClick className="size-3.5" aria-hidden /> Tag
               </button>
+              <button
+                type="button"
+                onClick={snapPage}
+                title="Attach a snapshot of this page"
+                className="flex items-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 font-semibold text-ink-3 transition-colors hover:text-ink"
+              >
+                <Camera className="size-3.5" aria-hidden /> Snap
+              </button>
             </div>
+            {snapError && <p className="mb-1 text-[11px] text-ember">{snapError}</p>}
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
