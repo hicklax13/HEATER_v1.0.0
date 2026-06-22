@@ -75,11 +75,12 @@ class PlayerDetailService:
         cats = _PIT_CATS if is_pitcher else _HIT_CATS
         player_id = int(_f(_g(row, "player_id"), 0.0))
         team_abbr = str(_g(row, "team", "") or "")
+        name = str(_g(row, "name", "") or "")
 
         return PlayerDetailResponse(
             mlb_id=int(mlb_id),
             team_id=team_id_for(team_abbr),
-            name=str(_g(row, "name", "") or ""),
+            name=name,
             pos=str(_g(row, "positions", "") or ""),
             bats=self._bats(row, is_pitcher),
             jersey="",  # not in the pool; slice-2 enrichment
@@ -94,8 +95,11 @@ class PlayerDetailService:
             game_log=[],  # statsapi slice 2
             stats=[StatRow(cat=c, season=_fmt(c, _g(row, f"ytd_{c.lower()}"))) for c in cats],
             prior=self._prior(player_id, cats),
+            # In-season, the pool's bare cat columns ARE the ROS projections
+            # (_build_player_pool fills them from ros_projections when ros_count>0,
+            # the live mode). Pre-season they'd be full-season blended — acceptable.
             projections=[ProjRow(cat=c, ros=_fmt(c, _g(row, c.lower()))) for c in cats],
-            history=self._history(player_id),
+            history=self._history(name),
         )
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -195,30 +199,54 @@ class PlayerDetailService:
             logger.warning("player_detail._year_stats(%s, %s) failed: %s", player_id, year, exc)
             return {}
 
-    def _history(self, player_id: int) -> list[HistoryEvent]:
-        if not player_id:
+    def _history(self, name: str) -> list[HistoryEvent]:
+        """Transaction history for the player. ``load_transactions()`` returns
+        ``player_name``/``type``/``team_from``/``team_to``/``timestamp`` (it drops
+        player_id — joins to get the name), so we match by name."""
+        if not name:
             return []
         from src.database import load_transactions
 
         try:
             df = load_transactions()
-            if df is None or df.empty or "player_id" not in df.columns:
+            if df is None or df.empty or "player_name" not in df.columns:
                 return []
-            hits = df[df["player_id"] == player_id]
+            hits = df[df["player_name"].astype(str).str.casefold() == name.casefold()]
             out: list[HistoryEvent] = []
             for _, t in hits.iterrows():
-                kind = _TXN_KIND.get(str(_g(t, "type", "") or "").lower(), "")
-                if not kind:
+                txn = str(_g(t, "type", "") or "").lower()
+                team_to = str(_g(t, "team_to", "") or "")
+                team_from = str(_g(t, "team_from", "") or "")
+                if txn == "add/drop":
+                    # Yahoo's combined waiver move; this player is the add side
+                    # (team_to set) or the drop side (team_from set).
+                    kind = "added" if team_to else "dropped"
+                else:
+                    kind = _TXN_KIND.get(txn)
+                if kind is None:
                     continue
+                member = team_from if kind == "dropped" else team_to
                 out.append(
                     HistoryEvent(
                         kind=kind,
-                        date=str(_g(t, "timestamp", "") or _g(t, "date", "") or ""),
-                        text=str(_g(t, "description", "") or kind.title()),
-                        member=str(_g(t, "team_name", "") or ""),
+                        date=str(_g(t, "timestamp", "") or ""),
+                        text=self._txn_text(kind, team_from, team_to),
+                        member=member,
                     )
                 )
             return out
         except Exception as exc:
-            logger.warning("player_detail._history failed for %s: %s", player_id, exc)
+            logger.warning("player_detail._history failed for %r: %s", name, exc)
             return []
+
+    @staticmethod
+    def _txn_text(kind: str, team_from: str, team_to: str) -> str:
+        if kind == "traded" and team_from and team_to:
+            return f"Traded {team_from} → {team_to}"
+        if kind == "added" and team_to:
+            return f"Added by {team_to}"
+        if kind == "dropped" and team_from:
+            return f"Dropped by {team_from}"
+        if kind == "drafted" and team_to:
+            return f"Drafted by {team_to}"
+        return kind.title()

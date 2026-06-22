@@ -148,3 +148,47 @@ def test_service_nan_safe(monkeypatch):
     monkeypatch.setattr("src.database.load_transactions", lambda *a, **k: pd.DataFrame())
     d = _svc().get(545361)  # must not raise
     assert d.own_pct == 0.0
+
+
+def test_service_history_from_transactions_real_columns(monkeypatch):
+    """load_transactions() returns player_name/type/team_from/team_to/timestamp
+    (NO player_id) — history must match by name and map the real columns."""
+    txns = pd.DataFrame(
+        [
+            {
+                "player_name": "Mike Trout",
+                "type": "add",
+                "team_from": "",
+                "team_to": "BUBBA CROSBY",
+                "timestamp": "6/1",
+            },
+            {
+                "player_name": "mike trout",
+                "type": "drop",
+                "team_from": "BUBBA CROSBY",
+                "team_to": "",
+                "timestamp": "6/9",
+            },
+            # Yahoo's combined add/drop (the most common real type) — add side here.
+            {
+                "player_name": "Mike Trout",
+                "type": "add/drop",
+                "team_from": "",
+                "team_to": "My Precious",
+                "timestamp": "6/5",
+            },
+            {"player_name": "Someone Else", "type": "add", "team_from": "", "team_to": "X", "timestamp": "6/2"},
+        ]
+    )
+    monkeypatch.setattr("src.database.load_player_pool", _hitter_pool)
+    monkeypatch.setattr("src.database.load_league_rosters", lambda: pd.DataFrame())
+    monkeypatch.setattr("src.database.load_season_stats", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr("src.database.load_transactions", lambda *a, **k: txns)
+
+    d = _svc().get(545361)
+    assert len(d.history) == 3  # 3 Trout rows (case-insensitive), not "Someone Else"
+    kinds = [h.kind for h in d.history]
+    assert kinds.count("added") == 2  # plain add + the add/drop add-side
+    assert kinds.count("dropped") == 1
+    added = next(h for h in d.history if h.kind == "added")
+    assert added.member == "BUBBA CROSBY"  # team_to for an add

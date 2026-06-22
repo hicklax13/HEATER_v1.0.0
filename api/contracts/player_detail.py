@@ -9,7 +9,11 @@ near-term projection horizons) are emitted as "—"/[] and filled by a later sli
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+HistoryKind = Literal["drafted", "traded", "added", "dropped"]
 
 
 class LabelValue(BaseModel):
@@ -59,7 +63,7 @@ class ProjRow(BaseModel):
 
 
 class HistoryEvent(BaseModel):
-    kind: str = ""  # "drafted" | "traded" | "added" | "dropped"
+    kind: HistoryKind  # matches the frontend union (the service only emits mapped kinds)
     date: str = ""
     text: str = ""
     member: str = ""
