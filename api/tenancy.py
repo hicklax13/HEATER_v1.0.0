@@ -58,9 +58,17 @@ class ViewerContext(BaseModel):
     team_name: str | None = None
 
     def effective_team(self, fallback: str | None) -> str | None:
-        """The resolved team if present, else the endpoint's current query-param
-        fallback (preserves today's behavior when dormant)."""
-        return self.team_name or fallback
+        """The viewer's team for an endpoint, in three states:
+        - assigned        → the resolved team (ignores the client fallback);
+        - authed+unassigned (user_id set, no team) → None (NEVER the fallback —
+          closes the cross-team exposure; the team-required routers map this to 409);
+        - dormant (no identity) → the endpoint's query-param fallback (today's
+          open behavior, byte-for-byte)."""
+        if self.team_name:
+            return self.team_name
+        if self.user_id is not None:
+            return None
+        return fallback
 
 
 def require_viewer_context(

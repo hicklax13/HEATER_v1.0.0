@@ -47,9 +47,18 @@ def test_viewer_context_effective_team_prefers_resolved():
     assert ViewerContext(user_id=1, league_id=1, team_name="Mine").effective_team("fallback") == "Mine"
 
 
-def test_viewer_context_effective_team_falls_back_when_unresolved():
+def test_viewer_context_effective_team_dormant_falls_back():
+    # Dormant (no identity, user_id None) → fall back to the query param.
     assert ViewerContext(user_id=None, league_id=None, team_name=None).effective_team("Team Hickey") == "Team Hickey"
-    assert ViewerContext(user_id=1, league_id=1, team_name=None).effective_team("Team Hickey") == "Team Hickey"
+
+
+def test_viewer_context_effective_team_authed_unassigned_returns_none():
+    # Authenticated (user_id set) but no assignment → None, NEVER the fallback.
+    assert ViewerContext(user_id=1, league_id=1, team_name=None).effective_team("Team Hickey") is None
+
+
+def test_viewer_context_effective_team_prefers_resolved_over_fallback():
+    assert ViewerContext(user_id=1, league_id=1, team_name="Mine").effective_team("Team Hickey") == "Mine"
 
 
 class _ClerkVerifier:
@@ -93,8 +102,8 @@ def test_resolver_overrides_with_assigned_team_for_clerk_user():
 
 
 def test_resolver_clerk_user_without_assignment_resolves_none():
-    # Logged-in but unassigned → team_name None (never another user's team); the
-    # endpoint falls back to the param (open read) in M3-1.
+    # Logged-in but unassigned → team_name None AND effective_team returns None
+    # (never another user's team; the team-required routers turn this into 409).
     app = _resolver_app()
     users = InMemoryUserStore()
     app.dependency_overrides[get_auth_verifier] = lambda: _ClerkVerifier()
@@ -103,7 +112,7 @@ def test_resolver_clerk_user_without_assignment_resolves_none():
     app.dependency_overrides[get_membership_store] = lambda: InMemoryMembershipStore()
     body = TestClient(app).get("/probe?team_name=Fallback", headers={"Authorization": "Bearer x"}).json()
     assert body["resolved"] is None
-    assert body["team"] == "Fallback"
+    assert body["team"] is None
 
 
 def test_require_login_when_clerk_configured_and_no_token(monkeypatch):
