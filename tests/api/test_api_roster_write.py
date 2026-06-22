@@ -131,10 +131,10 @@ class _AlwaysVerifier:
 
 
 class _FakeWriteService:
-    def set_lineup(self, req) -> MutationResult:
+    def set_lineup(self, req, caller_team=None) -> MutationResult:
         return MutationResult(ok=True, applied=len(req.assignments))
 
-    def add_drop(self, req) -> MutationResult:
+    def add_drop(self, req, caller_team=None) -> MutationResult:
         if not req.add_player_key and not req.drop_player_key:
             return MutationResult(
                 ok=False,
