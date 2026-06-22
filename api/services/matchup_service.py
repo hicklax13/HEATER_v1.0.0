@@ -537,7 +537,8 @@ class MatchupService:
 
             Uses ``selected_position`` as the assigned slot (falls back to
             ``roster_slot`` only when missing). Classifies hitter/pitcher via
-            the pool's ``is_hitter`` flag. Includes BN and IL rows.
+            the pool's ``is_hitter`` flag, falling back to eligible positions
+            (``roster_slot``) on a pool miss. Includes BN and IL rows.
             """
             players: list[MatchPlayer] = []
             slots: list[str] = []
