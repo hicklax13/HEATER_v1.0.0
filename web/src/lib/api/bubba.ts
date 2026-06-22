@@ -42,6 +42,13 @@ export interface KeyMeta {
   created_at?: string | null;
 }
 
+export interface SavedPrompt {
+  id: number;
+  name: string;
+  text: string;
+  created_at?: string | null;
+}
+
 export interface ChatSendBody {
   message: string;
   model: string;
@@ -134,4 +141,11 @@ export const bubba = {
       "/chat/keys",
       label ? { provider, label } : { provider },
     ),
+
+  savedPrompts: () => apiGet<{ prompts: SavedPrompt[] }>("/chat/saved-prompts").then((r) => r.prompts),
+
+  savePrompt: (body: { name: string; text: string }) =>
+    apiPost<{ ok: boolean; message: string }>("/chat/saved-prompts", body),
+
+  deletePrompt: (id: number) => apiDelete<{ ok: boolean; message: string }>(`/chat/saved-prompts/${id}`),
 };

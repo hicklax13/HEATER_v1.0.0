@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  BookMarked,
   Camera,
   FileText,
   Flame,
@@ -33,7 +34,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta } from "@/lib/api/bubba";
+import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta, type SavedPrompt } from "@/lib/api/bubba";
 import { captureScreen, extractPdfText, readImageFile } from "./attachments";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
@@ -101,6 +102,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [docs, setDocs] = useState<{ id: string; label: string; text: string; truncated: boolean }[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [queue, setQueue] = useState<{ id: string; text: string }[]>([]);
+  const [showPrompts, setShowPrompts] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -502,6 +504,15 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
 
           {/* composer */}
           <div className="shrink-0 border-t border-line bg-surface p-2">
+            {showPrompts && (
+              <PromptsMenu
+                currentInput={input}
+                onPick={(t) => {
+                  setInput(t);
+                  setShowPrompts(false);
+                }}
+              />
+            )}
             {queue.length > 0 && (
               <div className="mb-2 space-y-1">
                 {queue.map((q) => (
@@ -619,6 +630,18 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                   <MonitorUp className="size-3.5" aria-hidden /> Screen
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowPrompts((v) => !v)}
+                aria-pressed={showPrompts}
+                title="Saved prompts"
+                className={cn(
+                  "flex items-center gap-1 rounded-full border px-2.5 py-1 font-semibold transition-colors",
+                  showPrompts ? "border-heat bg-heat/10 text-heat" : "border-line bg-canvas text-ink-3 hover:text-ink",
+                )}
+              >
+                <BookMarked className="size-3.5" aria-hidden /> Prompts
+              </button>
             </div>
             {attachError && <p className="mb-1 text-[11px] text-ember">{attachError}</p>}
             {images.some((im) => im.source === "snapshot") && (
@@ -838,6 +861,93 @@ function TagChip({ label, onRemove, icon }: { label: string; onRemove: () => voi
         <X className="size-3" aria-hidden />
       </button>
     </span>
+  );
+}
+
+function PromptsMenu({ currentInput, onPick }: { currentInput: string; onPick: (text: string) => void }) {
+  const [prompts, setPrompts] = useState<SavedPrompt[]>([]);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve()
+      .then(() => bubba.savedPrompts())
+      .then((ps) => {
+        if (alive) setPrompts(ps);
+      })
+      .catch(() => {
+        if (alive) setPrompts([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [epoch]);
+
+  const save = async () => {
+    const n = name.trim();
+    if (!n || !currentInput.trim() || busy) return;
+    setBusy(true);
+    try {
+      await bubba.savePrompt({ name: n, text: currentInput.trim() });
+      setName("");
+      setEpoch((e) => e + 1);
+    } catch {
+      // graceful: leave the list as-is
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: number) => {
+    await bubba.deletePrompt(id).catch(() => undefined);
+    setEpoch((e) => e + 1);
+  };
+
+  return (
+    <div className="mb-2 space-y-2 rounded-lg border border-line bg-surface-2 p-2">
+      <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-3">
+        <BookMarked className="size-3.5" aria-hidden /> Saved prompts
+      </div>
+      {prompts.length === 0 && <p className="text-[11px] text-ink-3">No saved prompts yet.</p>}
+      {prompts.map((p) => (
+        <div key={p.id} className="flex items-center gap-1 text-[11px] text-ink">
+          <button
+            type="button"
+            onClick={() => onPick(p.text)}
+            className="flex-1 truncate text-left font-semibold hover:text-heat"
+            title={p.text}
+          >
+            {p.name}
+          </button>
+          <button
+            type="button"
+            onClick={() => remove(p.id)}
+            aria-label={`Delete ${p.name}`}
+            className="text-ink-3 hover:text-ember"
+          >
+            <Trash2 className="size-3" aria-hidden />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-1.5 pt-1">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name this prompt"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-2 py-1 text-[11px] text-ink outline-none focus:border-heat"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || !name.trim() || !currentInput.trim()}
+          className="rounded-lg bg-heat px-2 py-1 text-[11px] font-semibold text-white hover:bg-heat-bright disabled:opacity-40"
+        >
+          Save current
+        </button>
+      </div>
+    </div>
   );
 }
 
