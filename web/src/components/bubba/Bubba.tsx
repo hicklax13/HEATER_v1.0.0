@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   KeyRound,
   Loader2,
+  MonitorUp,
   MousePointerClick,
   Paperclip,
   Plus,
@@ -32,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta } from "@/lib/api/bubba";
-import { readImageFile } from "./attachments";
+import { captureScreen, readImageFile } from "./attachments";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +102,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canShareScreen = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   const [epoch, setEpoch] = useState(0);
   const reload = useCallback(() => setEpoch((n) => n + 1), []);
@@ -230,6 +232,18 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         console.error("Bubba file attach failed", err);
         setAttachError(`Couldn't read "${file.name}".`);
       }
+    }
+  }, []);
+
+  const onShareScreen = useCallback(async () => {
+    setAttachError(null);
+    try {
+      const dataUrl = await captureScreen();
+      setImages((s) => [...s, { id: crypto.randomUUID(), label: "screen capture", dataUrl, source: "screen" }]);
+    } catch (err) {
+      // getDisplayMedia rejects on cancel/denial/unsupported — surface, don't throw.
+      console.error("Bubba screen capture failed", err);
+      setAttachError("Screen capture was cancelled or isn't available.");
     }
   }, []);
 
@@ -520,6 +534,16 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                   e.target.value = ""; // allow re-picking the same file
                 }}
               />
+              {canShareScreen && (
+                <button
+                  type="button"
+                  onClick={onShareScreen}
+                  title="Capture an open window or screen"
+                  className="flex items-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 font-semibold text-ink-3 transition-colors hover:text-ink"
+                >
+                  <MonitorUp className="size-3.5" aria-hidden /> Screen
+                </button>
+              )}
             </div>
             {attachError && <p className="mb-1 text-[11px] text-ember">{attachError}</p>}
             {images.some((im) => im.source === "snapshot") && (
