@@ -15,10 +15,9 @@ import { BuildPanel } from "@/components/trades/BuildPanel";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty, PageLocked } from "@/components/ui/PageStates";
+import { getViewerTeam } from "@/lib/viewer-team";
 
 type Tab = "finder" | "compare" | "build";
-
-const YOU = "Team Hickey";
 
 export default function TradesPage() {
   const [tab, setTab] = useState<Tab>("finder");
@@ -174,7 +173,7 @@ function TradeCard({ rec }: { rec: TradeRec }) {
       </div>
 
       <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
-        <Side label="You Give" players={rec.give} rosteredBy={YOU} tone="give" />
+        <Side label="You Give" players={rec.give} rosteredBy={getViewerTeam()} tone="give" />
         <div className="flex justify-center">
           <span className="flex size-9 items-center justify-center rounded-full bg-surface text-ink-3">
             <ArrowRight className="size-5" aria-hidden />

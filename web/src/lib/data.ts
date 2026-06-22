@@ -1,6 +1,7 @@
 import type { MyTeamData } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiMyTeamToData } from "@/lib/api/adapters";
+import { setViewerTeam } from "@/lib/viewer-team";
 import type { ApiMyTeamResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 
 /**
@@ -106,7 +107,10 @@ export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
   if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
     try {
       const api = await apiGet<ApiMyTeamResponse>("/me/team", { team_name: VIEWER_TEAM });
-      if (api.team_name) return apiMyTeamToData(api);
+      if (api.team_name) {
+        setViewerTeam(api.team_name); // cache the identity-resolved team for "you" markers app-wide
+        return apiMyTeamToData(api);
+      }
     } catch {
       // fall through to mock
     }

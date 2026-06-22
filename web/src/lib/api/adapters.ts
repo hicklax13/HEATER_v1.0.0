@@ -38,6 +38,7 @@ import type { DatabankData } from "@/lib/databank-data";
 import type { OptimizerData, LineupSlot as OptSlot, SlotStatus } from "@/lib/optimizer-data";
 import type { ClosersData } from "@/lib/closers-data";
 import { securityFor } from "@/lib/closer-security";
+import { getViewerTeam } from "@/lib/viewer-team";
 import type {
   DraftClock as VMDraftClock,
   DraftPick as VMDraftPick,
@@ -195,10 +196,11 @@ export function apiScorecard(api: ApiStreamAnalyzeResponse): PitcherScorecard | 
 /** Map /api/standings → frontend StandingsData. Playoff/championship odds aren't
  *  in the API yet → 0 (the page hides the odds view when all-zero). */
 export function apiStandingsToData(api: ApiStandingsResponse): StandingsData {
-  // Live team names carry Yahoo emoji prefixes ("🏆 Team Hickey"); normalize
-  // before the viewer compare or the "YOU" row never highlights (single-league
-  // until M4 auth). Mock uses the clean name, so this was invisible on mock.
-  const youNorm = normTeamName("Team Hickey");
+  // Live team names carry Yahoo emoji prefixes ("🏆 Team Hickey"); normalize before
+  // the viewer compare or the "YOU" row never highlights. The viewer's team is the
+  // API's identity-resolved team (cached by fetchMyTeam), NOT a hardcode — so each
+  // logged-in user's own row highlights, not Team Hickey's.
+  const youNorm = normTeamName(getViewerTeam());
   const teams: TeamStanding[] = (api.teams ?? []).map((t) => ({
     rank: t.rank ?? 0,
     teamName: t.team_name ?? "",
