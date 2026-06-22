@@ -1398,6 +1398,42 @@
         "title": "FreeAgentsResponse",
         "type": "object"
       },
+      "GameRow": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "line": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Line",
+            "type": "array"
+          },
+          "opp": {
+            "title": "Opp",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "upcoming": {
+            "default": false,
+            "title": "Upcoming",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "date",
+          "opp",
+          "result"
+        ],
+        "title": "GameRow",
+        "type": "object"
+      },
       "GradeRange": {
         "properties": {
           "center": {
@@ -1437,6 +1473,32 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryEvent": {
+        "properties": {
+          "date": {
+            "default": "",
+            "title": "Date",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "member": {
+            "default": "",
+            "title": "Member",
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "HistoryEvent",
         "type": "object"
       },
       "HitterMatchupCell": {
@@ -1660,6 +1722,24 @@
           }
         },
         "title": "KeysResponse",
+        "type": "object"
+      },
+      "LabelValue": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "LabelValue",
         "type": "object"
       },
       "LeaderRow": {
@@ -2679,6 +2759,139 @@
         "title": "PitcherScorecard",
         "type": "object"
       },
+      "PlayerDetailResponse": {
+        "properties": {
+          "bats": {
+            "default": "",
+            "title": "Bats",
+            "type": "string"
+          },
+          "game_columns": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Game Columns",
+            "type": "array"
+          },
+          "game_log": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GameRow"
+            },
+            "title": "Game Log",
+            "type": "array"
+          },
+          "headline": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LabelValue"
+            },
+            "title": "Headline",
+            "type": "array"
+          },
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvent"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "is_pitcher": {
+            "default": false,
+            "title": "Is Pitcher",
+            "type": "boolean"
+          },
+          "jersey": {
+            "default": "",
+            "title": "Jersey",
+            "type": "string"
+          },
+          "mlb_id": {
+            "title": "Mlb Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "own_delta": {
+            "default": 0.0,
+            "title": "Own Delta",
+            "type": "number"
+          },
+          "own_pct": {
+            "default": 0.0,
+            "title": "Own Pct",
+            "type": "number"
+          },
+          "pos": {
+            "default": "",
+            "title": "Pos",
+            "type": "string"
+          },
+          "prior": {
+            "$ref": "#/components/schemas/PriorBlock",
+            "default": {
+              "rows": [],
+              "y2024_rank": 0,
+              "y2025_rank": 0
+            }
+          },
+          "projections": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProjRow"
+            },
+            "title": "Projections",
+            "type": "array"
+          },
+          "ranks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LabelValue"
+            },
+            "title": "Ranks",
+            "type": "array"
+          },
+          "rostered_by": {
+            "default": "",
+            "title": "Rostered By",
+            "type": "string"
+          },
+          "stats": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StatRow"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "team_name": {
+            "default": "",
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mlb_id",
+          "name"
+        ],
+        "title": "PlayerDetailResponse",
+        "type": "object"
+      },
       "PlayerRef": {
         "properties": {
           "id": {
@@ -2906,6 +3119,53 @@
         "title": "PortalSessionResponse",
         "type": "object"
       },
+      "PriorBlock": {
+        "properties": {
+          "rows": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PriorRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "y2024_rank": {
+            "default": 0,
+            "title": "Y2024 Rank",
+            "type": "integer"
+          },
+          "y2025_rank": {
+            "default": 0,
+            "title": "Y2025 Rank",
+            "type": "integer"
+          }
+        },
+        "title": "PriorBlock",
+        "type": "object"
+      },
+      "PriorRow": {
+        "properties": {
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "y2024": {
+            "default": "\u2014",
+            "title": "Y2024",
+            "type": "string"
+          },
+          "y2025": {
+            "default": "\u2014",
+            "title": "Y2025",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cat"
+        ],
+        "title": "PriorRow",
+        "type": "object"
+      },
       "ProbableCell": {
         "properties": {
           "availability": {
@@ -3058,6 +3318,54 @@
           "team"
         ],
         "title": "ProbableTeamRow",
+        "type": "object"
+      },
+      "ProjRow": {
+        "properties": {
+          "avg": {
+            "default": "\u2014",
+            "title": "Avg",
+            "type": "string"
+          },
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "n14": {
+            "default": "\u2014",
+            "title": "N14",
+            "type": "string"
+          },
+          "n30": {
+            "default": "\u2014",
+            "title": "N30",
+            "type": "string"
+          },
+          "n7": {
+            "default": "\u2014",
+            "title": "N7",
+            "type": "string"
+          },
+          "ros": {
+            "default": "\u2014",
+            "title": "Ros",
+            "type": "string"
+          },
+          "std": {
+            "default": "\u2014",
+            "title": "Std",
+            "type": "string"
+          },
+          "today": {
+            "default": "\u2014",
+            "title": "Today",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cat"
+        ],
+        "title": "ProjRow",
         "type": "object"
       },
       "PuntCategory": {
@@ -3270,6 +3578,49 @@
           "value"
         ],
         "title": "StatItem",
+        "type": "object"
+      },
+      "StatRow": {
+        "properties": {
+          "avg": {
+            "default": "\u2014",
+            "title": "Avg",
+            "type": "string"
+          },
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "l14": {
+            "default": "\u2014",
+            "title": "L14",
+            "type": "string"
+          },
+          "l30": {
+            "default": "\u2014",
+            "title": "L30",
+            "type": "string"
+          },
+          "l7": {
+            "default": "\u2014",
+            "title": "L7",
+            "type": "string"
+          },
+          "season": {
+            "default": "\u2014",
+            "title": "Season",
+            "type": "string"
+          },
+          "std": {
+            "default": "\u2014",
+            "title": "Std",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cat"
+        ],
+        "title": "StatRow",
         "type": "object"
       },
       "StatusChip": {
@@ -5748,6 +6099,48 @@
           }
         },
         "summary": "Search Players",
+        "tags": [
+          "players"
+        ]
+      }
+    },
+    "/api/players/{mlb_id}": {
+      "get": {
+        "operationId": "player_detail_api_players__mlb_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mlb_id",
+            "required": true,
+            "schema": {
+              "title": "Mlb Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Player Detail",
         "tags": [
           "players"
         ]

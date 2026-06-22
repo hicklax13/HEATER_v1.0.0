@@ -20,6 +20,7 @@ from api.services.leaders_overall_service import LeadersOverallService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
 from api.services.matchup_service import MatchupService
+from api.services.player_detail_service import PlayerDetailService
 from api.services.playoff_service import PlayoffService
 from api.services.punt_service import PuntService
 from api.services.roster_query_service import RosterQueryService
@@ -82,6 +83,10 @@ def get_playoff_service() -> PlayoffService:
 
 def get_roster_query_service() -> RosterQueryService:
     return RosterQueryService()
+
+
+def get_player_detail_service() -> PlayerDetailService:
+    return PlayerDetailService()
 
 
 def get_matchup_service() -> MatchupService:
