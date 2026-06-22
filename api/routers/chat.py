@@ -13,8 +13,10 @@ from api.contracts.chat import (
     ChatSendResponse,
     ConversationListResponse,
     ConversationMessagesResponse,
+    CreatePromptRequest,
     KeysResponse,
     MutationResponse,
+    SavedPromptsResponse,
     StoreKeyRequest,
 )
 from api.deps import get_chat_service
@@ -128,4 +130,32 @@ def delete_key(
     svc: ChatService = Depends(get_chat_service),
 ) -> MutationResponse:
     ok, msg = svc.delete_key(_uid(app_user), provider, label)
+    return MutationResponse(ok=ok, message=msg)
+
+
+@router.get("/saved-prompts", response_model=SavedPromptsResponse)
+def saved_prompts(
+    app_user: AppUser | None = Depends(require_app_user),
+    svc: ChatService = Depends(get_chat_service),
+) -> SavedPromptsResponse:
+    return SavedPromptsResponse(prompts=svc.saved_prompts(_uid(app_user)))
+
+
+@router.post("/saved-prompts", response_model=MutationResponse)
+def create_saved_prompt(
+    body: CreatePromptRequest,
+    app_user: AppUser | None = Depends(require_app_user),
+    svc: ChatService = Depends(get_chat_service),
+) -> MutationResponse:
+    ok, msg = svc.save_prompt(_uid(app_user), body.name, body.text)
+    return MutationResponse(ok=ok, message=msg)
+
+
+@router.delete("/saved-prompts/{prompt_id}", response_model=MutationResponse)
+def delete_saved_prompt(
+    prompt_id: int,
+    app_user: AppUser | None = Depends(require_app_user),
+    svc: ChatService = Depends(get_chat_service),
+) -> MutationResponse:
+    ok, msg = svc.delete_prompt(_uid(app_user), prompt_id)
     return MutationResponse(ok=ok, message=msg)

@@ -47,6 +47,15 @@ class _FakeChatService:
         yield 'data: {"type": "text_delta", "text": "hi"}\n\n'
         yield 'data: {"type": "done", "content": "hi", "conversation_id": 1, "cost_usd": 0.0, "tokens_in": 1, "tokens_out": 1, "tool_trace": []}\n\n'
 
+    def saved_prompts(self, uid):  # noqa: ARG002
+        return [{"id": 3, "name": "Start SS?", "text": "Who at SS?", "created_at": "2026"}]
+
+    def save_prompt(self, uid, name, text):  # noqa: ARG002
+        return True, "Prompt saved."
+
+    def delete_prompt(self, uid, prompt_id):  # noqa: ARG002
+        return True, "Prompt removed."
+
 
 def _client(user=_FakeUser()):
     app = FastAPI()
@@ -76,6 +85,17 @@ def test_send_stream_returns_event_stream():
 def test_send_stream_unauthenticated_is_401():
     r = _client(user=None).post("/api/chat/send-stream", json={"message": "hi", "model": "gpt-5"})
     assert r.status_code == 401
+
+
+def test_saved_prompts_crud():
+    c = _client()
+    assert c.get("/api/chat/saved-prompts").json()["prompts"][0]["name"] == "Start SS?"
+    assert c.post("/api/chat/saved-prompts", json={"name": "n", "text": "t"}).json()["ok"] is True
+    assert c.request("DELETE", "/api/chat/saved-prompts/3").json()["ok"] is True
+
+
+def test_saved_prompts_unauthenticated_is_401():
+    assert _client(user=None).get("/api/chat/saved-prompts").status_code == 401
 
 
 def test_conversations_models_keys():

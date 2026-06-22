@@ -85,3 +85,19 @@ class StoreKeyRequest(BaseModel):
 class MutationResponse(BaseModel):
     ok: bool
     message: str = ""
+
+
+class SavedPrompt(BaseModel):
+    id: int
+    name: str
+    text: str
+    created_at: str | None = None
+
+
+class SavedPromptsResponse(BaseModel):
+    prompts: list[SavedPrompt] = []
+
+
+class CreatePromptRequest(BaseModel):
+    name: str
+    text: str

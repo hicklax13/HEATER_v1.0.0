@@ -729,6 +729,24 @@
         "title": "ConversationSummary",
         "type": "object"
       },
+      "CreatePromptRequest": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "text"
+        ],
+        "title": "CreatePromptRequest",
+        "type": "object"
+      },
       "DailyMeta": {
         "description": "Day-level context for the daily optimizer (populated only when mode='daily').",
         "properties": {
@@ -3130,6 +3148,54 @@
         "title": "RosterRow",
         "type": "object"
       },
+      "SavedPrompt": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "text"
+        ],
+        "title": "SavedPrompt",
+        "type": "object"
+      },
+      "SavedPromptsResponse": {
+        "properties": {
+          "prompts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SavedPrompt"
+            },
+            "title": "Prompts",
+            "type": "array"
+          }
+        },
+        "title": "SavedPromptsResponse",
+        "type": "object"
+      },
       "SeasonStat": {
         "properties": {
           "stats": {
@@ -4541,6 +4607,170 @@
           }
         },
         "summary": "Models",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/saved-prompts": {
+      "get": {
+        "operationId": "saved_prompts_api_chat_saved_prompts_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPromptsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Saved Prompts",
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "operationId": "create_saved_prompt_api_chat_saved_prompts_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePromptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Saved Prompt",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/saved-prompts/{prompt_id}": {
+      "delete": {
+        "operationId": "delete_saved_prompt_api_chat_saved_prompts__prompt_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "prompt_id",
+            "required": true,
+            "schema": {
+              "title": "Prompt Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Saved Prompt",
         "tags": [
           "chat"
         ]
