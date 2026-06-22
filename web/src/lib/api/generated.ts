@@ -160,6 +160,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/saved-prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saved Prompts */
+        get: operations["saved_prompts_api_chat_saved_prompts_get"];
+        put?: never;
+        /** Create Saved Prompt */
+        post: operations["create_saved_prompt_api_chat_saved_prompts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/saved-prompts/{prompt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Saved Prompt */
+        delete: operations["delete_saved_prompt_api_chat_saved_prompts__prompt_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/send": {
         parameters: {
             query?: never;
@@ -171,6 +206,23 @@ export interface paths {
         put?: never;
         /** Send */
         post: operations["send_api_chat_send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/send-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Stream */
+        post: operations["send_stream_api_chat_send_stream_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -441,6 +493,23 @@ export interface paths {
         };
         /** Search Players */
         get: operations["search_players_api_players_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/players/{mlb_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Player Detail */
+        get: operations["player_detail_api_players__mlb_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -744,6 +813,17 @@ export interface components {
             /** You */
             you: number;
         };
+        /** ChatAttachment */
+        ChatAttachment: {
+            /** Data Url */
+            data_url: string;
+            /**
+             * Kind
+             * @default image
+             * @constant
+             */
+            kind: "image";
+        };
         /** ChatMessage */
         ChatMessage: {
             /** Content */
@@ -774,6 +854,10 @@ export interface components {
         };
         /** ChatSendRequest */
         ChatSendRequest: {
+            /** Attached Text */
+            attached_text?: string | null;
+            /** Attachments */
+            attachments?: components["schemas"]["ChatAttachment"][] | null;
             /** Conversation Id */
             conversation_id?: number | null;
             /**
@@ -785,6 +869,8 @@ export interface components {
             message: string;
             /** Model */
             model: string;
+            /** Reasoning Effort */
+            reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
             /**
              * Web Search
              * @default false
@@ -941,6 +1027,13 @@ export interface components {
             title: string;
             /** Updated At */
             updated_at?: string | null;
+        };
+        /** CreatePromptRequest */
+        CreatePromptRequest: {
+            /** Name */
+            name: string;
+            /** Text */
+            text: string;
         };
         /**
          * DailyMeta
@@ -1286,6 +1379,25 @@ export interface components {
             /** Team Name */
             team_name: string;
         };
+        /** GameRow */
+        GameRow: {
+            /** Date */
+            date: string;
+            /**
+             * Line
+             * @default []
+             */
+            line: string[];
+            /** Opp */
+            opp: string;
+            /** Result */
+            result: string;
+            /**
+             * Upcoming
+             * @default false
+             */
+            upcoming: boolean;
+        };
         /** GradeRange */
         GradeRange: {
             /** Center */
@@ -1301,6 +1413,29 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistoryEvent */
+        HistoryEvent: {
+            /**
+             * Date
+             * @default
+             */
+            date: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "drafted" | "traded" | "added" | "dropped";
+            /**
+             * Member
+             * @default
+             */
+            member: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
         };
         /** HitterMatchupCell */
         HitterMatchupCell: {
@@ -1438,6 +1573,13 @@ export interface components {
              * @default []
              */
             keys: components["schemas"]["KeyMeta"][];
+        };
+        /** LabelValue */
+        LabelValue: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /** LeaderRow */
         LeaderRow: {
@@ -1987,6 +2129,98 @@ export interface components {
              */
             win_pct: number;
         };
+        /** PlayerDetailResponse */
+        PlayerDetailResponse: {
+            /**
+             * Bats
+             * @default
+             */
+            bats: string;
+            /**
+             * Game Columns
+             * @default []
+             */
+            game_columns: string[];
+            /**
+             * Game Log
+             * @default []
+             */
+            game_log: components["schemas"]["GameRow"][];
+            /**
+             * Headline
+             * @default []
+             */
+            headline: components["schemas"]["LabelValue"][];
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["HistoryEvent"][];
+            /**
+             * Is Pitcher
+             * @default false
+             */
+            is_pitcher: boolean;
+            /**
+             * Jersey
+             * @default
+             */
+            jersey: string;
+            /** Mlb Id */
+            mlb_id: number;
+            /** Name */
+            name: string;
+            /**
+             * Own Delta
+             * @default 0
+             */
+            own_delta: number;
+            /**
+             * Own Pct
+             * @default 0
+             */
+            own_pct: number;
+            /**
+             * Pos
+             * @default
+             */
+            pos: string;
+            /**
+             * @default {
+             *       "rows": [],
+             *       "y2024_rank": 0,
+             *       "y2025_rank": 0
+             *     }
+             */
+            prior: components["schemas"]["PriorBlock"];
+            /**
+             * Projections
+             * @default []
+             */
+            projections: components["schemas"]["ProjRow"][];
+            /**
+             * Ranks
+             * @default []
+             */
+            ranks: components["schemas"]["LabelValue"][];
+            /**
+             * Rostered By
+             * @default
+             */
+            rostered_by: string;
+            /**
+             * Stats
+             * @default []
+             */
+            stats: components["schemas"]["StatRow"][];
+            /** Team Id */
+            team_id?: number | null;
+            /**
+             * Team Name
+             * @default
+             */
+            team_name: string;
+        };
         /** PlayerRef */
         PlayerRef: {
             /** Id */
@@ -2082,6 +2316,39 @@ export interface components {
             ok: boolean;
             /** Url */
             url?: string | null;
+        };
+        /** PriorBlock */
+        PriorBlock: {
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["PriorRow"][];
+            /**
+             * Y2024 Rank
+             * @default 0
+             */
+            y2024_rank: number;
+            /**
+             * Y2025 Rank
+             * @default 0
+             */
+            y2025_rank: number;
+        };
+        /** PriorRow */
+        PriorRow: {
+            /** Cat */
+            cat: string;
+            /**
+             * Y2024
+             * @default —
+             */
+            y2024: string;
+            /**
+             * Y2025
+             * @default —
+             */
+            y2025: string;
         };
         /** ProbableCell */
         ProbableCell: {
@@ -2181,6 +2448,46 @@ export interface components {
             /** Team */
             team: string;
         };
+        /** ProjRow */
+        ProjRow: {
+            /**
+             * Avg
+             * @default —
+             */
+            avg: string;
+            /** Cat */
+            cat: string;
+            /**
+             * N14
+             * @default —
+             */
+            n14: string;
+            /**
+             * N30
+             * @default —
+             */
+            n30: string;
+            /**
+             * N7
+             * @default —
+             */
+            n7: string;
+            /**
+             * Ros
+             * @default —
+             */
+            ros: string;
+            /**
+             * Std
+             * @default —
+             */
+            std: string;
+            /**
+             * Today
+             * @default —
+             */
+            today: string;
+        };
         /** PuntCategory */
         PuntCategory: {
             /** Cat */
@@ -2220,6 +2527,25 @@ export interface components {
             slot: string;
             you?: components["schemas"]["MatchPlayer"] | null;
         };
+        /** SavedPrompt */
+        SavedPrompt: {
+            /** Created At */
+            created_at?: string | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Text */
+            text: string;
+        };
+        /** SavedPromptsResponse */
+        SavedPromptsResponse: {
+            /**
+             * Prompts
+             * @default []
+             */
+            prompts: components["schemas"]["SavedPrompt"][];
+        };
         /** SeasonStat */
         SeasonStat: {
             /**
@@ -2256,6 +2582,41 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /** StatRow */
+        StatRow: {
+            /**
+             * Avg
+             * @default —
+             */
+            avg: string;
+            /** Cat */
+            cat: string;
+            /**
+             * L14
+             * @default —
+             */
+            l14: string;
+            /**
+             * L30
+             * @default —
+             */
+            l30: string;
+            /**
+             * L7
+             * @default —
+             */
+            l7: string;
+            /**
+             * Season
+             * @default —
+             */
+            season: string;
+            /**
+             * Std
+             * @default —
+             */
+            std: string;
         };
         /**
          * StatusChip
@@ -3098,6 +3459,105 @@ export interface operations {
             };
         };
     };
+    saved_prompts_api_chat_saved_prompts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedPromptsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_saved_prompt_api_chat_saved_prompts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePromptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_saved_prompt_api_chat_saved_prompts__prompt_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                prompt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     send_api_chat_send_post: {
         parameters: {
             query?: never;
@@ -3120,6 +3580,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatSendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_stream_api_chat_send_stream_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -3703,6 +4198,37 @@ export interface operations {
             };
         };
     };
+    player_detail_api_players__mlb_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mlb_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_playoff_odds_api_playoff_odds_get: {
         parameters: {
             query: {
@@ -3787,10 +4313,12 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
-                /** @description Viewer's team — enables the 'yours' tag */
+                /** @description Fallback viewer team (used only when Clerk is off) */
                 team_name?: string | null;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3820,10 +4348,12 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
-                /** @description Viewer's team — enables the 'yours' tag */
+                /** @description Fallback viewer team (used only when Clerk is off) */
                 team_name?: string | null;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

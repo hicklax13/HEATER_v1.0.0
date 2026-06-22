@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiPoolToPlayers } from "@/lib/api/adapters";
@@ -81,7 +82,7 @@ export async function fetchPlayers(delayMs = 600): Promise<PlayersData> {
     async () => {
       // Single-league context: the user's team is fixed until multi-tenancy (M4).
       const api = await apiGet<ApiFreeAgentPoolResponse>("/free-agents/pool", {
-        team_name: "Team Hickey",
+        team_name: getViewerTeam(),
         limit: 50,
       });
       return api.free_agents.length > 0 ? apiPoolToPlayers(api) : PLAYERS;

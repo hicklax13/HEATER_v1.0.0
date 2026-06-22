@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { liveOrMock } from "@/lib/api/live";
@@ -217,7 +218,7 @@ export const PROBABLES_MOCK: ProbablesData = {
 export async function fetchProbables(delayMs = 500): Promise<ProbablesData> {
   return liveOrMock(
     async () => {
-      const api = await apiGet<ApiProbableGrid>("/schedule/probables", { days: 7, team_name: "Team Hickey" });
+      const api = await apiGet<ApiProbableGrid>("/schedule/probables", { days: 7, team_name: getViewerTeam() });
       return (api.teams?.length ?? 0) > 0 ? apiToData(api) : PROBABLES_MOCK;
     },
     () => new Promise<ProbablesData>((resolve) => setTimeout(() => resolve(PROBABLES_MOCK), delayMs)),

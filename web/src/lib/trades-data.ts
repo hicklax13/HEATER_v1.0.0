@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
 import { apiGet, apiPost } from "@/lib/api/client";
 import { apiTradeFinderToData, apiTradeEvaluateToData } from "@/lib/api/adapters";
@@ -141,7 +142,7 @@ export async function fetchTrades(delayMs = 600): Promise<TradesData> {
   const mock = () => new Promise<TradesData>((resolve) => setTimeout(() => resolve(TRADES), delayMs));
   return liveOrMock(async () => {
     const api = await apiGet<ApiTradeFinderResponse>("/trade-finder", {
-      team_name: "Team Hickey",
+      team_name: getViewerTeam(),
       limit: 10,
     });
     // Real suggestions → adapt; empty (no error) → fall back to the demo mock.
@@ -203,7 +204,7 @@ export async function evaluateTrade(
   return liveOrMock(
     () =>
       apiPost<ApiTradeEvaluationResponse>("/trade/evaluate", {
-        team_name: "Team Hickey",
+        team_name: getViewerTeam(),
         giving_ids: giving.map((p) => p.id),
         receiving_ids: receiving.map((p) => p.id),
         enable_mc: false,

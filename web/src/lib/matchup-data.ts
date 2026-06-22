@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 /**
  * Matchup data — the H2H matchup view (Yahoo-style). Mock by default; live
  * behind NEXT_PUBLIC_HEATER_LIVE via /api/matchup → apiMatchupToData. A live
@@ -222,7 +223,6 @@ const LIVE_TIMEOUT_MS = 6000;
 // roster tables are sliced by team_name server-side, so this MUST be passed or
 // hitters/pitchers come back empty. Matches the existing single-league hardcodes
 // (trades/page.tsx `YOU`, adapters.ts standings `isUser`).
-const VIEWER_TEAM = "Team Hickey";
 
 /** Live: GET /api/matchup?team_name=… → adapt. Live errors propagate (HIGH-3) so
  *  usePageData reaches error/locked/unlinked, and a hang (>6s) rejects via
@@ -234,7 +234,7 @@ export async function fetchMatchup(delayMs = 600): Promise<MatchupData | null> {
   return liveOrMock(
     async () => {
       const d = await withTimeout(
-        apiGet<ApiMatchupResponse>("/matchup", { team_name: VIEWER_TEAM }).then(apiMatchupToData),
+        apiGet<ApiMatchupResponse>("/matchup", { team_name: getViewerTeam() }).then(apiMatchupToData),
         LIVE_TIMEOUT_MS,
       );
       return d.cats.length > 0 || d.hitters.length > 0 || d.pitchers.length > 0 ? d : null;

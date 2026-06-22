@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import { apiGet } from "@/lib/api/client";
 import { apiStandingsToData, applyPlayoffOdds } from "@/lib/api/adapters";
 import type { ApiStandingsResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
@@ -89,7 +90,7 @@ export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
       // — a failure leaves the table + panel without odds (graceful empty-state).
       const [stdg, oddsResult] = await Promise.all([
         apiGet<ApiStandingsResponse>("/standings"),
-        apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: "Team Hickey" })
+        apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: getViewerTeam() })
           .then((odds) => ({ odds, locked: false }))
           // a 402 here gates only the odds panel — the free standings table still renders.
           .catch((e) => ({ odds: null as ApiPlayoffOddsResponse | null, locked: isPaywall(e) })),

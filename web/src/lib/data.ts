@@ -1,7 +1,7 @@
 import type { MyTeamData } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiMyTeamToData } from "@/lib/api/adapters";
-import { setViewerTeam } from "@/lib/viewer-team";
+import { getViewerTeam, setViewerTeam } from "@/lib/viewer-team";
 import { liveOrMock } from "@/lib/api/live";
 import type { ApiMyTeamResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 
@@ -122,7 +122,7 @@ export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
 export async function fetchYourPlayoffOdds(): Promise<number | undefined> {
   if (process.env.NEXT_PUBLIC_HEATER_LIVE !== "1") return undefined;
   try {
-    const odds = await apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: VIEWER_TEAM });
+    const odds = await apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: getViewerTeam() });
     return odds.you ? Math.round(odds.you.playoff_odds) : undefined;
   } catch {
     return undefined;
