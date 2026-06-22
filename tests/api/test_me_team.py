@@ -284,6 +284,50 @@ def test_subline_ordinal_and_games_back():
     assert "3 GB from 1st" in sub  # leader 7 wins - your 4 = 3
 
 
+# ── _rank_and_record (HIGH: surface real W-L records) ────────────────────────
+def test_rank_and_record_from_records_table():
+    """Records table is authoritative → 'W-L-T' string + its rank (Railway path)."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["HR"], "total": [50.0], "rank": [3]})
+    records = pd.DataFrame([{"team_name": "Team A", "wins": 8, "losses": 4, "ties": 1, "rank": 3}])
+    rank, record = svc._rank_and_record(standings, records, "Team A")
+    assert record == "8-4-1"
+    assert rank == 3
+
+
+def test_rank_and_record_fallback_wlt_string_category():
+    """records empty; WINS category total is already a 'W-L-T' string."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["WINS"], "total": ["7-3-0"], "rank": [2]})
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "7-3-0"
+    assert rank == 2
+
+
+def test_rank_and_record_fallback_numeric_wlt_categories():
+    """records empty; WINS/LOSSES/TIES are separate numeric category rows (local DB)."""
+    svc = _real_service()
+    standings = pd.DataFrame(
+        {
+            "team_name": ["Team A", "Team A", "Team A"],
+            "category": ["WINS", "LOSSES", "TIES"],
+            "total": [6.0, 5.0, 0.0],
+            "rank": [5, 5, 5],
+        }
+    )
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "6-5-0"
+    assert rank == 5
+
+
+def test_rank_and_record_empty_when_no_data():
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["HR"], "total": [10.0], "rank": [0]})
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "0-0-0"
+    assert rank == 0
+
+
 # ── slice-2 lever (DB-free: build_optimizer_context + rank_free_agents monkeypatched
 # at their source modules, since _lever imports them lazily inside the method) ──────
 

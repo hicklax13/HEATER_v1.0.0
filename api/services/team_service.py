@@ -50,6 +50,18 @@ def _f(value, default: float = 0.0) -> float:
     return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
+def _opt_int(value) -> int | None:
+    """Round to int, or None when missing/NaN/garbage — distinguishes 'absent'
+    from a real 0 (so a records lookup can fall through to the standings path)."""
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(fval) or math.isinf(fval):
+        return None
+    return int(round(fval))
+
+
 def _avg_value(value) -> str:
     """Batting-average display VALUE: strip the leading zero for a true .000-.999 rate
     ('.310'), but keep it for 0/NaN ('0.000') so it never looks like a parse artifact."""
@@ -102,7 +114,8 @@ class TeamService:
         cfg = LeagueConfig()
         raw_matchup = yds.get_matchup()
         standings = yds.get_standings()
-        rank, record = self._rank_and_record(standings, team_name)
+        records = self._load_records()
+        rank, record = self._rank_and_record(standings, records, team_name)
         week = int(raw_matchup.get("week", 0)) if raw_matchup else 0
         n_teams = self._team_count(standings)
 
@@ -318,15 +331,64 @@ class TeamService:
 
     # ── existing core ────────────────────────────────────────────────────
     @staticmethod
-    def _rank_and_record(standings, team_name: str) -> tuple[int, str]:
-        # standings carries per-category rows; the WINS category holds the W-L.
+    def _load_records():
+        """Resilient load of the W-L-T records table (empty frame on any failure)."""
         try:
-            wins = standings[(standings["team_name"] == team_name) & (standings["category"] == "WINS")]
-            rank = int(wins["rank"].iloc[0]) if not wins.empty else 0
-            record = str(wins["total"].iloc[0]) if not wins.empty else "0-0-0"
+            from src.database import load_league_records
+
+            return load_league_records()
         except Exception:
-            rank, record = 0, "0-0-0"
-        return rank, record
+            import pandas as pd
+
+            return pd.DataFrame()
+
+    @staticmethod
+    def _rank_and_record(standings, records, team_name: str) -> tuple[int, str]:
+        """Resolve (overall_rank, 'W-L-T') for a team.
+
+        Source priority:
+          1. ``records`` (``load_league_records`` output) — authoritative W-L-T
+             + overall rank (the current sync / Railway path).
+          2. WINS/LOSSES/TIES rows in ``standings`` — either a single 'W-L-T'
+             string in the WINS row's ``total``, or three numeric category totals
+             (older local data). The synced ``rank`` is the cloned overall rank.
+        Returns ``(0, "0-0-0")`` when nothing is available — never raises.
+        """
+        # 1. Records table (authoritative).
+        try:
+            if records is not None and not records.empty and "team_name" in records.columns:
+                rrow = records[records["team_name"] == team_name]
+                if not rrow.empty:
+                    r = rrow.iloc[0]
+                    w = _opt_int(r.get("wins"))
+                    losses = _opt_int(r.get("losses"))
+                    if w is not None and losses is not None:
+                        ties = _opt_int(r.get("ties")) or 0
+                        rank = _opt_int(r.get("rank")) or 0
+                        return rank, f"{w}-{losses}-{ties}"
+        except Exception:
+            pass
+
+        # 2. Standings WINS/LOSSES/TIES fallback.
+        try:
+            team_rows = standings[standings["team_name"] == team_name]
+            wins_rows = team_rows[team_rows["category"] == "WINS"]
+            if not wins_rows.empty:
+                rank = _opt_int(wins_rows["rank"].iloc[0]) if "rank" in wins_rows.columns else None
+                rank = rank or 0
+                total = wins_rows["total"].iloc[0]
+                if "-" in str(total):
+                    return rank, str(total)  # WINS total already encodes 'W-L-T'
+
+                def _cat_total(cat: str) -> int:
+                    cr = team_rows[team_rows["category"] == cat]
+                    return (_opt_int(cr["total"].iloc[0]) or 0) if not cr.empty else 0
+
+                return rank, f"{_cat_total('WINS')}-{_cat_total('LOSSES')}-{_cat_total('TIES')}"
+        except Exception:
+            pass
+
+        return 0, "0-0-0"
 
     @staticmethod
     def _matchup(raw_matchup: dict | None, cfg) -> MatchupHero | None:
