@@ -26,6 +26,7 @@ import {
   MonitorUp,
   MousePointerClick,
   Paperclip,
+  Pencil,
   Plus,
   Send,
   Settings,
@@ -99,6 +100,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   >([]);
   const [docs, setDocs] = useState<{ id: string; label: string; text: string; truncated: boolean }[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [queue, setQueue] = useState<{ id: string; text: string }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -254,10 +256,11 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const handleSend = useCallback(async (textArg?: string) => {
+    const isQueued = textArg !== undefined;
+    const text = (textArg ?? input).trim();
     if (!text || sending || !model) return;
-    setInput("");
+    if (!isQueued) setInput("");
     // Append the user turn + an empty assistant turn we stream INTO.
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setSending(true);
@@ -271,12 +274,14 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         return next;
       });
 
-    const sentTags = tags;
-    const sentImages = images;
-    const sentDocs = docs;
-    setTags([]);
-    setImages([]);
-    setDocs([]);
+    const sentTags = isQueued ? [] : tags;
+    const sentImages = isQueued ? [] : images;
+    const sentDocs = isQueued ? [] : docs;
+    if (!isQueued) {
+      setTags([]);
+      setImages([]);
+      setDocs([]);
+    }
 
     const attachedTextParts = [
       ...sentTags.map((t) => t.text),
@@ -349,6 +354,38 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       setToolStatus(null);
     }
   }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs]);
+
+  const onSubmit = useCallback(() => {
+    const text = input.trim();
+    if (!text || !model) return;
+    if (sending) {
+      // Bubba is busy — queue this message; it auto-sends after the current turn.
+      setQueue((q) => [...q, { id: crypto.randomUUID(), text }]);
+      setInput("");
+    } else {
+      handleSend();
+    }
+  }, [input, model, sending, handleSend]);
+
+  // Drain the queue: when Bubba finishes a turn (sending→false) cleanly, auto-send
+  // the next queued message. Pause on an errored turn so it doesn't blast the rest.
+  // setState is deferred to a microtask (the file's pattern) to satisfy
+  // react-hooks/set-state-in-effect; removed by id so a concurrent edit is safe.
+  useEffect(() => {
+    if (sending || queue.length === 0) return undefined;
+    const last = messages[messages.length - 1];
+    if (last?.isError) return undefined;
+    const next = queue[0];
+    let alive = true;
+    Promise.resolve().then(() => {
+      if (!alive) return;
+      setQueue((q) => q.filter((x) => x.id !== next.id));
+      handleSend(next.text);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [sending, queue, messages, handleSend]);
 
   return (
     <>
@@ -465,6 +502,37 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
 
           {/* composer */}
           <div className="shrink-0 border-t border-line bg-surface p-2">
+            {queue.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {queue.map((q) => (
+                  <div
+                    key={q.id}
+                    className="flex items-center gap-1 rounded-lg border border-line bg-canvas px-2 py-1 text-[11px] text-ink"
+                  >
+                    <span className="flex-1 truncate">{q.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInput(q.text);
+                        setQueue((x) => x.filter((y) => y.id !== q.id));
+                      }}
+                      aria-label="Edit queued message"
+                      className="text-ink-3 hover:text-heat"
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQueue((x) => x.filter((y) => y.id !== q.id))}
+                      aria-label="Delete queued message"
+                      className="text-ink-3 hover:text-ember"
+                    >
+                      <X className="size-3" aria-hidden />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {(tags.length > 0 || images.length > 0 || docs.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {tags.map((t) => (
@@ -565,20 +633,21 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    handleSend();
+                    onSubmit();
                   }
                 }}
                 rows={1}
-                placeholder="Ask Bubba…"
+                placeholder={sending ? "Queue a follow-up…" : "Ask Bubba…"}
                 className="max-h-28 min-h-[38px] flex-1 resize-none rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-heat"
               />
               <button
-                onClick={handleSend}
-                disabled={sending || !input.trim() || !model}
-                aria-label="Send"
+                onClick={onSubmit}
+                disabled={!input.trim() || !model}
+                aria-label={sending ? "Queue message" : "Send"}
+                title={sending ? "Queue message (sends after the current answer)" : "Send"}
                 className="flex size-[38px] shrink-0 items-center justify-center rounded-lg bg-heat text-white transition-colors hover:bg-heat-bright disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Send className="size-4" aria-hidden />
+                {sending ? <Plus className="size-4" aria-hidden /> : <Send className="size-4" aria-hidden />}
               </button>
             </div>
           </div>
