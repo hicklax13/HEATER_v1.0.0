@@ -4,7 +4,7 @@
 **Lane:** CEO — full-stack (`api/` + `web/`; `src/` untouched).
 **Parent spec:** `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md` (Phase B2, fourth + final wave).
 **Siblings:** B2.1 streaming, B2.2 tag-page-context, B2.3 attachments (all shipped).
-**Status:** design — approved by owner 2026-06-21. Completes Phase B2.
+**Status:** SHIPPED 2026-06-21 — built via plan `docs/superpowers/plans/2026-06-21-heater-bubba-b2-4-queue-prompts.md` (6 tasks / 3 slices; both pr-review-toolkit reviewers ran — backend "meets standards", applied the silent-failure-hunter's frontend findings: PromptsMenu now surfaces save/delete `{ok,message}` failures + a "queue paused after an error" hint). **Completes Phase B2.**
 
 ## Scope
 
