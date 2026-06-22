@@ -21,6 +21,7 @@ export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter
   // Analyze is async (live = POST /api/streaming/analyze). Re-run on selection/date change.
   const [card, setCard] = useState<PitcherScorecard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const selectedMlbId = selected?.player.mlbId;
   useEffect(() => {
     let alive = true;
@@ -29,12 +30,21 @@ export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter
       .then(() => {
         if (!alive) return undefined;
         setLoading(true);
+        setFailed(false);
         return selected ? analyzePitcher(selected, date) : null;
       })
       .then((c) => {
         if (!alive || c === undefined) return;
         setCard(c);
         setLoading(false);
+      })
+      .catch(() => {
+        // Live: analyzePitcher can now reject (HIGH-3) — show an inline error
+        // instead of a fabricated scorecard or a stuck "Scoring…" spinner.
+        if (!alive) return;
+        setCard(null);
+        setLoading(false);
+        setFailed(true);
       });
     return () => {
       alive = false;
@@ -78,7 +88,10 @@ export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter
       </div>
 
       {loading && <div className="mt-5 text-[13px] text-ink-3">Scoring…</div>}
-      {!loading && !card && selected && (
+      {!loading && failed && (
+        <div className="mt-5 text-[13px] text-ember">Couldn&apos;t reach the scorer. Try again.</div>
+      )}
+      {!loading && !failed && !card && selected && (
         <div className="mt-5 text-[13px] text-ink-3">Couldn&apos;t score this starter for {date}.</div>
       )}
       {!loading && card && selected && (

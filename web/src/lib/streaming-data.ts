@@ -1,7 +1,7 @@
 import type { PlayerRef } from "./types";
 import { apiGet, apiPost } from "@/lib/api/client";
 import { apiStreamingToData, apiScorecard } from "@/lib/api/adapters";
-import { isLive, liveOrMock } from "@/lib/api/live";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiStreamingResponse, ApiStreamAnalyzeResponse } from "@/lib/api/types";
 
 /**
@@ -260,15 +260,16 @@ function mockScorecard(p: ProbableStarter): PitcherScorecard {
 
 /** Analyze any probable pitcher → a full scorecard. Live: POST
  *  /api/streaming/analyze (returns null if the pitcher isn't a probable that
- *  date). Mock, or live failure: synthesize deterministically. */
+ *  date); live errors propagate (HIGH-3) so the Analyze panel shows a failure
+ *  instead of a fabricated "Synthesized scorecard". When live but the pitcher has
+ *  no HEATER id / no date, OR off-live: synthesize deterministically. */
 export async function analyzePitcher(p: ProbableStarter, date?: string): Promise<PitcherScorecard | null> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1" && p.pitcherId != null && date) {
-    try {
+  return liveOrMock(
+    async () => {
+      if (p.pitcherId == null || !date) return mockScorecard(p);
       const api = await apiPost<ApiStreamAnalyzeResponse>("/streaming/analyze", { pitcher_id: p.pitcherId, date });
       return apiScorecard(api); // null when found:false
-    } catch {
-      // fall through to mock synth
-    }
-  }
-  return mockScorecard(p);
+    },
+    () => mockScorecard(p),
+  );
 }

@@ -8,7 +8,6 @@ import type {
   ApiDraftPick,
 } from "@/lib/api/types";
 import { mockRecommend, mockSimulate } from "./draft-mock";
-import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Draft Simulator data layer. The API is STATELESS: the client owns `config`
@@ -100,43 +99,39 @@ function toApiPick(p: DraftPick): ApiDraftPick {
   };
 }
 
-/** Advance the AI opponents to the user's next turn (or end of draft). */
+/** Advance the AI opponents to the user's next turn (or end of draft). Live →
+ *  POST /api/draft/simulate-picks; 402 → useDraft locked phase, and any OTHER
+ *  live error propagates (HIGH-3) so useDraft surfaces it instead of fabricating a
+ *  mock draft. Off-live → the client-side mock. */
 export async function draftSimulate(config: DraftConfig, pickLog: DraftPick[]): Promise<SimResult> {
   if (live()) {
-    try {
-      const api = await apiPost<ApiDraftSimulateResponse>("/draft/simulate-picks", {
-        config: toApiConfig(config),
-        pick_log: pickLog.map(toApiPick),
-        seed: null,
-      });
-      return apiDraftSimulateToData(api);
-    } catch (e) {
-      if (isPaywall(e)) throw e; // 402 → useDraft locked phase
-      // else fall through to the client-side mock
-    }
+    const api = await apiPost<ApiDraftSimulateResponse>("/draft/simulate-picks", {
+      config: toApiConfig(config),
+      pick_log: pickLog.map(toApiPick),
+      seed: null,
+    });
+    return apiDraftSimulateToData(api);
   }
   return mockSimulate(config, pickLog);
 }
 
-/** Recommendations for the user's current pick (call only when it's their turn). */
+/** Recommendations for the user's current pick (call only when it's their turn).
+ *  Live → POST /api/draft/recommend; 402 → useDraft locked phase, and any OTHER
+ *  live error propagates (HIGH-3) so useDraft surfaces it instead of fabricating
+ *  mock recs for the user's real draft. Off-live → the client-side mock. */
 export async function draftRecommend(
   config: DraftConfig,
   pickLog: DraftPick[],
   topN = 8,
 ): Promise<RecResult> {
   if (live()) {
-    try {
-      const api = await apiPost<ApiDraftRecommendResponse>("/draft/recommend", {
-        config: toApiConfig(config),
-        pick_log: pickLog.map(toApiPick),
-        top_n: topN,
-        n_simulations: 300,
-      });
-      return apiDraftRecommendToData(api);
-    } catch (e) {
-      if (isPaywall(e)) throw e; // 402 → useDraft locked phase
-      // else fall through to the client-side mock
-    }
+    const api = await apiPost<ApiDraftRecommendResponse>("/draft/recommend", {
+      config: toApiConfig(config),
+      pick_log: pickLog.map(toApiPick),
+      top_n: topN,
+      n_simulations: 300,
+    });
+    return apiDraftRecommendToData(api);
   }
   return mockRecommend(config, pickLog, topN);
 }

@@ -84,7 +84,8 @@ export function useDraft() {
         busy: false,
       });
     } catch (e) {
-      // advance only throws on a 402 paywall (other errors fall back to the mock).
+      // Live: 402 → locked; any other API/network error surfaces back to setup
+      // (no fabricated mock draft). Off-live, advance() resolves from the mock.
       setState({ ...INITIAL, phase: isPaywall(e) ? "locked" : "setup", config });
     }
   }, []);

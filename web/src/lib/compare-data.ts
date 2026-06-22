@@ -1,6 +1,7 @@
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiCompareToData } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiCompareResponse } from "@/lib/api/types";
 import type { PlayerPick } from "@/lib/player-search";
 
@@ -105,17 +106,17 @@ function mockCompare(players: PlayerPick[]): CompareData {
   };
 }
 
-/** Fetch a head-to-head comparison for the picked players (need ≥2). Live →
- *  GET /api/compare?ids=…; falls back to a demo comparison on error / empty. */
+/** Fetch a head-to-head comparison for the picked players (need ≥2). Live → GET
+ *  /api/compare?ids=…; live errors propagate (HIGH-3) so the caller surfaces them
+ *  instead of fabricating a demo line for the user's real picks. Mock (off-live,
+ *  or live with an empty response): a demo comparison. */
 export async function fetchCompare(players: PlayerPick[]): Promise<CompareData> {
   if (players.length < 2) return { categories: [], players: [] };
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiCompareResponse>("/compare", { ids: players.map((p) => p.id).join(",") });
-      if ((api.players?.length ?? 0) > 0) return apiCompareToData(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return mockCompare(players);
+      return (api.players?.length ?? 0) > 0 ? apiCompareToData(api) : mockCompare(players);
+    },
+    () => mockCompare(players),
+  );
 }
