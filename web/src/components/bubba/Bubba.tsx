@@ -16,8 +16,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Camera, Flame, KeyRound, Loader2, MousePointerClick, Plus, Send, Settings, Trash2, X } from "lucide-react";
+import {
+  Camera,
+  FileText,
+  Flame,
+  Image as ImageIcon,
+  KeyRound,
+  Loader2,
+  MonitorUp,
+  MousePointerClick,
+  Paperclip,
+  Plus,
+  Send,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
 import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta } from "@/lib/api/bubba";
+import { captureScreen, extractPdfText, readImageFile } from "./attachments";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
@@ -78,10 +94,15 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [tags, setTags] = useState<{ id: string; kind: "text" | "player"; label: string; text: string }[]>([]);
-  const [shots, setShots] = useState<{ id: string; dataUrl: string }[]>([]);
-  const [snapError, setSnapError] = useState<string | null>(null);
+  const [images, setImages] = useState<
+    { id: string; label: string; dataUrl: string; source: "snapshot" | "screen" | "file" }[]
+  >([]);
+  const [docs, setDocs] = useState<{ id: string; label: string; text: string; truncated: boolean }[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canShareScreen = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   const [epoch, setEpoch] = useState(0);
   const reload = useCallback(() => setEpoch((n) => n + 1), []);
@@ -171,7 +192,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   const snapPage = useCallback(async () => {
-    setSnapError(null);
+    setAttachError(null);
     try {
       const { toPng } = await import("html-to-image");
       const node = (document.querySelector("main") as HTMLElement | null) ?? document.body;
@@ -183,12 +204,53 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         // exclude the Bubba panel + the select-mode glow from the snapshot
         filter: (n) => !(n instanceof HTMLElement && n.dataset?.bubbaPanel === "1"),
       });
-      setShots((s) => [...s, { id: crypto.randomUUID(), dataUrl }]);
+      setImages((s) => [...s, { id: crypto.randomUUID(), label: "page snapshot", dataUrl, source: "snapshot" }]);
     } catch (err) {
       // html-to-image throws on a tainted canvas (OOM, security). Log the cause
       // (the file's discipline) — a bare message would hide a systemic failure.
       console.error("Bubba snapPage failed", err);
-      setSnapError("Couldn't snapshot the page.");
+      setAttachError("Couldn't snapshot the page.");
+    }
+  }, []);
+
+  const onPickFiles = useCallback(async (files: FileList | null) => {
+    if (!files?.length) return;
+    setAttachError(null);
+    for (const file of Array.from(files)) {
+      try {
+        if (file.size > 8 * 1024 * 1024) {
+          setAttachError(`"${file.name}" is too large (max 8 MB).`);
+          continue;
+        }
+        if (file.type.startsWith("image/")) {
+          const dataUrl = await readImageFile(file);
+          setImages((s) => [...s, { id: crypto.randomUUID(), label: file.name, dataUrl, source: "file" }]);
+        } else if (file.type === "application/pdf") {
+          const { text, truncated } = await extractPdfText(file);
+          if (!text) {
+            setAttachError(`No readable text found in "${file.name}".`);
+            continue;
+          }
+          setDocs((s) => [...s, { id: crypto.randomUUID(), label: file.name, text, truncated }]);
+        } else {
+          setAttachError(`"${file.name}" isn't a supported file type.`);
+        }
+      } catch (err) {
+        console.error("Bubba file attach failed", err);
+        setAttachError(`Couldn't read "${file.name}".`);
+      }
+    }
+  }, []);
+
+  const onShareScreen = useCallback(async () => {
+    setAttachError(null);
+    try {
+      const dataUrl = await captureScreen();
+      setImages((s) => [...s, { id: crypto.randomUUID(), label: "screen capture", dataUrl, source: "screen" }]);
+    } catch (err) {
+      // getDisplayMedia rejects on cancel/denial/unsupported — surface, don't throw.
+      console.error("Bubba screen capture failed", err);
+      setAttachError("Screen capture was cancelled or isn't available.");
     }
   }, []);
 
@@ -210,9 +272,16 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       });
 
     const sentTags = tags;
-    const sentShots = shots;
+    const sentImages = images;
+    const sentDocs = docs;
     setTags([]);
-    setShots([]);
+    setImages([]);
+    setDocs([]);
+
+    const attachedTextParts = [
+      ...sentTags.map((t) => t.text),
+      ...sentDocs.map((d) => `[Document: ${d.label}]\n${d.text}`),
+    ];
 
     try {
       await bubba.sendStream(
@@ -223,9 +292,9 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           web_search: webSearch,
           deep_research: deepResearch,
           reasoning_effort: effort,
-          attached_text: sentTags.length ? sentTags.map((t) => t.text).join("\n") : undefined,
-          attachments: sentShots.length
-            ? sentShots.map((s) => ({ kind: "image" as const, data_url: s.dataUrl }))
+          attached_text: attachedTextParts.length ? attachedTextParts.join("\n") : undefined,
+          attachments: sentImages.length
+            ? sentImages.map((im) => ({ kind: "image" as const, data_url: im.dataUrl }))
             : undefined,
         },
         (e) => {
@@ -279,7 +348,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       setSending(false);
       setToolStatus(null);
     }
-  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, shots]);
+  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs]);
 
   return (
     <>
@@ -396,17 +465,25 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
 
           {/* composer */}
           <div className="shrink-0 border-t border-line bg-surface p-2">
-            {(tags.length > 0 || shots.length > 0) && (
+            {(tags.length > 0 || images.length > 0 || docs.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {tags.map((t) => (
                   <TagChip key={t.id} label={t.label} onRemove={() => setTags((x) => x.filter((y) => y.id !== t.id))} />
                 ))}
-                {shots.map((s) => (
+                {images.map((im) => (
                   <TagChip
-                    key={s.id}
-                    label="page snapshot"
-                    icon
-                    onRemove={() => setShots((x) => x.filter((y) => y.id !== s.id))}
+                    key={im.id}
+                    label={im.label}
+                    icon={<ImageIcon className="size-3 shrink-0 text-heat" aria-hidden />}
+                    onRemove={() => setImages((x) => x.filter((y) => y.id !== im.id))}
+                  />
+                ))}
+                {docs.map((d) => (
+                  <TagChip
+                    key={d.id}
+                    label={d.truncated ? `${d.label} · truncated` : d.label}
+                    icon={<FileText className="size-3 shrink-0 text-heat" aria-hidden />}
+                    onRemove={() => setDocs((x) => x.filter((y) => y.id !== d.id))}
                   />
                 ))}
               </div>
@@ -445,11 +522,40 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               >
                 <Camera className="size-3.5" aria-hidden /> Snap
               </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach an image or PDF"
+                className="flex items-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 font-semibold text-ink-3 transition-colors hover:text-ink"
+              >
+                <Paperclip className="size-3.5" aria-hidden /> File
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  onPickFiles(e.target.files);
+                  e.target.value = ""; // allow re-picking the same file
+                }}
+              />
+              {canShareScreen && (
+                <button
+                  type="button"
+                  onClick={onShareScreen}
+                  title="Capture an open window or screen"
+                  className="flex items-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 font-semibold text-ink-3 transition-colors hover:text-ink"
+                >
+                  <MonitorUp className="size-3.5" aria-hidden /> Screen
+                </button>
+              )}
             </div>
-            {snapError && <p className="mb-1 text-[11px] text-ember">{snapError}</p>}
-            {shots.length > 0 && (
+            {attachError && <p className="mb-1 text-[11px] text-ember">{attachError}</p>}
+            {images.some((im) => im.source === "snapshot") && (
               <p className="mb-1 text-[11px] text-ink-3">
-                Snapshot captures page text + charts; some photos may not render.
+                Page snapshot captures text + charts; some photos may not render.
               </p>
             )}
             <div className="flex items-end gap-2">
@@ -654,10 +760,10 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
   );
 }
 
-function TagChip({ label, onRemove, icon }: { label: string; onRemove: () => void; icon?: boolean }) {
+function TagChip({ label, onRemove, icon }: { label: string; onRemove: () => void; icon?: React.ReactNode }) {
   return (
     <span className="inline-flex max-w-[200px] items-center gap-1 rounded-full border border-heat/40 bg-heat/5 px-2 py-0.5 text-[11px] text-ink">
-      {icon && <Camera className="size-3 shrink-0 text-heat" aria-hidden />}
+      {icon}
       <span className="truncate">{label}</span>
       <button type="button" onClick={onRemove} aria-label={`Remove ${label}`} className="text-ink-3 hover:text-ember">
         <X className="size-3" aria-hidden />
