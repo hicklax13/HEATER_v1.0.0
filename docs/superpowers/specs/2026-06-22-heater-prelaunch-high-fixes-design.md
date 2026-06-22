@@ -43,8 +43,8 @@ Changes:
    - `return fallback`  *(dormant)*
 
 2. **Team-required vs team-optional split.** Two classes of endpoint currently call `effective_team`:
-   - **Team-required** (meaningless without a team): `/api/me/team`, `/api/matchup`, `/api/lineup/optimize`, `/api/punt`, `/api/playoff-odds`, `/api/trade/evaluate`, `/api/trade-finder`, `/api/free-agents`, `/api/free-agents/pool`.
-   - **Team-optional** (league-wide grid; team only adds a "yours" highlight): `/api/schedule/probables`, `/api/schedule/hitter-matchups`.
+   - **Team-required** (meaningless without a team): `/api/me/team`, `/api/matchup`, `/api/lineup/optimize`, `/api/punt`, `/api/trade/evaluate`, `/api/trade-finder`, `/api/free-agents`, `/api/free-agents/pool`.
+   - **Team-optional** (league-wide; the team only adds a "yours"/"you" marker): `/api/schedule/probables`, `/api/schedule/hitter-matchups`, `/api/playoff-odds`. *(`/api/playoff-odds` is league-wide odds + a `you` marker, so an unassigned viewer still gets the Standings odds panel — just without the highlight; it must NOT 409 or it would break the Standings page.)*
 
    Add a small helper in `api/tenancy.py`:
    ```python
