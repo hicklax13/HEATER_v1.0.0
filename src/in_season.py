@@ -4,6 +4,7 @@ Reuses SGPCalculator, compute_replacement_levels, compute_category_weights
 from src/valuation.py. MC simulation pattern adapted from src/simulation.py.
 """
 
+import math
 import re
 
 import numpy as np
@@ -231,6 +232,17 @@ def _il_weight_from_status(
     return _IL_WEIGHT_DEFAULTS.get(key, 1.0)
 
 
+def _num(value, default: float = 0.0) -> float:
+    """Finite-float coercion (None/NaN/inf/junk → default). ``int(v or 0)`` does
+    NOT guard pandas NaN — NaN is truthy, so ``int(nan)`` raises ValueError on
+    sparse pool rows."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if (math.isnan(f) or math.isinf(f)) else f
+
+
 def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict:
     """Compute aggregate category totals for a set of player IDs.
 
@@ -271,23 +283,23 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         weight = _il_weight_from_status(status, expected_return_days=expected_return_days)
         if weight == 0.0:
             continue  # Suspended / Restricted / NA — keep legacy zero
-        totals["R"] += int(p.get("r", 0) or 0) * weight
-        totals["HR"] += int(p.get("hr", 0) or 0) * weight
-        totals["RBI"] += int(p.get("rbi", 0) or 0) * weight
-        totals["SB"] += int(p.get("sb", 0) or 0) * weight
-        totals["W"] += int(p.get("w", 0) or 0) * weight
-        totals["L"] += int(p.get("l", 0) or 0) * weight
-        totals["SV"] += int(p.get("sv", 0) or 0) * weight
-        totals["K"] += int(p.get("k", 0) or 0) * weight
-        totals["ab"] += int(p.get("ab", 0) or 0) * weight
-        totals["h"] += int(p.get("h", 0) or 0) * weight
-        totals["bb"] += int(p.get("bb", 0) or 0) * weight
-        totals["hbp"] += int(p.get("hbp", 0) or 0) * weight
-        totals["sf"] += int(p.get("sf", 0) or 0) * weight
-        totals["ip"] += float(p.get("ip", 0) or 0) * weight
-        totals["er"] += float(p.get("er", 0) or 0) * weight
-        totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0) * weight
-        totals["h_allowed"] += int(p.get("h_allowed", 0) or 0) * weight
+        totals["R"] += int(_num(p.get("r"))) * weight
+        totals["HR"] += int(_num(p.get("hr"))) * weight
+        totals["RBI"] += int(_num(p.get("rbi"))) * weight
+        totals["SB"] += int(_num(p.get("sb"))) * weight
+        totals["W"] += int(_num(p.get("w"))) * weight
+        totals["L"] += int(_num(p.get("l"))) * weight
+        totals["SV"] += int(_num(p.get("sv"))) * weight
+        totals["K"] += int(_num(p.get("k"))) * weight
+        totals["ab"] += int(_num(p.get("ab"))) * weight
+        totals["h"] += int(_num(p.get("h"))) * weight
+        totals["bb"] += int(_num(p.get("bb"))) * weight
+        totals["hbp"] += int(_num(p.get("hbp"))) * weight
+        totals["sf"] += int(_num(p.get("sf"))) * weight
+        totals["ip"] += _num(p.get("ip")) * weight
+        totals["er"] += _num(p.get("er")) * weight
+        totals["bb_allowed"] += int(_num(p.get("bb_allowed"))) * weight
+        totals["h_allowed"] += int(_num(p.get("h_allowed"))) * weight
 
     if totals["ab"] > 0:
         totals["AVG"] = totals["h"] / totals["ab"]

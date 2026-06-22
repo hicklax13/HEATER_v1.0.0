@@ -34,6 +34,17 @@ def _make_hitter_pool(n: int = 50) -> pd.DataFrame:
     )
 
 
+def test_breakout_score_nan_is_hitter_does_not_raise():
+    """A NaN ``is_hitter`` (left-join artifact) must not raise: ``int(nan)`` does.
+    NaN is treated like a missing flag → defaults to hitter, returns a float."""
+    pool = _make_hitter_pool(10)
+    row = pool.iloc[0].to_dict()
+    row["is_hitter"] = float("nan")
+    score = compute_breakout_score(row, pool)  # must not raise
+    assert isinstance(score, float)
+    assert 0.0 <= score <= 100.0
+
+
 def _make_pitcher_pool(n: int = 50) -> pd.DataFrame:
     """Create a synthetic pitcher pool with Stuff+ columns."""
     rng = np.random.default_rng(99)

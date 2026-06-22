@@ -86,8 +86,11 @@ class CloserService:
         # Build the closer PlayerRef (None when no closer identified)
         closer_ref: PlayerRef | None = None
         if closer_name and closer_name.lower() not in ("unknown", ""):
+            # _f(mlb_id, 0) guards NaN — ``int(mlb_id) if mlb_id is not None`` does
+            # NOT (``nan is not None`` is True → ``int(nan)`` raises). make_player_ref
+            # separately normalizes the mlb_id kwarg (NaN/0/neg → None).
             closer_ref = make_player_ref(
-                id=int(mlb_id) if mlb_id is not None else 0,
+                id=int(CloserService._f(mlb_id, 0)),
                 name=closer_name,
                 positions="RP",
                 mlb_id=mlb_id,

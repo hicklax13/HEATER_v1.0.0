@@ -286,7 +286,9 @@ def compute_breakout_score(player_row, pool: pd.DataFrame | None = None, config=
         return 50.0
 
     raw_hitter = player_row.get("is_hitter")
-    is_hitter = bool(int(raw_hitter)) if raw_hitter is not None else True
+    # NaN is_hitter (left-join artifact) is treated as a missing flag → default
+    # hitter; ``int(nan)`` would raise (``nan is not None`` is True).
+    is_hitter = True if pd.isna(raw_hitter) else bool(int(raw_hitter))
 
     if is_hitter:
         return _hitter_breakout_score(player_row, pool)

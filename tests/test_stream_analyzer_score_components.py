@@ -68,6 +68,32 @@ def _opp(wrc_plus=95.0, k_pct=23.0):
     }
 
 
+def test_clamp_maps_nan_to_zero():
+    """_clamp(NaN) must be 0.0 (neutral), NOT 1.0. min(1.0, nan) returns nan's
+    operand because NaN comparisons are False — that pinned a data-missing pitcher
+    to the MAX SGP component and ranked it to the top of the board."""
+    from src.optimizer.stream_analyzer import _clamp
+
+    assert _clamp(float("nan")) == 0.0
+    assert _clamp(float("inf")) == 0.0  # inf is a bug upstream → neutral, not max
+    assert _clamp(float("-inf")) == 0.0
+    assert _clamp(0.5) == 0.5  # finite values unchanged
+    assert _clamp(5.0) == 1.0  # still clamps high
+    assert _clamp(-5.0) == -1.0  # still clamps low
+
+
+def test_score_stream_candidate_nan_stats_not_max_sgp():
+    """The reported HIGH bug: a probable with NaN era/whip/k/ip must NOT score the
+    MAX (1.0) SGP component. With the guards, NaN stats fall back to league-avg
+    defaults → a roughly-neutral SGP component, never the top of the board."""
+    nan = float("nan")
+    pitcher = _pitcher(era=nan, whip=nan, k=nan, w=nan, ip=nan)
+    res = score_stream_candidate(pitcher, _start(), _opp(), LeagueConfig())
+    comp_sgp = res["components"]["sgp"]
+    assert comp_sgp == comp_sgp, "SGP component must not be NaN"  # NaN != NaN
+    assert comp_sgp < 1.0, f"NaN-stat pitcher should not get max SGP (got {comp_sgp})"
+
+
 def test_result_shape_and_ranges():
     res = score_stream_candidate(_pitcher(), _start(), _opp(), LeagueConfig())
     assert 0.0 <= res["stream_score"] <= 100.0

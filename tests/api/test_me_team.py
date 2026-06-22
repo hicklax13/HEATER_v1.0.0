@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
+import pytest
 from starlette.testclient import TestClient
 
 from api.contracts.common import PlayerRef, StatItem
@@ -282,6 +283,87 @@ def test_subline_ordinal_and_games_back():
     sub = svc._subline("4-6-0", 10, 12, standings)
     assert "10th of 12" in sub
     assert "3 GB from 1st" in sub  # leader 7 wins - your 4 = 3
+
+
+# ── _rank_and_record (HIGH: surface real W-L records) ────────────────────────
+def test_rank_and_record_from_records_table():
+    """Records table is authoritative → 'W-L-T' string + its rank (Railway path)."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["HR"], "total": [50.0], "rank": [3]})
+    records = pd.DataFrame([{"team_name": "Team A", "wins": 8, "losses": 4, "ties": 1, "rank": 3}])
+    rank, record = svc._rank_and_record(standings, records, "Team A")
+    assert record == "8-4-1"
+    assert rank == 3
+
+
+def test_rank_and_record_fallback_wlt_string_category():
+    """records empty; WINS category total is already a 'W-L-T' string."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["WINS"], "total": ["7-3-0"], "rank": [2]})
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "7-3-0"
+    assert rank == 2
+
+
+def test_rank_and_record_fallback_numeric_wlt_categories():
+    """records empty; WINS/LOSSES/TIES are separate numeric category rows (local DB)."""
+    svc = _real_service()
+    standings = pd.DataFrame(
+        {
+            "team_name": ["Team A", "Team A", "Team A"],
+            "category": ["WINS", "LOSSES", "TIES"],
+            "total": [6.0, 5.0, 0.0],
+            "rank": [5, 5, 5],
+        }
+    )
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "6-5-0"
+    assert rank == 5
+
+
+def test_rank_and_record_empty_when_no_data():
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["HR"], "total": [10.0], "rank": [0]})
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team A")
+    assert record == "0-0-0"
+    assert rank == 0
+
+
+# ── _matchup hero (key-mismatch bug: raw matchup uses opp_name, not opponent) ─
+def test_matchup_hero_reads_opp_name_and_category_record():
+    """MatchupResult keys are opp_name + wins/losses/ties (NOT opponent/win_prob),
+    so the hero was always hollow. _matchup must read the real keys and derive the
+    current category-lead share (sums to 1)."""
+    from src.valuation import LeagueConfig
+
+    raw = {"week": 13, "opp_name": "Baty Babies", "wins": 7, "losses": 4, "ties": 1}
+    hero = _real_service()._matchup(raw, LeagueConfig())
+    assert hero is not None
+    assert hero.opponent == "Baty Babies"
+    assert hero.week == 13
+    assert hero.win_prob == pytest.approx(7 / 12)
+    assert hero.loss_prob == pytest.approx(4 / 12)
+    assert hero.tie_prob == pytest.approx(1 / 12)
+
+
+def test_matchup_hero_none_when_no_opponent():
+    """No raw matchup, or a blank opp_name → None (never a hollow 'vs ' hero)."""
+    from src.valuation import LeagueConfig
+
+    cfg = LeagueConfig()
+    assert _real_service()._matchup(None, cfg) is None
+    assert _real_service()._matchup({"week": 5, "opp_name": ""}, cfg) is None
+
+
+def test_matchup_hero_undecided_week_zero_probs():
+    """Opponent known but no categories decided yet → opponent+week show, probs 0."""
+    from src.valuation import LeagueConfig
+
+    raw = {"week": 1, "opp_name": "Rivals", "wins": 0, "losses": 0, "ties": 0}
+    hero = _real_service()._matchup(raw, LeagueConfig())
+    assert hero is not None
+    assert hero.opponent == "Rivals"
+    assert (hero.win_prob, hero.tie_prob, hero.loss_prob) == (0.0, 0.0, 0.0)
 
 
 # ── slice-2 lever (DB-free: build_optimizer_context + rank_free_agents monkeypatched

@@ -181,6 +181,10 @@ def compute_hitter_matchup_score(
 
 
 def _clamp(value: float, lo: float = -1.0, hi: float = 1.0) -> float:
+    # NaN → neutral 0.0, NOT the bound: ``min(hi, nan)`` returns ``nan`` (NaN
+    # comparisons are False), which would pin a data-missing component to the MAX.
+    if value != value or math.isinf(value):
+        return 0.0
     return max(lo, min(hi, value))
 
 

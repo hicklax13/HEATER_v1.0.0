@@ -8,6 +8,7 @@ helps or hurts the team's season-long totals.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from src.league_rules import WEEKLY_TRANSACTION_LIMIT
@@ -92,14 +93,25 @@ _LEAGUE_AVG_SPRINT_SPEED: float = 27.0
 
 
 def _get(obj: Any, key: str, default: float = 0.0) -> float:
-    """Extract a numeric value from a dict, Series, or object."""
+    """Extract a numeric value from a dict, Series, or object.
+
+    A present-but-NaN value yields *default* (the league-avg the callers pass for
+    era/whip), never NaN — a NaN here propagates into the Stream Score and, via
+    ``_clamp``, pins a data-missing pitcher to the MAX SGP component.
+    """
     if isinstance(obj, dict):
-        return float(obj.get(key, default))
-    # pandas Series / DataFrame row
+        val = obj.get(key, default)
+    else:
+        # pandas Series / DataFrame row
+        try:
+            val = obj[key]
+        except (KeyError, TypeError, IndexError):
+            return default
     try:
-        return float(obj[key])
-    except (KeyError, TypeError, IndexError):
+        fval = float(val)
+    except (TypeError, ValueError):
         return default
+    return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
 def _safe_denoms(sgp_denominators: dict[str, float] | None) -> dict[str, float]:

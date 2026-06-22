@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from api.auth import require_login
 from api.contracts.leaders import LeadersOverallResponse, LeadersResponse
 from api.deps import get_leaders_overall_service, get_leaders_service
 
-router = APIRouter(prefix="/api", tags=["leaders"])
+router = APIRouter(prefix="/api", tags=["leaders"], dependencies=[Depends(require_login)])
 
 
 @router.get("/leaders", response_model=LeadersResponse)

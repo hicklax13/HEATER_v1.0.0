@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from api.auth import require_login
 from api.contracts.databank import DatabankResponse
 from api.deps import get_databank_service
 
-router = APIRouter(prefix="/api", tags=["databank"])
+router = APIRouter(prefix="/api", tags=["databank"], dependencies=[Depends(require_login)])
 
 
 @router.get("/databank", response_model=DatabankResponse)

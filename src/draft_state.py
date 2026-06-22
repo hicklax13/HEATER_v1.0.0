@@ -1,6 +1,7 @@
 """Draft state management: tracks picks, rosters, and category totals."""
 
 import json
+import math
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,6 +9,17 @@ from pathlib import Path
 import pandas as pd
 
 BACKUP_DIR = Path(__file__).parent.parent / "data" / "backups"
+
+
+def _num(value, default: float = 0.0) -> float:
+    """Finite-float coercion (None/NaN/inf/junk → default). ``int(v or 0)`` does
+    NOT guard pandas NaN — NaN is truthy, so ``int(nan)`` raises ValueError on
+    sparse pool rows (minor-leaguers with missing counting stats)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if (math.isnan(f) or math.isinf(f)) else f
 
 
 @dataclass
@@ -348,23 +360,23 @@ class DraftState:
                 if player.empty:
                     continue
                 p = player.iloc[0]
-                t["R"] += int(p.get("r", 0) or 0)
-                t["HR"] += int(p.get("hr", 0) or 0)
-                t["RBI"] += int(p.get("rbi", 0) or 0)
-                t["SB"] += int(p.get("sb", 0) or 0)
-                t["W"] += int(p.get("w", 0) or 0)
-                t["L"] += int(p.get("l", 0) or 0)
-                t["SV"] += int(p.get("sv", 0) or 0)
-                t["K"] += int(p.get("k", 0) or 0)
-                t["ab"] += int(p.get("ab", 0) or 0)
-                t["h"] += int(p.get("h", 0) or 0)
-                t["bb"] += int(p.get("bb", 0) or 0)
-                t["hbp"] += int(p.get("hbp", 0) or 0)
-                t["sf"] += int(p.get("sf", 0) or 0)
-                t["ip"] += float(p.get("ip", 0) or 0)
-                t["er"] += float(p.get("er", 0) or 0)
-                t["bb_allowed"] += float(p.get("bb_allowed", 0) or 0)
-                t["h_allowed"] += float(p.get("h_allowed", 0) or 0)
+                t["R"] += int(_num(p.get("r")))
+                t["HR"] += int(_num(p.get("hr")))
+                t["RBI"] += int(_num(p.get("rbi")))
+                t["SB"] += int(_num(p.get("sb")))
+                t["W"] += int(_num(p.get("w")))
+                t["L"] += int(_num(p.get("l")))
+                t["SV"] += int(_num(p.get("sv")))
+                t["K"] += int(_num(p.get("k")))
+                t["ab"] += int(_num(p.get("ab")))
+                t["h"] += int(_num(p.get("h")))
+                t["bb"] += int(_num(p.get("bb")))
+                t["hbp"] += int(_num(p.get("hbp")))
+                t["sf"] += int(_num(p.get("sf")))
+                t["ip"] += _num(p.get("ip"))
+                t["er"] += _num(p.get("er"))
+                t["bb_allowed"] += _num(p.get("bb_allowed"))
+                t["h_allowed"] += _num(p.get("h_allowed"))
             if t["ab"] > 0:
                 t["AVG"] = t["h"] / t["ab"]
             else:

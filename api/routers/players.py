@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from api.auth import require_login
 from api.contracts.players import LeagueRostersResponse, PlayerSearchResponse
 from api.deps import get_roster_query_service
 
-router = APIRouter(prefix="/api", tags=["players"])
+router = APIRouter(prefix="/api", tags=["players"], dependencies=[Depends(require_login)])
 
 
 @router.get("/players/search", response_model=PlayerSearchResponse)
