@@ -49,6 +49,8 @@ export interface ChatSendBody {
   web_search?: boolean;
   deep_research?: boolean;
   reasoning_effort?: "off" | "low" | "medium" | "high";
+  attached_text?: string;
+  attachments?: { kind: "image"; data_url: string }[];
 }
 
 /** SSE events from POST /api/chat/send-stream (mirrors src/ai/providers._chat_events). */

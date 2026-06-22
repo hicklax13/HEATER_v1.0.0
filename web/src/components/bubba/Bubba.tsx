@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Flame, KeyRound, Loader2, Plus, Send, Settings, Trash2, X } from "lucide-react";
+import { Camera, Flame, KeyRound, Loader2, MousePointerClick, Plus, Send, Settings, Trash2, X } from "lucide-react";
 import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta } from "@/lib/api/bubba";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
@@ -76,7 +76,11 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [webSearch, setWebSearch] = useState(false);
   const [deepResearch, setDeepResearch] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [tags, setTags] = useState<{ id: string; kind: "text" | "player"; label: string; text: string }[]>([]);
+  const [shots, setShots] = useState<{ id: string; dataUrl: string }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const [epoch, setEpoch] = useState(0);
   const reload = useCallback(() => setEpoch((n) => n + 1), []);
@@ -112,6 +116,23 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending]);
 
+  // Select-mode: highlighting page text (outside the panel) tags it.
+  useEffect(() => {
+    if (!selectMode) return undefined;
+    const onMouseUp = () => {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim();
+      if (!text) return;
+      const anchor = sel?.anchorNode ?? null;
+      if (anchor && panelRef.current?.contains(anchor)) return; // ignore in-panel selections
+      const label = text.length > 48 ? text.slice(0, 48) + "…" : text;
+      setTags((t) => [...t, { id: crypto.randomUUID(), kind: "text", label, text }]);
+      sel?.removeAllRanges();
+    };
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, [selectMode]);
+
   const selectConversation = useCallback(async (id: number) => {
     setConversationId(id);
     try {
@@ -144,6 +165,11 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         return next;
       });
 
+    const sentTags = tags;
+    const sentShots = shots;
+    setTags([]);
+    setShots([]);
+
     try {
       await bubba.sendStream(
         {
@@ -153,6 +179,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           web_search: webSearch,
           deep_research: deepResearch,
           reasoning_effort: effort,
+          attached_text: sentTags.length ? sentTags.map((t) => t.text).join("\n") : undefined,
+          attachments: sentShots.length
+            ? sentShots.map((s) => ({ kind: "image" as const, data_url: s.dataUrl }))
+            : undefined,
         },
         (e) => {
           if (e.type === "text_delta") {
@@ -205,13 +235,19 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       setSending(false);
       setToolStatus(null);
     }
-  }, [input, sending, model, conversationId, webSearch, deepResearch, effort]);
+  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, shots]);
 
   return (
-    <motion.div
-      role="dialog"
-      aria-label="Bubba AI assistant"
-      initial={reduce ? false : { y: 24, opacity: 0, scale: 0.98 }}
+    <>
+      {selectMode && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-[55] ring-2 ring-inset ring-heat/60" />
+      )}
+      <motion.div
+        ref={panelRef}
+        data-bubba-panel="1"
+        role="dialog"
+        aria-label="Bubba AI assistant"
+        initial={reduce ? false : { y: 24, opacity: 0, scale: 0.98 }}
       animate={{ y: 0, opacity: 1, scale: 1 }}
       exit={reduce ? undefined : { y: 24, opacity: 0, scale: 0.98 }}
       transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
@@ -316,6 +352,21 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
 
           {/* composer */}
           <div className="shrink-0 border-t border-line bg-surface p-2">
+            {(tags.length > 0 || shots.length > 0) && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {tags.map((t) => (
+                  <TagChip key={t.id} label={t.label} onRemove={() => setTags((x) => x.filter((y) => y.id !== t.id))} />
+                ))}
+                {shots.map((s) => (
+                  <TagChip
+                    key={s.id}
+                    label="page snapshot"
+                    icon
+                    onRemove={() => setShots((x) => x.filter((y) => y.id !== s.id))}
+                  />
+                ))}
+              </div>
+            )}
             <div className="mb-2 flex items-center gap-2 text-[11px]">
               <select
                 aria-label="Thinking effort"
@@ -330,6 +381,18 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               </select>
               <Toggle label="Web" on={webSearch} onClick={() => setWebSearch((v) => !v)} />
               <Toggle label="Research" on={deepResearch} onClick={() => setDeepResearch((v) => !v)} />
+              <button
+                type="button"
+                onClick={() => setSelectMode((v) => !v)}
+                aria-pressed={selectMode}
+                title="Tag page content — highlight text or click a player"
+                className={cn(
+                  "ml-auto flex items-center gap-1 rounded-full border px-2.5 py-1 font-semibold transition-colors",
+                  selectMode ? "border-heat bg-heat/10 text-heat" : "border-line bg-canvas text-ink-3 hover:text-ink",
+                )}
+              >
+                <MousePointerClick className="size-3.5" aria-hidden /> Tag
+              </button>
             </div>
             <div className="flex items-end gap-2">
               <textarea
@@ -357,7 +420,8 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           </div>
         </>
       )}
-    </motion.div>
+      </motion.div>
+    </>
   );
 }
 
@@ -529,6 +593,18 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
     >
       {label}
     </button>
+  );
+}
+
+function TagChip({ label, onRemove, icon }: { label: string; onRemove: () => void; icon?: boolean }) {
+  return (
+    <span className="inline-flex max-w-[200px] items-center gap-1 rounded-full border border-heat/40 bg-heat/5 px-2 py-0.5 text-[11px] text-ink">
+      {icon && <Camera className="size-3 shrink-0 text-heat" aria-hidden />}
+      <span className="truncate">{label}</span>
+      <button type="button" onClick={onRemove} aria-label={`Remove ${label}`} className="text-ink-3 hover:text-ember">
+        <X className="size-3" aria-hidden />
+      </button>
+    </span>
   );
 }
 
