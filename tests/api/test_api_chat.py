@@ -128,3 +128,25 @@ def test_send_stream_receives_managed_cap_from_dep():
     app.dependency_overrides[get_managed_ai_cap] = lambda: 0.33
     TestClient(app).post("/api/chat/send-stream", json={"message": "hi", "model": "gpt-5"})
     assert captured.get("cap_usd") == 0.33
+
+
+def test_send_threads_resolved_viewer_team():
+    """Bubba must answer for the VIEWER's team, not the global Team Hickey: the
+    router resolves the viewer team (require_viewer_context) and passes it to the
+    service. Was always None → every user got Team-Hickey-centric advice."""
+    from api.tenancy import ViewerContext, require_viewer_context
+
+    captured = {}
+
+    class _CapFake(_FakeChatService):
+        def send(self, **k):
+            captured.update(k)
+            return super().send(**k)
+
+    app = FastAPI()
+    app.include_router(chat_router.router)
+    app.dependency_overrides[get_chat_service] = lambda: _CapFake()
+    app.dependency_overrides[require_app_user] = lambda: _FakeUser()
+    app.dependency_overrides[require_viewer_context] = lambda: ViewerContext(user_id=1, team_name="BUBBA CROSBY")
+    TestClient(app).post("/api/chat/send", json={"message": "hi", "model": "gpt-5"})
+    assert captured.get("viewer_team") == "BUBBA CROSBY"

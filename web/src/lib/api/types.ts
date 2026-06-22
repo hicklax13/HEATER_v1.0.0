@@ -25,6 +25,7 @@ export type ApiMyTeamResponse = components["schemas"]["MyTeamResponse"];
 export type ApiPlayoffOddsResponse = components["schemas"]["PlayoffOddsResponse"];
 export type ApiTradeFinderResponse = components["schemas"]["TradeFinderResponse"];
 export type ApiPlayerSearchResponse = components["schemas"]["PlayerSearchResponse"];
+export type ApiPlayerDetailResponse = components["schemas"]["PlayerDetailResponse"];
 export type ApiTradeEvaluationResponse = components["schemas"]["TradeEvaluationResponse"];
 export type ApiDatabankResponse = components["schemas"]["DatabankResponse"];
 export type ApiLineupOptimizeResponse = components["schemas"]["LineupOptimizeResponse"];

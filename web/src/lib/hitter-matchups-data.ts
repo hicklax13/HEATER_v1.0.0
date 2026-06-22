@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { liveOrMock } from "@/lib/api/live";
@@ -205,7 +206,7 @@ export const HITTER_MATCHUPS_MOCK: HitterMatchupsData = {
 export async function fetchHitterMatchups(delayMs = 500): Promise<HitterMatchupsData> {
   return liveOrMock(
     async () => {
-      const api = await apiGet<ApiHitterGrid>("/schedule/hitter-matchups", { days: 7, team_name: "Team Hickey" });
+      const api = await apiGet<ApiHitterGrid>("/schedule/hitter-matchups", { days: 7, team_name: getViewerTeam() });
       return (api.teams?.length ?? 0) > 0 ? apiToData(api) : HITTER_MATCHUPS_MOCK;
     },
     () => new Promise<HitterMatchupsData>((resolve) => setTimeout(() => resolve(HITTER_MATCHUPS_MOCK), delayMs)),

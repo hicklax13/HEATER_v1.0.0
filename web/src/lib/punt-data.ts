@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import { apiGet } from "@/lib/api/client";
 import { apiPuntToData } from "@/lib/api/adapters";
 import { liveOrMock } from "@/lib/api/live";
@@ -78,7 +79,7 @@ export const PUNT: PuntData = {
 export async function fetchPunt(delayMs = 600): Promise<PuntData> {
   return liveOrMock(
     async () => {
-      const api = await apiGet<ApiPuntResponse>("/punt", { team_name: "Team Hickey" });
+      const api = await apiGet<ApiPuntResponse>("/punt", { team_name: getViewerTeam() });
       return (api.categories?.length ?? 0) > 0 ? apiPuntToData(api) : PUNT;
     },
     () => new Promise<PuntData>((resolve) => setTimeout(() => resolve(PUNT), delayMs)),

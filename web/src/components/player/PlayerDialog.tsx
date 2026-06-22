@@ -1,12 +1,20 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import { X, Star, Minus, ArrowLeftRight, Layers, Plus, Trophy } from "lucide-react";
 import type { PlayerRef } from "@/lib/types";
 import { MLB } from "@/lib/tokens";
 import { teamBrand } from "@/lib/teams";
-import { getPlayerDetail, type HistoryEvent } from "@/lib/player-detail";
+import {
+  getPlayerDetail,
+  fetchPlayerDetail,
+  skeletonDetail,
+  type HistoryEvent,
+  type PlayerDetail,
+} from "@/lib/player-detail";
+import { isLive } from "@/lib/api/live";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,14 +33,31 @@ const TABS = [
 
 /* eslint-disable @next/next/no-img-element -- remote MLB CDN headshots/logos */
 export function PlayerDialog({ player, children }: { player: DialogPlayer; children: React.ReactNode }) {
-  const d = getPlayerDetail(player);
+  // Fetch the REAL card only when the dialog OPENS (it's mounted for every player
+  // link — fetching on mount would fire N requests per page). Until then (and on a
+  // live error) we show the skeleton: real identity + empty "—" stats, never
+  // fabricated numbers. Off-live, the mock is the intended demo behavior.
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<PlayerDetail | null>(null);
+  const fallback = useMemo(() => (isLive() ? skeletonDetail(player) : getPlayerDetail(player)), [player]);
+  useEffect(() => {
+    if (!open || loaded) return;
+    let active = true;
+    fetchPlayerDetail(player)
+      .then((r) => active && setLoaded(r))
+      .catch(() => {}); // keep the skeleton/mock fallback on a live error
+    return () => {
+      active = false;
+    };
+  }, [open, loaded, player]);
+  const d = loaded ?? fallback;
   const tb = teamBrand(d.teamId);
 
   // Rich team-colored fill: lightened edge → primary → deepened primary (reads on bright AND dark teams).
   const headerBg = `linear-gradient(105deg, color-mix(in srgb, ${tb.primary} 88%, white) 0%, ${tb.primary} 56%, color-mix(in srgb, ${tb.primary} 72%, black) 122%)`;
 
   return (
-    <Dialog.Root>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>{children}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-navy-deep/60 backdrop-blur-sm" />

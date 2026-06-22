@@ -1,3 +1,4 @@
+import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
 import { apiPost } from "@/lib/api/client";
 import { apiOptimizeToData } from "@/lib/api/adapters";
@@ -11,7 +12,6 @@ import type { ApiLineupOptimizeResponse } from "@/lib/api/types";
  * returns empty in local dev (→ the page's empty-state) and populates on Railway;
  * off-live falls back to the mock below. The mock shape is the contract.
  */
-const VIEWER_TEAM = "Team Hickey";
 export type SlotStatus = "start" | "sit" | "bench" | "off";
 
 export interface LineupSlot {
@@ -127,7 +127,7 @@ export async function fetchOptimizer(): Promise<OptimizerData | null> {
   return liveOrMock(
     async () => {
       const api = await apiPost<ApiLineupOptimizeResponse>("/lineup/optimize", {
-        team_name: VIEWER_TEAM,
+        team_name: getViewerTeam(),
         mode: "daily",
       });
       const data = apiOptimizeToData(api);

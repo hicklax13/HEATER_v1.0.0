@@ -1,5 +1,10 @@
 import type { PlayerRef } from "./types";
 import { teamBrand } from "./teams";
+import { apiGet } from "./api/client";
+import { liveOrMock } from "./api/live";
+import type { ApiPlayerDetailResponse } from "./api/types";
+
+type PlayerDialogRef = PlayerRef & { ownPct?: number; ownDelta?: number; rosteredBy?: string };
 
 /* ---------- types ---------- */
 export interface GameRow {
@@ -248,6 +253,75 @@ function fallback(m: PlayerRef): Base {
     y2025Rank: 120, y2024Rank: 120,
     history: [{ kind: "added", date: "—", text: "On your roster", member: "Team Hickey" }],
   };
+}
+
+/* ---------- live API wiring (slice 1: real DB-backed data) ---------- */
+
+/** Map the API response (snake_case) → the PlayerDetail the card renders. */
+function adaptPlayerDetail(a: ApiPlayerDetailResponse): PlayerDetail {
+  const teamId = a.team_id ?? 0; // API team_id is nullable; the card wants a number
+  return {
+    mlbId: a.mlb_id,
+    teamId,
+    name: a.name,
+    pos: a.pos ?? "",
+    bats: a.bats ?? "",
+    jersey: a.jersey ?? "",
+    teamName: teamBrand(teamId).name, // display name (the API team_name is the abbr)
+    isPitcher: a.is_pitcher ?? false,
+    ownPct: a.own_pct ?? 0,
+    ownDelta: a.own_delta ?? 0,
+    rosteredBy: a.rostered_by ?? "",
+    headline: a.headline ?? [],
+    ranks: a.ranks ?? [],
+    gameColumns: a.game_columns ?? [],
+    gameLog: (a.game_log ?? []).map((g) => ({ ...g, upcoming: g.upcoming ?? false, line: g.line ?? [] })),
+    stats: a.stats ?? [],
+    prior: {
+      y2025Rank: a.prior?.y2025_rank ?? 0,
+      y2024Rank: a.prior?.y2024_rank ?? 0,
+      rows: a.prior?.rows ?? [],
+    },
+    projections: a.projections ?? [],
+    history: (a.history ?? []) as HistoryEvent[],
+  };
+}
+
+/** A loading/error placeholder: REAL identity (from the clicked ref) + empty
+ *  "—" stats — never fabricated numbers. Shown under live until the fetch lands. */
+export function skeletonDetail(m: PlayerDialogRef): PlayerDetail {
+  const isPitcher = /SP|RP|^P$/.test(m.pos || "");
+  const cats = isPitcher ? PIT : HIT;
+  return {
+    mlbId: m.mlbId,
+    teamId: m.teamId,
+    name: m.name,
+    pos: m.pos,
+    bats: "",
+    jersey: "",
+    teamName: teamBrand(m.teamId).name,
+    isPitcher,
+    ownPct: m.ownPct ?? 0,
+    ownDelta: m.ownDelta ?? 0,
+    rosteredBy: m.rosteredBy ?? "",
+    headline: [],
+    ranks: [],
+    gameColumns: isPitcher ? ["IP", "K", "ER", "W/L"] : ["AB", "H", "HR", "RBI"],
+    gameLog: [],
+    stats: cats.map((c) => ({ cat: c, season: "—", l30: "—", l14: "—", l7: "—", avg: "—", std: "—" })),
+    prior: { y2025Rank: 0, y2024Rank: 0, rows: cats.map((c) => ({ cat: c, y2025: "—", y2024: "—" })) },
+    projections: cats.map((c) => ({ cat: c, today: "—", n7: "—", n14: "—", n30: "—", ros: "—", avg: "—", std: "—" })),
+    history: [],
+  };
+}
+
+/** Live: fetch the real player card (gated by login; the dialog fetches on OPEN,
+ *  not on mount). Off-live (demo build): the mock. */
+export async function fetchPlayerDetail(m: PlayerDialogRef): Promise<PlayerDetail> {
+  return liveOrMock(
+    () => apiGet<ApiPlayerDetailResponse>(`/players/${m.mlbId}`).then(adaptPlayerDetail),
+    () => getPlayerDetail(m),
+  );
 }
 
 export function getPlayerDetail(
