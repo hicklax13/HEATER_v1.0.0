@@ -145,9 +145,11 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       e.preventDefault();
       e.stopPropagation();
       const raw = el.getAttribute("data-bubba-tag") ?? "";
-      const [name, mlbId] = raw.split("|");
+      const [namePart, mlbId] = raw.split("|");
+      const name = namePart?.trim() || el.textContent?.trim() || ""; // fall back to element text
+      if (!name) return; // nothing usable — don't add an empty chip
       const text = mlbId ? `Player: ${name} (mlbId ${mlbId})` : `Player: ${name}`;
-      setTags((t) => [...t, { id: crypto.randomUUID(), kind: "player", label: name || "player", text }]);
+      setTags((t) => [...t, { id: crypto.randomUUID(), kind: "player", label: name, text }]);
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
@@ -182,7 +184,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         filter: (n) => !(n instanceof HTMLElement && n.dataset?.bubbaPanel === "1"),
       });
       setShots((s) => [...s, { id: crypto.randomUUID(), dataUrl }]);
-    } catch {
+    } catch (err) {
+      // html-to-image throws on a tainted canvas (OOM, security). Log the cause
+      // (the file's discipline) — a bare message would hide a systemic failure.
+      console.error("Bubba snapPage failed", err);
       setSnapError("Couldn't snapshot the page.");
     }
   }, []);
@@ -442,6 +447,11 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               </button>
             </div>
             {snapError && <p className="mb-1 text-[11px] text-ember">{snapError}</p>}
+            {shots.length > 0 && (
+              <p className="mb-1 text-[11px] text-ink-3">
+                Snapshot captures page text + charts; some photos may not render.
+              </p>
+            )}
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
