@@ -146,6 +146,38 @@ def test_send_threads_attached_text_into_user_turn(monkeypatch):
     assert user_turn["content"] == "[Context the user selected on the page]\nTrout .312\n\n[Question]\ngood?"
 
 
+def test_send_threads_image_attachment_as_multimodal(monkeypatch):
+    from types import SimpleNamespace
+
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _chat(**k):
+        captured.update(k)
+        return {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+
+    monkeypatch.setattr(cs.providers, "chat", _chat)
+    ChatService().send(
+        chat_user_id=1_000_000_001,
+        message="what's wrong?",
+        model="gpt-5",
+        attachments=[SimpleNamespace(kind="image", data_url="data:image/png;base64,ZZZ")],
+    )
+    content = captured["messages"][-1]["content"]
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "what's wrong?"}
+    assert content[1]["image_url"]["url"] == "data:image/png;base64,ZZZ"
+
+
 def test_models_filters_to_available_providers(monkeypatch):
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
     monkeypatch.setattr(cs, "_list_admin_shared_providers", lambda: [])
