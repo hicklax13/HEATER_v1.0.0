@@ -1,0 +1,20 @@
+# HEATER — Railway config for the FastAPI API service (the React product's backend).
+#
+# Selected PER-SERVICE via the API service's "Config file path" setting
+# (railwayConfigFile = railway.api.toml). This lets the API service build
+# api/Dockerfile (dedicated scheduler -> uvicorn) while the Streamlit service keeps
+# using the root railway.toml (root Dockerfile). Both deploy from the same repo.
+#
+# Healthcheck is the API's /healthz (NOT Streamlit's /_stcore/health).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "api/Dockerfile"
+
+[deploy]
+startCommand = "sh start-api.sh"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+numReplicas = 1
