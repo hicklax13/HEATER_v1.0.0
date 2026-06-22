@@ -15,7 +15,7 @@ import { HeroNum } from "@/components/ui/HeroNum";
 import { COLORS, heatColor } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageNotLinked } from "@/components/ui/PageStates";
 
 type Filter = "all" | "hitters" | "pitchers" | "need";
 
@@ -27,6 +27,7 @@ export default function PlayersPage() {
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
         {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "unlinked" && <PageNotLinked />}
         {state.status === "empty" && (
           <PageEmpty
             icon={Search}

@@ -9,7 +9,7 @@ import { usePageData } from "@/lib/use-page-data";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageNotLinked } from "@/components/ui/PageStates";
 import { PuntVerdictTable } from "@/components/punt/PuntVerdictTable";
 
 export default function PuntPage() {
@@ -19,6 +19,7 @@ export default function PuntPage() {
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
         {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "unlinked" && <PageNotLinked />}
         {state.status === "empty" && (
           <PageEmpty icon={Target} title="No punt analysis yet" body="Punt detection needs your league standings — syncs from Yahoo." />
         )}

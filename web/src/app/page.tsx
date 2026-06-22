@@ -8,7 +8,7 @@ import type { MyTeamData } from "@/lib/types";
 import { EASE_SNAP } from "@/lib/motion";
 import { heatColor } from "@/lib/tokens";
 import { usePageData } from "@/lib/use-page-data";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageNotLinked } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 import { Footer } from "@/components/chrome/Footer";
 import { WinHero } from "@/components/myteam/WinHero";
@@ -43,6 +43,7 @@ export default function MyTeamPage() {
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
         {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "unlinked" && <PageNotLinked />}
         {state.status === "empty" && (
           <PageEmpty
             icon={Inbox}

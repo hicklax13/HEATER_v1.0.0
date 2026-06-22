@@ -21,7 +21,7 @@ import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { cn } from "@/lib/utils";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { usePageData } from "@/lib/use-page-data";
-import { PageError, PageEmpty } from "@/components/ui/PageStates";
+import { PageError, PageEmpty, PageNotLinked } from "@/components/ui/PageStates";
 
 export default function MatchupPage() {
   const { state, retry } = usePageData(fetchMatchup);
@@ -31,6 +31,7 @@ export default function MatchupPage() {
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
         {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "unlinked" && <PageNotLinked />}
         {state.status === "empty" && (
           <PageEmpty
             icon={Trophy}

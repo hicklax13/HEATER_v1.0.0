@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { CloudOff, RefreshCw } from "lucide-react";
+import { CloudOff, RefreshCw, UserX } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PaywallGate } from "@/components/billing/PaywallGate";
@@ -52,5 +52,18 @@ export function PageEmpty({
     <Card className="mx-auto mt-10 max-w-md">
       <EmptyState icon={icon} title={title} body={body} />
     </Card>
+  );
+}
+
+/** Page-level "team not linked yet" (the `unlinked` PageState — a 409). An authed
+ *  viewer has no team assignment; personalized pages show this instead of another
+ *  team's data, while league-wide views keep working (HIGH-1). */
+export function PageNotLinked() {
+  return (
+    <PageEmpty
+      icon={UserX}
+      title="Your team isn't linked yet"
+      body="Your commissioner will assign your team shortly. League-wide views (Standings, Leaders, Players) work in the meantime."
+    />
   );
 }
