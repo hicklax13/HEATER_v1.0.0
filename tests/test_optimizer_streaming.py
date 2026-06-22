@@ -24,11 +24,13 @@ def test_get_present_nan_returns_default():
 
     assert _get({"era": float("nan")}, "era", 4.00) == 4.00
     assert _get({"whip": float("nan")}, "whip", 1.30) == 1.30
+    assert _get({"era": float("inf")}, "era", 4.00) == 4.00  # inf is garbage too
     # missing key still uses the default; a real value still passes through.
     assert _get({}, "era", 4.00) == 4.00
     assert _get({"era": 3.10}, "era", 4.00) == 3.10
-    # never returns NaN for a present-NaN value
+    # never returns NaN/inf for a present-NaN/inf value
     assert not math.isnan(_get({"k": float("nan")}, "k", 0.0))
+    assert math.isfinite(_get({"k": float("inf")}, "k", 0.0))
 
 
 def test_streaming_value_good_pitcher():

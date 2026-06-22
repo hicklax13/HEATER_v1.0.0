@@ -4,9 +4,12 @@ degrades to an empty team list rather than raising."""
 
 from __future__ import annotations
 
+import logging
 import math
 
 from api.contracts.standings import StandingsResponse, TeamStanding
+
+logger = logging.getLogger(__name__)
 
 # W-L-T can arrive two ways depending on how the standings were synced:
 #   • the dedicated ``league_records`` table (current sync / Railway), or
@@ -41,10 +44,14 @@ class StandingsService:
                 return StandingsResponse(teams=[])
             try:
                 records = load_league_records()
-            except Exception:
+            except Exception as exc:
+                # A genuine DB fault (locked / missing table) here is otherwise
+                # indistinguishable from an empty records table → W-L-T shows 0-0.
+                logger.warning("StandingsService: load_league_records failed; W-L-T will be 0-0: %s", exc)
                 records = pd.DataFrame()
             teams = self._build_teams(df, records)
-        except Exception:
+        except Exception as exc:
+            logger.warning("StandingsService.get_standings failed; returning empty standings: %s", exc)
             teams = []  # cold env / no data → empty list
         return StandingsResponse(teams=teams)
 

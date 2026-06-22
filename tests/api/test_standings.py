@@ -76,6 +76,29 @@ def test_build_teams_falls_back_to_wlt_categories_when_records_empty():
     assert "TIES" not in a.category_ranks
 
 
+def test_build_teams_per_category_rank_ties_share_min_rank():
+    """Two teams with the same category total share the better (min) rank, and the
+    next team skips the gap (standard competition ranking: 1,1,3). Verified on both
+    a normal cat (HR, desc) and an inverse cat (ERA, asc)."""
+    rows = [
+        {"team_name": "Team A", "category": "HR", "total": 100.0, "rank": 1},
+        {"team_name": "Team A", "category": "ERA", "total": 3.00, "rank": 1},
+        {"team_name": "Team B", "category": "HR", "total": 100.0, "rank": 2},  # tie A on HR
+        {"team_name": "Team B", "category": "ERA", "total": 4.00, "rank": 2},
+        {"team_name": "Team C", "category": "HR", "total": 60.0, "rank": 3},
+        {"team_name": "Team C", "category": "ERA", "total": 4.00, "rank": 3},  # tie B on ERA
+    ]
+    teams = StandingsService._build_teams(_standings_frame(rows), pd.DataFrame())
+    # HR: A=100, B=100 → both #1; C=60 → #3 (gap-skipped, not #2).
+    assert _team(teams, "Team A").category_ranks["HR"] == 1
+    assert _team(teams, "Team B").category_ranks["HR"] == 1
+    assert _team(teams, "Team C").category_ranks["HR"] == 3
+    # ERA (inverse): A=3.00 → #1; B=4.00, C=4.00 → both #2.
+    assert _team(teams, "Team A").category_ranks["ERA"] == 1
+    assert _team(teams, "Team B").category_ranks["ERA"] == 2
+    assert _team(teams, "Team C").category_ranks["ERA"] == 2
+
+
 def test_build_teams_records_overall_rank_drives_sort():
     """Overall rank comes from records when present; teams sort by it ascending."""
     records = pd.DataFrame(

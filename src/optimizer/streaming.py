@@ -111,7 +111,7 @@ def _get(obj: Any, key: str, default: float = 0.0) -> float:
         fval = float(val)
     except (TypeError, ValueError):
         return default
-    return default if math.isnan(fval) else fval
+    return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
 def _safe_denoms(sgp_denominators: dict[str, float] | None) -> dict[str, float]:

@@ -337,9 +337,10 @@ class TeamService:
             from src.database import load_league_records
 
             return load_league_records()
-        except Exception:
+        except Exception as exc:
             import pandas as pd
 
+            logger.warning("TeamService._load_records failed; record will show 0-0-0: %s", exc)
             return pd.DataFrame()
 
     @staticmethod
@@ -366,8 +367,8 @@ class TeamService:
                         ties = _opt_int(r.get("ties")) or 0
                         rank = _opt_int(r.get("rank")) or 0
                         return rank, f"{w}-{losses}-{ties}"
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("TeamService._rank_and_record: records path failed for %r: %s", team_name, exc)
 
         # 2. Standings WINS/LOSSES/TIES fallback.
         try:
@@ -385,8 +386,8 @@ class TeamService:
                     return (_opt_int(cr["total"].iloc[0]) or 0) if not cr.empty else 0
 
                 return rank, f"{_cat_total('WINS')}-{_cat_total('LOSSES')}-{_cat_total('TIES')}"
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("TeamService._rank_and_record: standings fallback failed for %r: %s", team_name, exc)
 
         return 0, "0-0-0"
 
