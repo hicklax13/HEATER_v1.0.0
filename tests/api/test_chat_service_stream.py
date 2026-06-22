@@ -21,7 +21,7 @@ def _happy_path(monkeypatch, on_record=None):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
     monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 77)
@@ -64,7 +64,7 @@ def test_send_stream_over_cap_yields_error_frame(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-shared")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [])  # no own key -> shared -> capped
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: True)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: True)
     frames = _frames(ChatService().send_stream(chat_user_id=1_000_000_001, message="hi", model="gpt-5"))
     assert frames[0]["type"] == "error" and "limit" in frames[0]["message"].lower()
 
