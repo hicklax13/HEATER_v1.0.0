@@ -6,12 +6,17 @@ STRIPE_SECRET_KEY is set it enforces a verified Clerk caller (401) who is Pro (4
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Depends, Header, HTTPException, status
 
 from api.auth import AuthVerifier, get_auth_verifier
 from api.billing_config import billing_env_configured
 from api.deps import get_subscription_store
+from api.services.ai_allowance import managed_cap_for_tier
 from api.stores.subscription_store import SubscriptionStore
+
+logger = logging.getLogger(__name__)
 
 
 def stripe_enabled() -> bool:
@@ -42,3 +47,28 @@ def require_pro(
     sub = store.get(principal.clerk_user_id)
     if (sub.tier if sub else "free") != "pro":
         raise _payment_required()
+
+
+def get_managed_ai_cap(
+    authorization: str | None = Header(default=None),
+    verifier: AuthVerifier = Depends(get_auth_verifier),
+    store: SubscriptionStore = Depends(get_subscription_store),
+) -> float | None:
+    """The caller's DAILY managed-AI cap (shared-key spend), or None while billing
+    is dormant -> budget.is_over_cap falls back to the admin cap (today's behavior).
+    Never raises: an unverifiable caller / store error -> None (safe admin-cap
+    fallback; the chat route's own require_app_user owns the 401)."""
+    if not stripe_enabled():
+        return None
+    try:
+        clerk = verifier.verify(authorization).clerk_user_id
+    except Exception:
+        return None  # unauthenticated/invalid — the route 401s independently
+    if not clerk:
+        return managed_cap_for_tier("free")
+    try:
+        sub = store.get(clerk)
+    except Exception:
+        logger.warning("get_managed_ai_cap subscription read failed", exc_info=True)
+        return None
+    return managed_cap_for_tier(sub.tier if sub else "free")
