@@ -159,7 +159,8 @@ class StreamingService:
                 full_board = build_stream_board(ctx, target_date, include_rostered=True)
                 if full_board is not None and not full_board.empty:
                     probables = [_to_probable(row) for _, row in full_board.iterrows()]
-            except Exception:
+            except Exception as exc:
+                logger.warning("StreamingService.get_streaming probables build failed: %s", exc)
                 probables = []
         except Exception as exc:
             logger.warning("StreamingService.get_streaming failed: %s", exc)

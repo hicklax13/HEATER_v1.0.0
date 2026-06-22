@@ -24,8 +24,9 @@ class CloserService:
             player_pool = None
             try:
                 player_pool = load_player_pool()
-            except Exception:
-                pass  # pool unavailable — grid still works with defaults
+            except Exception as exc:
+                logger.debug("CloserService.get_closers: pool load failed: %s", exc)
+                # pool unavailable — grid still works with defaults
             grid = build_closer_grid(depth_data, player_pool=player_pool)
             for row in grid or []:
                 entries.append(self._to_entry(row, player_pool))

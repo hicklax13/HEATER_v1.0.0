@@ -394,7 +394,8 @@ class MatchupService:
                     a_score, b_score = self._pairing_scores(a, b, week)
                 out.append(LeagueMatchup(a=self._team_side(a, a_score), b=self._team_side(b, b_score)))
             return out
-        except Exception:
+        except Exception as exc:
+            logger.warning("MatchupService._league failed: %s", exc)
             return []
 
     def _pairing_scores(self, a: str, b: str, week: int) -> tuple[int, int]:
@@ -443,8 +444,8 @@ class MatchupService:
                 if not m.empty:
                     row = m.iloc[0]
                     record = _format_record(row.get("wins"), row.get("losses"), row.get("ties"), row.get("rank"))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("MatchupService._team_side failed: %s", exc)
         return TeamSide(name=team_name, manager=manager, record=record, score=int(score))
 
     @staticmethod

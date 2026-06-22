@@ -402,3 +402,241 @@ def test_keys_get_admin_shared_key_logs_decrypt_failure(monkeypatch, caplog):
 
     assert result is None
     assert any("get_admin_shared_key" in r.message and "decrypt" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# DraftService — simulate_picks FIRST catch (invalid state path)
+# ---------------------------------------------------------------------------
+
+
+def test_draft_service_simulate_picks_invalid_state_logs(monkeypatch, caplog):
+    """_rebuild_state raises inside simulate_picks FIRST catch → graceful return + WARNING.
+
+    The existing test_draft_service_simulate_picks_logs_on_failure only exercises
+    the SECOND catch (engine failure after _rebuild_state succeeds).  This test
+    forces the FIRST catch by monkeypatching _rebuild_state to raise.
+    """
+    from api.contracts.draft import DraftConfig, DraftSimulatePicksRequest
+    from api.services import draft_service
+
+    svc = draft_service.DraftService()
+    monkeypatch.setattr(draft_service.DraftService, "_rebuild_state", staticmethod(_raise))
+
+    req = DraftSimulatePicksRequest(
+        config=DraftConfig(num_teams=12, num_rounds=23, user_team_index=0),
+        pick_log=[],
+        seed=42,
+    )
+    with caplog.at_level(logging.WARNING):
+        out = svc.simulate_picks(req)
+
+    # Graceful shape — same as the "Invalid draft state." return
+    assert out.picks == []
+    assert "Invalid draft state" in out.summary
+    # The new WARNING must appear
+    assert any(
+        "DraftService" in r.message and "simulate_picks" in r.message and "invalid draft state" in r.message
+        for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
+# StreamingService — probables inner build failure
+# ---------------------------------------------------------------------------
+
+
+def test_streaming_service_probables_build_failure_logs(monkeypatch, caplog):
+    """Inner probables build_stream_board raises → probables=[] + WARNING logged."""
+    from api.services import streaming_service
+
+    svc = streaming_service.StreamingService()
+
+    # Build a fake context that passes the outer try block but fails the inner one.
+    class _FakeCtx:
+        adds_remaining_this_week = 10
+        category_gaps = {}
+
+    call_count = {"n": 0}
+
+    def _fake_board(ctx, date, include_rostered=False, **kw):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # First call (main board) → return empty frame so we don't need pandas
+            import pandas as pd
+
+            return pd.DataFrame()
+        # Second call (probables with include_rostered=True) → raise
+        raise RuntimeError("probables boom")
+
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context",
+        lambda **k: _FakeCtx(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.optimizer.stream_analyzer.build_stream_board",
+        _fake_board,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.game_day.get_target_game_date",
+        lambda: "2026-06-22",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.yahoo_data_service.get_yahoo_data_service",
+        lambda: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.valuation.LeagueConfig",
+        lambda: None,
+        raising=False,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        out = svc.get_streaming()
+
+    assert out.probables == []
+    assert any(
+        "StreamingService" in r.message and "probables" in r.message and "failed" in r.message for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
+# MatchupService — _league outer failure
+# ---------------------------------------------------------------------------
+
+
+def test_matchup_service_league_logs_on_failure(monkeypatch, caplog):
+    """_league outer except raises → returns [] AND logs a WARNING."""
+    from api.services import matchup_service
+
+    svc = matchup_service.MatchupService()
+    # Patch the schedule loader to raise inside _league
+    monkeypatch.setattr(
+        "src.database.load_league_schedule_full",
+        _raise,
+        raising=False,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = svc._league(team_name="Team Hickey", opponent="Opp", week=1, you_score=5, opp_score=4)
+
+    assert result == []
+    assert any(
+        "MatchupService" in r.message and "_league" in r.message and "failed" in r.message for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
+# MatchupService — _team_side failure
+# ---------------------------------------------------------------------------
+
+
+def test_matchup_service_team_side_logs_on_failure(monkeypatch, caplog):
+    """_team_side except pass raises → still returns TeamSide AND logs a WARNING."""
+    from api.services import matchup_service
+
+    # Patch get_connection to raise so the inner except is triggered
+    monkeypatch.setattr(
+        "src.database.get_connection",
+        _raise,
+        raising=False,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = matchup_service.MatchupService._team_side("Team Hickey", 5)
+
+    # Still returns a valid TeamSide with defaults for manager/record
+    assert result.name == "Team Hickey"
+    assert result.score == 5
+    assert result.manager == ""
+    assert any(
+        "MatchupService" in r.message and "_team_side" in r.message and "failed" in r.message for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
+# DraftService — grade failure
+# ---------------------------------------------------------------------------
+
+
+def test_draft_service_grade_logs_on_failure(monkeypatch, caplog):
+    """grade() except returns DraftGradeResponse() AND logs a WARNING."""
+    from api.contracts.draft import DraftConfig, DraftGradeRequest
+    from api.services import draft_service
+
+    svc = draft_service.DraftService()
+    # Force the inner pool load to raise to hit the except path
+    monkeypatch.setattr("src.database.load_player_pool", _raise, raising=False)
+    monkeypatch.setattr("src.valuation.LeagueConfig", _raise, raising=False)
+
+    req = DraftGradeRequest(
+        config=DraftConfig(num_teams=12, num_rounds=23, user_team_index=0),
+        pick_log=[],
+    )
+    with caplog.at_level(logging.WARNING):
+        out = svc.grade(req)
+
+    # Graceful empty grade
+    assert out.overall_grade == "N/A"
+    assert any("DraftService" in r.message and "grade" in r.message and "failed" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# CloserService — pool load DEBUG log
+# ---------------------------------------------------------------------------
+
+
+def test_closer_service_pool_load_failure_logs_debug(monkeypatch, caplog):
+    """Inner pool load raising → DEBUG line emitted; get_closers still returns entries."""
+    from api.services import closers_service
+
+    svc = closers_service.CloserService()
+
+    # Make the depth data succeed (return a valid list)
+    monkeypatch.setattr(
+        "src.closer_monitor.build_depth_data_from_db",
+        lambda: [
+            {
+                "team": "NYY",
+                "closer_name": "Closer A",
+                "setup_names": [],
+                "job_security": 0.8,
+                "security_color": "green",
+                "projected_sv": 20,
+                "era": 3.0,
+                "whip": 1.1,
+                "mlb_id": None,
+            }
+        ],
+        raising=False,
+    )
+    # Make the pool load raise (the non-fatal inner try)
+    monkeypatch.setattr("src.database.load_player_pool", _raise, raising=False)
+    # Make grid build succeed with no pool
+    monkeypatch.setattr(
+        "src.closer_monitor.build_closer_grid",
+        lambda depth_data, player_pool=None: depth_data,
+        raising=False,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        out = svc.get_closers()
+
+    # Grid still returns entries (pool miss is non-fatal)
+    assert len(out.entries) >= 1
+    # DEBUG line — not WARNING
+    assert any(
+        "CloserService" in r.message
+        and "pool" in r.message.lower()
+        and "failed" in r.message
+        and r.levelno == logging.DEBUG
+        for r in caplog.records
+    )
+    # Must NOT emit a WARNING for the pool miss (it's expected fallback)
+    assert not any(
+        "CloserService" in r.message and "pool" in r.message.lower() and r.levelno == logging.WARNING
+        for r in caplog.records
+    )

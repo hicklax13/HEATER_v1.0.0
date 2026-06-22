@@ -62,7 +62,8 @@ class DraftService:
     def simulate_picks(self, req: DraftSimulatePicksRequest, pool=None) -> DraftSimulatePicksResponse:
         try:
             ds = self._rebuild_state(req)
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.simulate_picks: invalid draft state: %s", exc)
             return DraftSimulatePicksResponse(clock=_ZERO_CLOCK, picks=[], summary="Invalid draft state.")
         try:
             import numpy as np
@@ -120,7 +121,8 @@ class DraftService:
             from src.draft_grader import grade_draft
 
             return self._to_grade_response(grade_draft(draft_picks, pool, cfg))
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.grade failed: %s", exc)
             return DraftGradeResponse()
 
     @staticmethod
