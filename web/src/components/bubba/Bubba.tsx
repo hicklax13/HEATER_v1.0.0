@@ -97,7 +97,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [images, setImages] = useState<
     { id: string; label: string; dataUrl: string; source: "snapshot" | "screen" | "file" }[]
   >([]);
-  const [docs, setDocs] = useState<{ id: string; label: string; text: string }[]>([]);
+  const [docs, setDocs] = useState<{ id: string; label: string; text: string; truncated: boolean }[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -226,12 +226,12 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           const dataUrl = await readImageFile(file);
           setImages((s) => [...s, { id: crypto.randomUUID(), label: file.name, dataUrl, source: "file" }]);
         } else if (file.type === "application/pdf") {
-          const text = await extractPdfText(file);
+          const { text, truncated } = await extractPdfText(file);
           if (!text) {
             setAttachError(`No readable text found in "${file.name}".`);
             continue;
           }
-          setDocs((s) => [...s, { id: crypto.randomUUID(), label: file.name, text }]);
+          setDocs((s) => [...s, { id: crypto.randomUUID(), label: file.name, text, truncated }]);
         } else {
           setAttachError(`"${file.name}" isn't a supported file type.`);
         }
@@ -481,7 +481,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                 {docs.map((d) => (
                   <TagChip
                     key={d.id}
-                    label={d.label}
+                    label={d.truncated ? `${d.label} · truncated` : d.label}
                     icon={<FileText className="size-3 shrink-0 text-heat" aria-hidden />}
                     onRemove={() => setDocs((x) => x.filter((y) => y.id !== d.id))}
                   />

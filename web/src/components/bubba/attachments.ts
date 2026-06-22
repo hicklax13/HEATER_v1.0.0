@@ -36,20 +36,29 @@ export async function captureScreen(): Promise<string> {
 
 const PDF_TEXT_CAP = 12000;
 
-/** Extract text from a PDF File in the browser (capped). Returns "" on no text. */
-export async function extractPdfText(file: File): Promise<string> {
+/** Extract text from a PDF File in the browser (capped). `text` is "" on no text;
+ *  `truncated` is true when pages were skipped or the text was sliced at the cap. */
+export async function extractPdfText(file: File): Promise<{ text: string; truncated: boolean }> {
   const pdfjs = await import("pdfjs-dist");
   // Worker: the bundler resolves the worker asset from the package via new URL().
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
   const data = new Uint8Array(await file.arrayBuffer());
   const doc = await pdfjs.getDocument({ data }).promise;
   let text = "";
+  let truncated = false;
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
     text += content.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
-    if (text.length >= PDF_TEXT_CAP) break;
+    if (text.length >= PDF_TEXT_CAP) {
+      truncated = p < doc.numPages; // pages remain = real loss
+      break;
+    }
   }
   text = text.trim();
-  return text.length > PDF_TEXT_CAP ? text.slice(0, PDF_TEXT_CAP) + "\n…(truncated)" : text;
+  if (text.length > PDF_TEXT_CAP) {
+    text = text.slice(0, PDF_TEXT_CAP) + "\n…(truncated)";
+    truncated = true;
+  }
+  return { text, truncated };
 }
