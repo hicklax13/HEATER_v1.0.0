@@ -1,8 +1,8 @@
 import type { PlayerRef } from "./types";
 import { apiPost } from "@/lib/api/client";
 import { apiOptimizeToData } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiLineupOptimizeResponse } from "@/lib/api/types";
-import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Optimizer data — today's recommended lineup for Team Hickey. With
@@ -119,19 +119,20 @@ export const OPTIMIZER: OptimizerData = {
   },
 };
 
+/** Live: POST /api/lineup/optimize (daily mode) → adapt. Live errors propagate
+ *  (HIGH-3) so usePageData reaches error/locked (402)/unlinked (409); an empty
+ *  lineup → null → page `empty`. Mock (off-live): the in-memory OPTIMIZER after a
+ *  simulated delay. */
 export async function fetchOptimizer(): Promise<OptimizerData | null> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiPost<ApiLineupOptimizeResponse>("/lineup/optimize", {
         team_name: VIEWER_TEAM,
         mode: "daily",
       });
       const data = apiOptimizeToData(api);
       return data.starters.length > 0 ? data : null; // null → empty-state
-    } catch (e) {
-      if (isPaywall(e)) throw e; // 402 → usePageData `locked` → paywall
-      return null;
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(OPTIMIZER), 400));
+    },
+    () => new Promise<OptimizerData>((resolve) => setTimeout(() => resolve(OPTIMIZER), 400)),
+  );
 }

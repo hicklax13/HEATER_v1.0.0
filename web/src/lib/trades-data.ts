@@ -1,9 +1,9 @@
 import type { PlayerRef } from "./types";
 import { apiGet, apiPost } from "@/lib/api/client";
 import { apiTradeFinderToData, apiTradeEvaluateToData } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiTradeFinderResponse, ApiTradeEvaluationResponse } from "@/lib/api/types";
 import type { PlayerPick } from "./player-search";
-import { isPaywall } from "@/lib/api/errors";
 
 /**
  * Trades data — the Finder tab's auto-suggested trades. Mock by default; live
@@ -132,23 +132,21 @@ export const TRADES: TradesData = {
   ],
 };
 
-/** Live: GET /api/trade-finder?team_name=… → adapt. Falls back to the mock on a
- *  throw or empty suggestions (roster-relative → empty locally, real on Railway).
- *  Mock: the in-memory TRADES after a simulated delay. */
+/** Live: GET /api/trade-finder?team_name=… → adapt. Live errors propagate
+ *  (HIGH-3) so usePageData reaches error/locked (402)/unlinked (409) — NEVER the
+ *  fabricated mock. Empty suggestions (roster-relative → empty locally, real on
+ *  Railway) still resolve to the showcase mock so the page demos. Mock (off-live):
+ *  the in-memory TRADES after a simulated delay. */
 export async function fetchTrades(delayMs = 600): Promise<TradesData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
-      const api = await apiGet<ApiTradeFinderResponse>("/trade-finder", {
-        team_name: "Team Hickey",
-        limit: 10,
-      });
-      if ((api.suggestions?.length ?? 0) > 0) return apiTradeFinderToData(api);
-    } catch (e) {
-      if (isPaywall(e)) throw e; // 402 → usePageData `locked` → paywall
-      // else fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(TRADES), delayMs));
+  const mock = () => new Promise<TradesData>((resolve) => setTimeout(() => resolve(TRADES), delayMs));
+  return liveOrMock(async () => {
+    const api = await apiGet<ApiTradeFinderResponse>("/trade-finder", {
+      team_name: "Team Hickey",
+      limit: 10,
+    });
+    // Real suggestions → adapt; empty (no error) → fall back to the demo mock.
+    return (api.suggestions?.length ?? 0) > 0 ? apiTradeFinderToData(api) : mock();
+  }, mock);
 }
 
 /* ── Build-a-trade evaluator ───────────────────────────────────────────── */
@@ -194,26 +192,22 @@ function mockEvaluate(giving: PlayerPick[], receiving: PlayerPick[]): TradeEval 
 
 /** Evaluate a proposed trade. Live: POST /api/trade/evaluate (receiving side is
  *  pool-backed → real locally; the giving side needs your roster → full on
- *  Railway). Off-live: a demo evaluation. Returns null until both sides have a
- *  player. */
+ *  Railway). Live errors PROPAGATE (HIGH-3) so BuildPanel can show locked (402) /
+ *  not-linked (409) / error instead of the fabricated demo grade. Off-live: a demo
+ *  evaluation. Returns null only when a side is empty (nothing to evaluate yet). */
 export async function evaluateTrade(
   giving: PlayerPick[],
   receiving: PlayerPick[],
 ): Promise<TradeEval | null> {
   if (giving.length === 0 || receiving.length === 0) return null;
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
-      const api = await apiPost<ApiTradeEvaluationResponse>("/trade/evaluate", {
+  return liveOrMock(
+    () =>
+      apiPost<ApiTradeEvaluationResponse>("/trade/evaluate", {
         team_name: "Team Hickey",
         giving_ids: giving.map((p) => p.id),
         receiving_ids: receiving.map((p) => p.id),
         enable_mc: false,
-      });
-      return apiTradeEvaluateToData(api);
-    } catch (e) {
-      if (isPaywall(e)) throw e; // 402 → BuildPanel paywall gate
-      return null;
-    }
-  }
-  return mockEvaluate(giving, receiving);
+      }).then(apiTradeEvaluateToData),
+    () => mockEvaluate(giving, receiving),
+  );
 }

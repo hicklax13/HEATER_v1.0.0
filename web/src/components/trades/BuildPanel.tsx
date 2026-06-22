@@ -7,8 +7,9 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { searchPlayers, type PlayerPick } from "@/lib/player-search";
 import { evaluateTrade, type TradeEval } from "@/lib/trades-data";
-import { isPaywall } from "@/lib/api/errors";
+import { isPaywall, isTeamNotLinked } from "@/lib/api/errors";
 import { PaywallGate } from "@/components/billing/PaywallGate";
+import { PageNotLinked } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,16 +24,22 @@ export function BuildPanel() {
   const [result, setResult] = useState<TradeEval | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [locked, setLocked] = useState(false); // 402 paywall on /api/trade/evaluate
+  // Live error from /api/trade/evaluate: "unlinked" = 409 (no team assigned),
+  // "error" = anything else. Never fall back to a fabricated grade (HIGH-1/3).
+  const [errored, setErrored] = useState<"unlinked" | "error" | null>(null);
 
-  const add = (side: "give" | "get", p: PlayerPick) => {
-    (side === "give" ? setGiving : setReceiving)((cur) => (cur.some((x) => x.id === p.id) ? cur : [...cur, p]));
+  const reset = () => {
     setResult(null);
     setLocked(false);
+    setErrored(null);
+  };
+  const add = (side: "give" | "get", p: PlayerPick) => {
+    (side === "give" ? setGiving : setReceiving)((cur) => (cur.some((x) => x.id === p.id) ? cur : [...cur, p]));
+    reset();
   };
   const remove = (side: "give" | "get", id: number) => {
     (side === "give" ? setGiving : setReceiving)((cur) => cur.filter((x) => x.id !== id));
-    setResult(null);
-    setLocked(false);
+    reset();
   };
 
   const ready = giving.length > 0 && receiving.length > 0;
@@ -42,10 +49,15 @@ export function BuildPanel() {
     if (!ready) return;
     setEvaluating(true);
     setLocked(false);
+    setErrored(null);
     evaluateTrade(giving, receiving)
       .then(setResult)
       .catch((e) => {
-        if (isPaywall(e)) setLocked(true); // signed-in Free user → paywall
+        if (isPaywall(e))
+          setLocked(true); // signed-in Free user → paywall
+        else if (isTeamNotLinked(e))
+          setErrored("unlinked"); // 409 → no team assigned yet
+        else setErrored("error"); // surface the failure, never a fake grade
       })
       .finally(() => setEvaluating(false));
   };
@@ -77,6 +89,12 @@ export function BuildPanel() {
         <Skeleton className="h-44 w-full rounded-2xl" />
       ) : locked ? (
         <PaywallGate feature="Trade evaluation" />
+      ) : errored === "unlinked" ? (
+        <PageNotLinked />
+      ) : errored === "error" ? (
+        <p className="text-center text-[13px] text-ember">
+          We couldn&apos;t evaluate that trade right now. Please try again.
+        </p>
       ) : result ? (
         <ResultCard result={result} />
       ) : (
