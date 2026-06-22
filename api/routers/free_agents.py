@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.free_agents import FreeAgentPoolResponse, FreeAgentsResponse
 from api.deps import get_fa_pool_service, get_fa_service
-from api.tenancy import ViewerContext, require_viewer_context
+from api.tenancy import ViewerContext, require_viewer_context, resolve_required_team
 
 router = APIRouter(prefix="/api", tags=["free-agents"])
 
@@ -18,7 +18,7 @@ def get_free_agents(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_fa_service),
 ) -> FreeAgentsResponse:
-    return service.get_free_agents(ctx.effective_team(team_name), limit)
+    return service.get_free_agents(resolve_required_team(ctx, team_name), limit)
 
 
 @router.get("/free-agents/pool", response_model=FreeAgentPoolResponse)
@@ -28,4 +28,4 @@ def get_free_agents_pool(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_fa_pool_service),
 ) -> FreeAgentPoolResponse:
-    return service.get_free_agents_pool(ctx.effective_team(team_name), limit)
+    return service.get_free_agents_pool(resolve_required_team(ctx, team_name), limit)

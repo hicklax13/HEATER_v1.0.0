@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.matchup import MatchupResponse
 from api.deps import get_matchup_service
-from api.tenancy import ViewerContext, require_viewer_context
+from api.tenancy import ViewerContext, require_viewer_context, resolve_required_team
 
 router = APIRouter(prefix="/api", tags=["matchup"])
 
@@ -17,4 +17,4 @@ def get_matchup(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_matchup_service),
 ) -> MatchupResponse:
-    return service.get_matchup(ctx.effective_team(team_name))
+    return service.get_matchup(resolve_required_team(ctx, team_name))

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from api.contracts.punt import PuntResponse
 from api.deps import get_punt_service
-from api.tenancy import ViewerContext, require_viewer_context
+from api.tenancy import ViewerContext, require_viewer_context, resolve_required_team
 
 router = APIRouter(prefix="/api", tags=["punt"])
 
@@ -17,4 +17,4 @@ def get_punt(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_punt_service),
 ) -> PuntResponse:
-    return service.get_punt(ctx.effective_team(team_name))
+    return service.get_punt(resolve_required_team(ctx, team_name))

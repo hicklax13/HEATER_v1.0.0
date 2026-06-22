@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from api.contracts.trade import TradeEvaluateRequest, TradeEvaluationResponse
 from api.deps import get_trade_service
 from api.gating import require_pro
-from api.tenancy import ViewerContext, require_viewer_context
+from api.tenancy import ViewerContext, require_viewer_context, resolve_required_team
 
 router = APIRouter(prefix="/api", tags=["trade"])
 
@@ -29,4 +29,4 @@ def evaluate_trade_endpoint(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_trade_service),
 ) -> TradeEvaluationResponse:
-    return service.evaluate(ctx.effective_team(req.team_name), req.giving_ids, req.receiving_ids, req.enable_mc)
+    return service.evaluate(resolve_required_team(ctx, req.team_name), req.giving_ids, req.receiving_ids, req.enable_mc)
