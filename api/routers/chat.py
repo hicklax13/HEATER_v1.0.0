@@ -24,6 +24,7 @@ from api.gating import get_managed_ai_cap
 from api.identity import require_app_user
 from api.services.chat_service import ChatService, chat_user_id_for
 from api.stores.user_store import AppUser
+from api.tenancy import ViewerContext, require_viewer_context
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -40,6 +41,7 @@ def send(
     app_user: AppUser | None = Depends(require_app_user),
     svc: ChatService = Depends(get_chat_service),
     cap_usd: float | None = Depends(get_managed_ai_cap),
+    ctx: ViewerContext = Depends(require_viewer_context),
 ) -> ChatSendResponse:
     return ChatSendResponse(
         **svc.send(
@@ -53,6 +55,7 @@ def send(
             attached_text=body.attached_text,
             attachments=body.attachments,
             cap_usd=cap_usd,
+            viewer_team=ctx.effective_team(None),
         )
     )
 
@@ -63,6 +66,7 @@ def send_stream(
     app_user: AppUser | None = Depends(require_app_user),
     svc: ChatService = Depends(get_chat_service),
     cap_usd: float | None = Depends(get_managed_ai_cap),
+    ctx: ViewerContext = Depends(require_viewer_context),
 ) -> StreamingResponse:
     return StreamingResponse(
         svc.send_stream(
@@ -76,6 +80,7 @@ def send_stream(
             attached_text=body.attached_text,
             attachments=body.attachments,
             cap_usd=cap_usd,
+            viewer_team=ctx.effective_team(None),
         ),
         media_type="text/event-stream",
     )
