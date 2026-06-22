@@ -5893,7 +5893,7 @@
             }
           },
           {
-            "description": "Viewer's team \u2014 enables the 'yours' tag",
+            "description": "Fallback viewer team (used only when Clerk is off)",
             "in": "query",
             "name": "team_name",
             "required": false,
@@ -5906,8 +5906,24 @@
                   "type": "null"
                 }
               ],
-              "description": "Viewer's team \u2014 enables the 'yours' tag",
+              "description": "Fallback viewer team (used only when Clerk is off)",
               "title": "Team Name"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -5956,7 +5972,7 @@
             }
           },
           {
-            "description": "Viewer's team \u2014 enables the 'yours' tag",
+            "description": "Fallback viewer team (used only when Clerk is off)",
             "in": "query",
             "name": "team_name",
             "required": false,
@@ -5969,8 +5985,24 @@
                   "type": "null"
                 }
               ],
-              "description": "Viewer's team \u2014 enables the 'yours' tag",
+              "description": "Fallback viewer team (used only when Clerk is off)",
               "title": "Team Name"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],

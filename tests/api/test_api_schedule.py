@@ -105,3 +105,34 @@ def test_hitter_matchups_ok():
 def test_hitter_matchups_days_out_of_range_is_422():
     r = _client().get("/api/schedule/hitter-matchups", params={"days": 99})
     assert r.status_code == 422  # Query(ge=1, le=14)
+
+
+def test_probables_uses_viewer_context_team_over_client_param():
+    # The 'yours' tag must come from the resolved viewer (Clerk identity), NOT a
+    # client-supplied team_name a user could spoof — consistent with the 7 other
+    # personalized routers (ctx.effective_team).
+    from api.tenancy import ViewerContext, require_viewer_context
+
+    fake = _FakeScheduleService()
+    app = FastAPI()
+    app.include_router(schedule_router.router)
+    app.dependency_overrides[get_schedule_service] = lambda: fake
+    app.dependency_overrides[require_viewer_context] = lambda: ViewerContext(
+        user_id=1, league_id=1, team_name="Real Team"
+    )
+    TestClient(app).get("/api/schedule/probables", params={"days": 5, "team_name": "Spoofed"})
+    assert fake.seen["team_name"] == "Real Team"
+
+
+def test_hitter_matchups_uses_viewer_context_team_over_client_param():
+    from api.tenancy import ViewerContext, require_viewer_context
+
+    fake = _FakeScheduleService()
+    app = FastAPI()
+    app.include_router(schedule_router.router)
+    app.dependency_overrides[get_schedule_service] = lambda: fake
+    app.dependency_overrides[require_viewer_context] = lambda: ViewerContext(
+        user_id=1, league_id=1, team_name="Real Team"
+    )
+    TestClient(app).get("/api/schedule/hitter-matchups", params={"days": 3, "team_name": "Spoofed"})
+    assert fake.hitter_calls[-1] == (3, "Real Team")
