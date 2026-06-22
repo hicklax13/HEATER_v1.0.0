@@ -1,7 +1,8 @@
 """Tenancy helpers + resolver tests. This file covers the pure helpers and the
 ViewerContext resolver (incl. the dormant open-read fallback)."""
 
-from fastapi import Depends, FastAPI
+import pytest
+from fastapi import Depends, FastAPI, HTTPException
 from starlette.testclient import TestClient
 
 from api.auth import Principal, get_auth_verifier
@@ -10,10 +11,12 @@ from api.stores.league_store import InMemoryLeagueStore
 from api.stores.membership_store import InMemoryMembershipStore
 from api.stores.user_store import InMemoryUserStore
 from api.tenancy import (
+    TEAM_NOT_LINKED,
     ViewerContext,
     normalize_team_name,
     reconcile_team_name,
     require_viewer_context,
+    resolve_required_team,
 )
 
 
@@ -174,3 +177,20 @@ def test_clerk_configured_valid_token_still_resolves(monkeypatch):
     app.dependency_overrides[get_membership_store] = lambda: members
     body = TestClient(app).get("/probe?team_name=x", headers={"Authorization": "Bearer x"}).json()
     assert body["resolved"] == "Bronx Bombers"
+
+
+def test_resolve_required_team_raises_409_for_authed_unassigned():
+    with pytest.raises(HTTPException) as ei:
+        resolve_required_team(ViewerContext(user_id=1, league_id=1, team_name=None), "Team Hickey")
+    assert ei.value.status_code == 409
+    assert ei.value.detail == TEAM_NOT_LINKED
+
+
+def test_resolve_required_team_returns_assigned_team():
+    assert resolve_required_team(ViewerContext(user_id=1, team_name="Mine"), "x") == "Mine"
+
+
+def test_resolve_required_team_dormant_returns_fallback():
+    # Clerk off (no identity) → today's behavior preserved (incl. empty string).
+    assert resolve_required_team(ViewerContext(), "Team Hickey") == "Team Hickey"
+    assert resolve_required_team(ViewerContext(), "") == ""

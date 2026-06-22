@@ -22,6 +22,8 @@ from api.stores.league_store import LeagueStore
 from api.stores.membership_store import MembershipStore
 from api.stores.user_store import AppUser
 
+TEAM_NOT_LINKED = "team_not_linked"
+
 
 def normalize_team_name(name: object) -> str:
     """Lowercase + strip all non-alphanumerics (emoji/whitespace/punctuation) so a
@@ -69,6 +71,20 @@ class ViewerContext(BaseModel):
         if self.user_id is not None:
             return None
         return fallback
+
+
+def resolve_required_team(ctx: ViewerContext, fallback: str | None) -> str:
+    """Resolve the viewer's team for a TEAM-REQUIRED endpoint.
+
+    Raises HTTP 409 (detail=TEAM_NOT_LINKED) when an authenticated user has no
+    team assignment — so the frontend shows a friendly 'not linked yet' state
+    instead of another team's data. Dormant (Clerk off) and assigned paths return
+    the team string unchanged (today's behavior). effective_team returns None ONLY
+    for the authed-unassigned case, so `is None` is the precise trigger."""
+    team = ctx.effective_team(fallback)
+    if team is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=TEAM_NOT_LINKED)
+    return team
 
 
 def require_viewer_context(
