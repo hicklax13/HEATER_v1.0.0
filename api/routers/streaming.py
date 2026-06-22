@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from api.auth import require_login
 from api.contracts.streaming import StreamAnalyzeRequest, StreamAnalyzeResponse, StreamingResponse
 from api.deps import get_streaming_service
 
-router = APIRouter(prefix="/api", tags=["streaming"])
+router = APIRouter(prefix="/api", tags=["streaming"], dependencies=[Depends(require_login)])
 
 
 @router.get("/streaming", response_model=StreamingResponse)

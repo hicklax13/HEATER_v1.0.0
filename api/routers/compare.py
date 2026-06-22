@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from api.auth import require_login
 from api.contracts.compare import CompareResponse
 from api.deps import get_compare_service
 
-router = APIRouter(prefix="/api", tags=["compare"])
+router = APIRouter(prefix="/api", tags=["compare"], dependencies=[Depends(require_login)])
 
 
 @router.get("/compare", response_model=CompareResponse)

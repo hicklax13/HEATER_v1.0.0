@@ -17,7 +17,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from jwt import PyJWKClient, PyJWTError
 from jwt.exceptions import PyJWKClientError
 from pydantic import BaseModel
@@ -192,3 +192,28 @@ def require_principal(
     route's dependencies=[...] list. Returns the Principal so a future B4
     handler can inject it for tenant/team resolution."""
     return verifier.verify(authorization)
+
+
+def require_login(
+    request: Request,
+    verifier: AuthVerifier = Depends(get_auth_verifier),
+) -> None:
+    """Auth-only gate for league-wide PRIVATE reads (standings, league/rosters,
+    leaders, closers, compare, databank, streaming). These expose the league's
+    private data — full rosters, manager names, standings — so a logged-in user is
+    required once auth is live.
+
+    DORMANT until Clerk is configured: with ``CLERK_ISSUER`` unset the read stays
+    open (byte-for-byte today's behavior, and existing open-read tests are
+    unchanged). Once Clerk is live, a request with no/invalid bearer token is
+    rejected (401) — the same activation-flip predicate (``clerk_configured``) that
+    drives ``require_viewer_context`` on the personalized routers, so they can't
+    disagree.
+
+    Reads the header off ``request`` (NOT a declared ``Header`` param) so it adds
+    no Authorization parameter / 401 schema to ``api/openapi.json`` — the 401 is a
+    runtime signal the frontend already handles by status code, mirroring the
+    409/viewer-context gate."""
+    if not clerk_configured():
+        return
+    verifier.verify(request.headers.get("Authorization"))
