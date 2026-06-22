@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { isPaywall } from "@/lib/api/errors";
+import { isPaywall, isAuthRequired, isTeamNotLinked } from "@/lib/api/errors";
 
 /** Page-level async state. `loaded` carries the data; the others are terminal UI
  *  states. `locked` is the M2 paywall (fetcher threw an ApiError 402 — signed-in
- *  Free user); it never occurs while billing is dormant. */
+ *  Free user); it never occurs while billing is dormant. `unlinked` is the HIGH-1
+ *  409 (authenticated viewer with no team assignment yet). */
 export type PageState<T> =
   | { status: "loading" }
   | { status: "error" }
   | { status: "empty" }
   | { status: "locked" }
+  | { status: "unlinked" }
   | { status: "loaded"; data: T };
 
 type Forced = "loading" | "error" | "empty";
@@ -71,8 +73,19 @@ export function usePageData<T>(
         setState(data == null ? { status: "empty" } : { status: "loaded", data });
       })
       .catch((e) => {
-        // A 402 (Pro paywall) maps to `locked`; everything else is generic `error`.
-        if (alive) setState(isPaywall(e) ? { status: "locked" } : { status: "error" });
+        if (!alive) return;
+        // 401 (signed out, gate live) → route to Clerk sign-in. retry() won't help.
+        if (isAuthRequired(e)) {
+          if (typeof window !== "undefined") window.location.assign("/sign-in");
+          return;
+        }
+        // 409 → the viewer has no team assigned yet (HIGH-1).
+        if (isTeamNotLinked(e)) {
+          setState({ status: "unlinked" });
+          return;
+        }
+        // 402 (Pro paywall) → locked; anything else → generic error.
+        setState(isPaywall(e) ? { status: "locked" } : { status: "error" });
       });
 
     return () => {
