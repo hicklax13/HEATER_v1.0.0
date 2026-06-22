@@ -513,6 +513,9 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
                 }}
               />
             )}
+            {queue.length > 0 && !sending && messages[messages.length - 1]?.isError && (
+              <p className="mb-1 text-[11px] text-ember">Queue paused after an error — send a message to resume.</p>
+            )}
             {queue.length > 0 && (
               <div className="mb-2 space-y-1">
                 {queue.map((q) => (
@@ -868,6 +871,7 @@ function PromptsMenu({ currentInput, onPick }: { currentInput: string; onPick: (
   const [prompts, setPrompts] = useState<SavedPrompt[]>([]);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
 
   useEffect(() => {
@@ -889,19 +893,32 @@ function PromptsMenu({ currentInput, onPick }: { currentInput: string; onPick: (
     const n = name.trim();
     if (!n || !currentInput.trim() || busy) return;
     setBusy(true);
+    setErr(null);
     try {
-      await bubba.savePrompt({ name: n, text: currentInput.trim() });
+      // The backend returns {ok,message} (HTTP 200 even on a validation/store
+      // failure) — surface it rather than letting a failed save look like success.
+      const r = await bubba.savePrompt({ name: n, text: currentInput.trim() });
+      if (!r.ok) {
+        setErr(r.message || "Couldn't save prompt.");
+        return;
+      }
       setName("");
       setEpoch((e) => e + 1);
     } catch {
-      // graceful: leave the list as-is
+      setErr("Couldn't save prompt — check your connection.");
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (id: number) => {
-    await bubba.deletePrompt(id).catch(() => undefined);
+    setErr(null);
+    try {
+      const r = await bubba.deletePrompt(id);
+      if (!r.ok) setErr(r.message || "Couldn't delete prompt.");
+    } catch {
+      setErr("Couldn't delete prompt — check your connection.");
+    }
     setEpoch((e) => e + 1);
   };
 
@@ -911,6 +928,7 @@ function PromptsMenu({ currentInput, onPick }: { currentInput: string; onPick: (
         <BookMarked className="size-3.5" aria-hidden /> Saved prompts
       </div>
       {prompts.length === 0 && <p className="text-[11px] text-ink-3">No saved prompts yet.</p>}
+      {err && <p className="text-[11px] text-ember">{err}</p>}
       {prompts.map((p) => (
         <div key={p.id} className="flex items-center gap-1 text-[11px] text-ink">
           <button
