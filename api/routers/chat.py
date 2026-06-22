@@ -20,6 +20,7 @@ from api.contracts.chat import (
     StoreKeyRequest,
 )
 from api.deps import get_chat_service
+from api.gating import get_managed_ai_cap
 from api.identity import require_app_user
 from api.services.chat_service import ChatService, chat_user_id_for
 from api.stores.user_store import AppUser
@@ -38,6 +39,7 @@ def send(
     body: ChatSendRequest,
     app_user: AppUser | None = Depends(require_app_user),
     svc: ChatService = Depends(get_chat_service),
+    cap_usd: float | None = Depends(get_managed_ai_cap),
 ) -> ChatSendResponse:
     return ChatSendResponse(
         **svc.send(
@@ -50,6 +52,7 @@ def send(
             reasoning_effort=body.reasoning_effort,
             attached_text=body.attached_text,
             attachments=body.attachments,
+            cap_usd=cap_usd,
         )
     )
 
@@ -59,6 +62,7 @@ def send_stream(
     body: ChatSendRequest,
     app_user: AppUser | None = Depends(require_app_user),
     svc: ChatService = Depends(get_chat_service),
+    cap_usd: float | None = Depends(get_managed_ai_cap),
 ) -> StreamingResponse:
     return StreamingResponse(
         svc.send_stream(
@@ -71,6 +75,7 @@ def send_stream(
             reasoning_effort=body.reasoning_effort,
             attached_text=body.attached_text,
             attachments=body.attachments,
+            cap_usd=cap_usd,
         ),
         media_type="text/event-stream",
     )

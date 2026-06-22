@@ -16,7 +16,7 @@ def test_send_records_usage_and_appends_history(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda cid, user_id=None: [])
     monkeypatch.setattr(cs.history, "create_conversation", lambda uid, title, model=None: 42)
@@ -50,7 +50,7 @@ def test_send_over_cap_returns_structured_error(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-shared")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [])  # no own key -> shared -> capped
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: True)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: True)
     out = ChatService().send(chat_user_id=1_000_000_001, message="hi", model="gpt-5")
     assert out["error"] and "limit" in out["error"].lower() and out["content"] == ""
 
@@ -59,7 +59,7 @@ def test_send_provider_error_is_graceful(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
 
@@ -78,7 +78,7 @@ def test_send_persist_failure_returns_answer_and_still_meters(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
     monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
@@ -105,7 +105,7 @@ def test_send_threads_reasoning_effort_into_providers(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
     monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
@@ -127,7 +127,7 @@ def test_send_threads_attached_text_into_user_turn(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
     monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
@@ -153,7 +153,7 @@ def test_send_threads_image_attachment_as_multimodal(monkeypatch):
     monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
     monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
     monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
-    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False: False)
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
     monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
     monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
     monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
@@ -215,3 +215,30 @@ def test_saved_prompts_read_degrades_on_store_error():
 
     svc = ChatService(prompt_store=_Boom())
     assert svc.saved_prompts(1) == []  # never raises
+
+
+def test_send_stream_over_cap_emits_over_cap_code(monkeypatch):
+    import json
+
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-shared")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [])  # no own key -> managed
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: True)
+    frames = list(ChatService().send_stream(chat_user_id=1_000_000_001, message="hi", model="gpt-5", cap_usd=0.10))
+    first = json.loads(frames[0][len("data: ") : -2])
+    assert first["type"] == "error" and first["code"] == "over_cap"
+
+
+def test_send_stream_threads_cap_usd_into_budget(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-shared")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [])
+
+    def _over(uid, on_own_key=False, cap_usd=None):
+        captured["cap_usd"] = cap_usd
+        return True  # short-circuit (over cap) so we don't need a fake provider
+
+    monkeypatch.setattr(cs.budget, "is_over_cap", _over)
+    list(ChatService().send_stream(chat_user_id=1, message="hi", model="gpt-5", cap_usd=0.42))
+    assert captured["cap_usd"] == 0.42

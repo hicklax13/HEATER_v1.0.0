@@ -79,6 +79,7 @@ class ChatService:
         reasoning_effort: str | None = None,
         attached_text: str | None = None,
         attachments: list | None = None,
+        cap_usd: float | None = None,
         page: str | None = None,
         viewer_team: str | None = None,
     ) -> dict:
@@ -90,9 +91,9 @@ class ChatService:
             if not api_key:
                 return self._empty(f"No API key for {provider}. Add one in settings to chat.", conversation_id)
             on_own_key = any(k.get("provider") == provider for k in keys.list_keys(chat_user_id))
-            if budget.is_over_cap(chat_user_id, on_own_key=on_own_key):
+            if budget.is_over_cap(chat_user_id, on_own_key=on_own_key, cap_usd=cap_usd):
                 return self._empty(
-                    "You've reached today's usage limit. Add your own API key for unlimited use.",
+                    "You've hit today's AI limit. Upgrade for more, or add your own key for unlimited use.",
                     conversation_id,
                 )
 
@@ -168,6 +169,7 @@ class ChatService:
         reasoning_effort: str | None = None,
         attached_text: str | None = None,
         attachments: list | None = None,
+        cap_usd: float | None = None,
         page: str | None = None,
         viewer_team: str | None = None,
     ) -> Generator[str, None, None]:
@@ -188,11 +190,12 @@ class ChatService:
                 yield _sse({"type": "error", "message": f"No API key for {provider}. Add one in settings to chat."})
                 return
             on_own_key = any(k.get("provider") == provider for k in keys.list_keys(chat_user_id))
-            if budget.is_over_cap(chat_user_id, on_own_key=on_own_key):
+            if budget.is_over_cap(chat_user_id, on_own_key=on_own_key, cap_usd=cap_usd):
                 yield _sse(
                     {
                         "type": "error",
-                        "message": "You've reached today's usage limit. Add your own API key for unlimited use.",
+                        "code": "over_cap",
+                        "message": "You've hit today's AI limit. Upgrade for more, or add your own key for unlimited use.",
                     }
                 )
                 return

@@ -106,3 +106,25 @@ def test_conversations_models_keys():
     assert c.get("/api/chat/keys").json()["keys"][0]["provider"] == "openai"
     assert c.put("/api/chat/keys", json={"provider": "openai", "api_key": "sk"}).json()["ok"] is True
     assert c.request("DELETE", "/api/chat/keys", params={"provider": "openai"}).json()["ok"] is True
+
+
+def test_send_stream_receives_managed_cap_from_dep():
+    from api.gating import get_managed_ai_cap
+
+    captured = {}
+
+    class _CapFake(_FakeChatService):
+        def send_stream(self, **k):
+            captured.update(k)
+            yield (
+                'data: {"type": "done", "content": "", "conversation_id": 1, '
+                '"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "tool_trace": []}\n\n'
+            )
+
+    app = FastAPI()
+    app.include_router(chat_router.router)
+    app.dependency_overrides[get_chat_service] = lambda: _CapFake()
+    app.dependency_overrides[require_app_user] = lambda: _FakeUser()
+    app.dependency_overrides[get_managed_ai_cap] = lambda: 0.33
+    TestClient(app).post("/api/chat/send-stream", json={"message": "hi", "model": "gpt-5"})
+    assert captured.get("cap_usd") == 0.33
