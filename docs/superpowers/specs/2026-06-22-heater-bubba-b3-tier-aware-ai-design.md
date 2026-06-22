@@ -4,7 +4,7 @@
 **Lane:** CEO — full-stack (`api/` + `src/ai/` + `web/`).
 **Parent spec:** `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md` (Phase B3, monetization — a LEAN first cut).
 **Builds on:** M2 billing ([[project_m2_auth_billing]]) + the B1 AI budget cap. **Phase B2 (B2.1–B2.4) is complete.**
-**Status:** design — approved by owner 2026-06-22 ("Lean: tier-aware AI + upgrade nudge").
+**Status:** SHIPPED 2026-06-22 — built via plan `docs/superpowers/plans/2026-06-22-heater-bubba-b3-tier-aware-ai.md` (6 tasks / 2 slices; additive + DORMANT until billing is configured; both pr-review-toolkit reviewers ran — "no high-confidence issues" / "SOUND, zero CRITICAL/HIGH", applied LOW-1: documented the store-failure over-grant trade-off). Deferred (until Pro sells): Plus/Max tiers, a monthly free taste, admin-tunable per-tier caps.
 
 ## Scope
 
