@@ -4,7 +4,7 @@
 **Lane:** CEO — full-stack (`api/` + `src/ai/` + `web/`).
 **Parent spec:** `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md` (Phase B2, second wave).
 **Sibling:** `docs/superpowers/specs/2026-06-21-heater-bubba-b2-1-streaming-design.md` (B2.1, shipped).
-**Status:** design — approved by owner 2026-06-21 ("all of the above" scope).
+**Status:** SHIPPED 2026-06-21 — built via plan `docs/superpowers/plans/2026-06-21-heater-bubba-b2-2-select-to-tag.md` (6 tasks / 3 slices; both pr-review-toolkit reviewers ran, findings applied: snapshot-failure logging + cross-origin fidelity caveat + defensive tag parse). Deferred (LOW, documented): the transcript "+context note" was skipped to keep `send`/`send_stream` persistence consistent (bare message).
 
 ## Scope
 
