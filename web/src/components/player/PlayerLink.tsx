@@ -23,6 +23,7 @@ export function PlayerLink({
     <PlayerDialog player={player}>
       <button
         type="button"
+        data-bubba-tag={`${player.name}|${player.mlbId ?? ""}`}
         className={cn(
           "rounded text-left font-semibold text-navy underline-offset-2 transition-colors hover:text-heat hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-heat/50",
           className,

@@ -133,6 +133,25 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener("mouseup", onMouseUp);
   }, [selectMode]);
 
+  // Select-mode: clicking a player row/card (any element carrying data-bubba-tag)
+  // tags that player INSTEAD of opening its dialog. Capture phase + stopPropagation
+  // intercept the click before the PlayerDialog trigger sees it.
+  useEffect(() => {
+    if (!selectMode) return undefined;
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.("[data-bubba-tag]");
+      if (!el || panelRef.current?.contains(el)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const raw = el.getAttribute("data-bubba-tag") ?? "";
+      const [name, mlbId] = raw.split("|");
+      const text = mlbId ? `Player: ${name} (mlbId ${mlbId})` : `Player: ${name}`;
+      setTags((t) => [...t, { id: crypto.randomUUID(), kind: "player", label: name || "player", text }]);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [selectMode]);
+
   const selectConversation = useCallback(async (id: number) => {
     setConversationId(id);
     try {
