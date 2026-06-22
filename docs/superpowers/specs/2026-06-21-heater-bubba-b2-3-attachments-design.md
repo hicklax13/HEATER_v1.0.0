@@ -4,7 +4,7 @@
 **Lane:** CEO — full-stack (mostly `web/`; `api/` essentially unchanged).
 **Parent spec:** `docs/superpowers/specs/2026-06-20-heater-bubba-ai-assistant-design.md` (Phase B2, third wave).
 **Siblings:** B2.1 streaming (`...-b2-1-streaming-design.md`, shipped) + B2.2 tag-page-context (`...-b2-2-select-to-tag-design.md`, shipped).
-**Status:** design — approved by owner 2026-06-21 ("all three: image files + screen capture + PDFs/documents").
+**Status:** SHIPPED 2026-06-21 — built via plan `docs/superpowers/plans/2026-06-21-heater-bubba-b2-3-attachments.md` (4 tasks / 3 slices; frontend-only, no backend change; both pr-review-toolkit reviewers ran — "sound and ready" / "zero silent failures", applied LOW-1: PDF truncation now shown on the doc chip). `pdfjs-dist` 6.0.227 added; the `new URL(worker, import.meta.url)` pattern bundled cleanly in Next 16 (no `/public` fallback needed).
 
 ## Scope
 
