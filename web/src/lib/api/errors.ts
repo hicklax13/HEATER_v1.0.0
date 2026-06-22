@@ -21,3 +21,9 @@ export function isPaywall(e: unknown): e is ApiError {
 export function isAuthRequired(e: unknown): e is ApiError {
   return e instanceof ApiError && e.status === 401;
 }
+
+/** 409 — authenticated viewer has no team assignment yet (HIGH-1). The frontend
+ *  shows a friendly "team not linked" state. We only emit 409 for this case. */
+export function isTeamNotLinked(e: unknown): e is ApiError {
+  return e instanceof ApiError && e.status === 409;
+}
