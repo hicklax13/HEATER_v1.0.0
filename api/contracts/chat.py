@@ -23,13 +23,20 @@ class ChatSendRequest(BaseModel):
     attachments: list[ChatAttachment] | None = None
 
 
+class ToolTraceEntry(BaseModel):
+    """One tool call in the AI assistant's trace (name + args)."""
+
+    name: str = ""
+    args: dict = {}
+
+
 class ChatSendResponse(BaseModel):
     content: str
     conversation_id: int | None
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
-    tool_trace: list[dict] = []
+    tool_trace: list[ToolTraceEntry] = []
     error: str | None = None  # graceful provider/key/over-cap message; HTTP stays 200
 
 

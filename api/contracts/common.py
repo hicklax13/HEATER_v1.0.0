@@ -24,3 +24,11 @@ class StatItem(BaseModel):
 
     label: str
     value: str
+
+
+class Record(BaseModel):
+    """Structured win-loss-tie record (additive complement to the display string)."""
+
+    wins: int = 0
+    losses: int = 0
+    ties: int = 0

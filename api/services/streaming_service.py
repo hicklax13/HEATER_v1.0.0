@@ -22,6 +22,9 @@ from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
 
+_ALLOWED_STATUS = {"PROBABLE", "LOCKED", "FINAL", "OPEN"}
+_ALLOWED_CONF = {"HIGH", "MEDIUM", "LOW"}
+
 
 def _f(value, default: float = 0.0) -> float:
     """Finite-float coercion (None/NaN/inf/junk → default) — keeps NaN AND inf
@@ -61,7 +64,7 @@ def _build_budget(ctx) -> BudgetStrip:
     return BudgetStrip(
         adds_left=adds_left,
         adds_total=adds_total,
-        ip_pace=0.0,
+        ip_pace=None,
         ip_target=ip_target,
         cats_in_play=cats_in_play,
     )
@@ -188,6 +191,10 @@ class StreamingService:
             num_starts = int(g("num_starts", 1) or 1)
         except (TypeError, ValueError):
             num_starts = 1  # NaN/junk → default (int(nan) would raise)
+        raw_status = str(g("status", "") or "")
+        status = raw_status if raw_status in _ALLOWED_STATUS else ""
+        raw_conf = str(g("confidence", "") or "")
+        confidence = raw_conf if raw_conf in _ALLOWED_CONF else ""
         return StreamCandidate(
             player=make_player_ref(
                 id=pid_int,
@@ -200,8 +207,8 @@ class StreamingService:
             opponent=str(g("opponent", "") or ""),
             is_home=bool(g("is_home", False)),
             score=_f(g("stream_score")),
-            status=str(g("status", "") or ""),
-            confidence=str(g("confidence", "") or ""),
+            status=status,
+            confidence=confidence,
             actionable=bool(g("actionable", True)),
             num_starts=num_starts,
             net_sgp=_f(g("net_sgp")),

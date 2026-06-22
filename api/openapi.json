@@ -135,9 +135,15 @@
             "type": "array"
           },
           "ip_pace": {
-            "default": 0.0,
-            "title": "Ip Pace",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Pace"
           },
           "ip_target": {
             "default": 54.0,
@@ -453,8 +459,7 @@
           "tool_trace": {
             "default": [],
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ToolTraceEntry"
             },
             "title": "Tool Trace",
             "type": "array"
@@ -2065,7 +2070,7 @@
           },
           "stats": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StatItem"
             },
             "title": "Stats",
             "type": "array"
@@ -2099,6 +2104,11 @@
           },
           "win": {
             "default": "",
+            "enum": [
+              "",
+              "you",
+              "opp"
+            ],
             "title": "Win",
             "type": "string"
           },
@@ -2279,11 +2289,21 @@
           },
           "tag": {
             "default": "",
+            "enum": [
+              "hot",
+              "cold",
+              ""
+            ],
             "title": "Tag",
             "type": "string"
           },
           "trend": {
             "default": "flat",
+            "enum": [
+              "up",
+              "down",
+              "flat"
+            ],
             "title": "Trend",
             "type": "string"
           }
@@ -2475,6 +2495,11 @@
           },
           "status": {
             "default": "ok",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -2562,6 +2587,12 @@
           },
           "confidence": {
             "default": "",
+            "enum": [
+              "",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
             "title": "Confidence",
             "type": "string"
           },
@@ -2659,6 +2690,13 @@
           },
           "status": {
             "default": "",
+            "enum": [
+              "",
+              "PROBABLE",
+              "LOCKED",
+              "FINAL",
+              "OPEN"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -2832,6 +2870,16 @@
             "default": "",
             "title": "Projected Record",
             "type": "string"
+          },
+          "projected_record_wlt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Record"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "projected_wins": {
             "default": 0.0,
@@ -3117,6 +3165,28 @@
         "title": "PuntResponse",
         "type": "object"
       },
+      "Record": {
+        "description": "Structured win-loss-tie record (additive complement to the display string).",
+        "properties": {
+          "losses": {
+            "default": 0,
+            "title": "Losses",
+            "type": "integer"
+          },
+          "ties": {
+            "default": 0,
+            "title": "Ties",
+            "type": "integer"
+          },
+          "wins": {
+            "default": 0,
+            "title": "Wins",
+            "type": "integer"
+          }
+        },
+        "title": "Record",
+        "type": "object"
+      },
       "RosterRow": {
         "properties": {
           "opp": {
@@ -3221,14 +3291,14 @@
         "properties": {
           "opp": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StatItem"
             },
             "title": "Opp",
             "type": "array"
           },
           "you": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StatItem"
             },
             "title": "You",
             "type": "array"
@@ -3281,6 +3351,11 @@
           },
           "status": {
             "default": "info",
+            "enum": [
+              "ok",
+              "warn",
+              "info"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -3376,6 +3451,12 @@
           },
           "confidence": {
             "default": "",
+            "enum": [
+              "",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
             "title": "Confidence",
             "type": "string"
           },
@@ -3466,6 +3547,13 @@
           },
           "status": {
             "default": "",
+            "enum": [
+              "",
+              "PROBABLE",
+              "LOCKED",
+              "FINAL",
+              "OPEN"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -3646,6 +3734,16 @@
             "title": "Record",
             "type": "string"
           },
+          "record_wlt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Record"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "score": {
             "default": 0,
             "title": "Score",
@@ -3699,6 +3797,24 @@
           "team_name"
         ],
         "title": "TeamStanding",
+        "type": "object"
+      },
+      "ToolTraceEntry": {
+        "description": "One tool call in the AI assistant's trace (name + args).",
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Args",
+            "type": "object"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ToolTraceEntry",
         "type": "object"
       },
       "TradeEvaluateRequest": {

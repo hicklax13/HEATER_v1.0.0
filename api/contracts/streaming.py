@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from api.contracts.common import PlayerRef
@@ -24,8 +26,8 @@ class StreamCandidate(BaseModel):
     opponent: str = ""
     is_home: bool = False
     score: float = 0.0
-    status: str = ""  # raw engine value: "PROBABLE"/"LOCKED"/"FINAL"
-    confidence: str = ""  # raw engine value: "HIGH"/"MEDIUM"/"LOW"
+    status: Literal["", "PROBABLE", "LOCKED", "FINAL", "OPEN"] = ""
+    confidence: Literal["", "HIGH", "MEDIUM", "LOW"] = ""
     actionable: bool = True
     num_starts: int = 1
     net_sgp: float = 0.0
@@ -47,7 +49,7 @@ class StreamCandidate(BaseModel):
 class BudgetStrip(BaseModel):
     adds_left: int = 0
     adds_total: int = 10
-    ip_pace: float = 0.0  # DEFERRED — weekly IP pace plumbing is a follow-up
+    ip_pace: float | None = None  # DEFERRED — weekly IP pace plumbing is a follow-up
     ip_target: float = 54.0
     cats_in_play: list[str] = Field(default_factory=list)
 

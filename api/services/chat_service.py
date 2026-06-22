@@ -12,6 +12,7 @@ import json as _json
 import logging
 from collections.abc import Generator
 
+from api.contracts.chat import ToolTraceEntry
 from api.stores.prompt_store import PromptStore, SqlitePromptStore
 from src.ai import budget, history, keys, providers
 from src.ai.chat import build_system_prompt as _build_system_prompt
@@ -37,6 +38,23 @@ _log = logging.getLogger(__name__)
 def _sse(payload: dict) -> str:
     """Format one Server-Sent-Events frame."""
     return f"data: {_json.dumps(payload)}\n\n"
+
+
+def _wrap_tool_trace(raw: list) -> list[ToolTraceEntry]:
+    """Coerce the engine's raw tool_trace dicts → typed ToolTraceEntry objects.
+
+    Tolerant: each item that is already a ToolTraceEntry passes through; dicts
+    get name/args extracted (unknown keys silently dropped); anything else → empty entry.
+    """
+    out: list[ToolTraceEntry] = []
+    for item in raw or []:
+        if isinstance(item, ToolTraceEntry):
+            out.append(item)
+        elif isinstance(item, dict):
+            out.append(ToolTraceEntry(name=str(item.get("name", "")), args=item.get("args", {})))
+        else:
+            out.append(ToolTraceEntry())
+    return out
 
 
 def _build_user_content(message: str, attached_text: str | None, attachments: list | None):
@@ -154,7 +172,7 @@ class ChatService:
             "tokens_in": t_in,
             "tokens_out": t_out,
             "cost_usd": cost,
-            "tool_trace": result.get("tool_trace", []),
+            "tool_trace": _wrap_tool_trace(result.get("tool_trace", [])),
             "error": None,
         }
 
@@ -284,7 +302,7 @@ class ChatService:
             "tokens_in": 0,
             "tokens_out": 0,
             "cost_usd": 0.0,
-            "tool_trace": [],
+            "tool_trace": _wrap_tool_trace([]),
             "error": error,
         }
 

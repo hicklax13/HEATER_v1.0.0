@@ -92,7 +92,7 @@ def test_build_budget_from_ctx():
     assert b.adds_total == 10
     assert b.adds_left == 7
     assert b.ip_target == float(WEEKLY_TARGET)  # real constant (~53.85); not the 54.0 fallback
-    assert b.ip_pace == 0.0  # deferred
+    assert b.ip_pace is None  # deferred (None = not computed)
     # only contested (gap<=0) PITCHING cats; HR (hitting) excluded, ERA (gap>0) excluded
     assert set(b.cats_in_play) == {"K", "SV"}
 

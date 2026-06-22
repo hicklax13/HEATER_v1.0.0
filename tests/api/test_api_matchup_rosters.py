@@ -118,17 +118,32 @@ def _run_build(roster_df, pool_df=None):
 
 
 def test_fmt_hitter_stats():
+    from api.contracts.common import StatItem
+
     row = {"h": 120, "ab": 410, "r": 70, "hr": 24, "rbi": 80, "sb": 12, "avg": 0.293, "obp": 0.371}
-    assert _fmt_hitter_stats(row) == ["120/410", "70", "24", "80", "12", ".293", ".371"]
+    result = _fmt_hitter_stats(row)
+    assert isinstance(result[0], StatItem)
+    assert result[0].label == "H/AB"
+    assert result[0].value == "120/410"
+    # Spot-check a few values
+    values = [s.value for s in result]
+    assert values == ["120/410", "70", "24", "80", "12", ".293", ".371"]
 
 
 def test_fmt_pitcher_stats():
+    from api.contracts.common import StatItem
+
     row = {"ip": 180.0, "w": 14, "l": 7, "sv": 0, "k": 200, "era": 3.21, "whip": 1.05}
-    assert _fmt_pitcher_stats(row) == ["180.0", "14", "7", "0", "200", "3.21", "1.05"]
+    result = _fmt_pitcher_stats(row)
+    assert isinstance(result[0], StatItem)
+    assert result[0].label == "IP"
+    values = [s.value for s in result]
+    assert values == ["180.0", "14", "7", "0", "200", "3.21", "1.05"]
 
 
 def test_fmt_stats_nan_safe():
-    assert _fmt_hitter_stats({"h": float("nan"), "ab": None})[0] == "0/0"
+    result = _fmt_hitter_stats({"h": float("nan"), "ab": None})
+    assert result[0].value == "0/0"
 
 
 def test_game_state_maps_status():
@@ -182,7 +197,9 @@ def test_to_match_player_builds_ref_and_stats():
     assert mp.player.team_id == 147
     assert mp.pos == "OF"
     assert mp.state == "final"
-    assert mp.stats == ["120/410", "70", "24", "80", "12", ".293", ".371"]
+    # stats are now list[StatItem], not list[str]
+    assert [s.value for s in mp.stats] == ["120/410", "70", "24", "80", "12", ".293", ".371"]
+    assert mp.stats[0].label == "H/AB"
 
 
 def test_pair_rows_zips_sides_and_pads():
@@ -205,10 +222,12 @@ def test_pair_rows_zips_sides_and_pads():
 def test_matchup_endpoint_includes_roster_tables():
     from fastapi.testclient import TestClient
 
-    from api.contracts.common import PlayerRef
+    from api.contracts.common import PlayerRef, StatItem
     from api.contracts.matchup import MatchPlayer, MatchupResponse, RosterRow
     from api.deps import get_matchup_service
     from api.main import create_app
+
+    _HITTER_COLUMNS = ["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"]
 
     class _Fake:
         def get_matchup(self, team_name):
@@ -216,13 +235,16 @@ def test_matchup_endpoint_includes_roster_tables():
                 player=PlayerRef(id=1, mlb_id=592450, name="Judge", positions="OF", team_abbr="NYY", team_id=147),
                 pos="OF",
                 state="final",
-                stats=["1/4", "1", "0", "0", "0", ".250", ".300"],
+                stats=[
+                    StatItem(label=col, value=v)
+                    for col, v in zip(_HITTER_COLUMNS, ["1/4", "1", "0", "0", "0", ".250", ".300"])
+                ],
             )
             return MatchupResponse(
                 team_name=team_name,
                 opponent="Rivals",
                 week=7,
-                hitter_columns=["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"],
+                hitter_columns=_HITTER_COLUMNS,
                 pitcher_columns=["IP", "W", "L", "SV", "K", "ERA", "WHIP"],
                 date_tabs=["Live", "Totals"],
                 hitters=[RosterRow(slot="OF", you=mp, opp=None)],
@@ -234,7 +256,9 @@ def test_matchup_endpoint_includes_roster_tables():
         body = TestClient(app).get("/api/matchup?team_name=Team+Hickey").json()
         assert body["hitter_columns"][0] == "H/AB"
         assert body["hitters"][0]["you"]["player"]["mlb_id"] == 592450
-        assert body["hitters"][0]["you"]["stats"][0] == "1/4"
+        # stats are now list[{label, value}] dicts in JSON
+        assert body["hitters"][0]["you"]["stats"][0]["label"] == "H/AB"
+        assert body["hitters"][0]["you"]["stats"][0]["value"] == "1/4"
     finally:
         app.dependency_overrides.clear()
 

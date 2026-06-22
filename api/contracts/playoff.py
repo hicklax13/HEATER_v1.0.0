@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from api.contracts.common import Record
+
 
 class PlayoffTeam(BaseModel):
     team: str
     playoff_odds: float = 0.0  # 0-100 (P of finishing top-`playoff_spots`)
     projected_wins: float = 0.0  # mean projected final wins
-    projected_record: str = ""  # "W-L-T"
+    projected_record: str = ""  # "W-L-T" display string (kept for backward-compat)
+    projected_record_wlt: Record | None = None  # structured W-L-T (additive)
     current_wins: int = 0
     rank: int = 0  # projected finish, 1 = best playoff odds
     in_cut: bool = False  # projected inside the playoff cut
