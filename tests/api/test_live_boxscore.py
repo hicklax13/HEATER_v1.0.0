@@ -20,6 +20,8 @@ import pytest
 # via the boxscore parsers.
 # ---------------------------------------------------------------------------
 from api.services.live_boxscore import (
+    _HITTER_KEY,
+    _PITCHER_KEY,
     _avg,
     _f,
     _has_batting,
@@ -413,3 +415,88 @@ def test_fetch_live_player_lines_none_schedule(stub_game_day):
     reset_cache()
     result = fetch_live_player_lines(None, date_key="none", boxscore_fn=_fake_boxscore_fn)
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# TWP (two-way player / Ohtani-class) merge: same mlb_id appears as BOTH
+# batter and pitcher in the same game — both stat lines must survive on one
+# entry (no line is clobbered).
+# ---------------------------------------------------------------------------
+
+
+def _fake_boxscore_twp(game_id):
+    """Boxscore where mlb_id 660271 (Ohtani-class) is a batter on the home
+    side AND a pitcher on the away side (e.g. DH in one half-inning,
+    started on the mound — statsapi surfaces the player once per team-side
+    with all their stats; a real TWP day has batting stats on the batting
+    side and pitching stats on the pitching side).  We put them in *both*
+    home and away players dicts so the loop encounters the same pid twice."""
+    return {
+        "home": {
+            "players": {
+                "ID660271": {
+                    "person": {"id": 660271},
+                    "stats": {
+                        "batting": {
+                            "hits": 1,
+                            "atBats": 3,
+                            "runs": 1,
+                            "homeRuns": 1,
+                            "rbi": 2,
+                            "stolenBases": 0,
+                            "baseOnBalls": 0,
+                        },
+                        "pitching": {},  # no pitching on this side
+                    },
+                }
+            }
+        },
+        "away": {
+            "players": {
+                "ID660271": {
+                    "person": {"id": 660271},
+                    "stats": {
+                        "batting": {},  # no batting on this side
+                        "pitching": {
+                            "inningsPitched": "5.2",
+                            "earnedRuns": 1,
+                            "baseOnBalls": 2,
+                            "hits": 4,
+                            "strikeOuts": 9,
+                            "note": "(W, 3)",
+                        },
+                    },
+                }
+            }
+        },
+    }
+
+
+def test_fetch_live_player_lines_twp_both_lines_populated(stub_game_day):
+    """TWP merge: the single entry for Ohtani-class pid must carry BOTH the
+    hitter line (from the batting-side encounter) AND the pitcher line (from
+    the pitching-side encounter).  Neither key should be clobbered."""
+    reset_cache()
+    schedule = [{"game_id": 777, "status": "Final", "away_score": 2, "home_score": 5}]
+    result = fetch_live_player_lines(schedule, date_key="test-twp", boxscore_fn=_fake_boxscore_twp)
+
+    assert 660271 in result, "TWP pid must be present in result"
+    entry = result[660271]
+
+    # Exactly ONE entry for the pid (the merge worked — not two separate keys)
+    assert isinstance(entry, dict)
+
+    # Hitter line is populated (1/3, R=1, HR=1, RBI=2, SB=0, AVG=.333, OBP=.333)
+    hitter = entry[_HITTER_KEY]
+    assert hitter, "hitter line must not be empty for a TWP"
+    assert hitter[0] == "1/3", f"expected '1/3', got {hitter[0]}"
+    assert hitter[2] == "1", f"expected HR=1, got {hitter[2]}"  # HR
+
+    # Pitcher line is populated (5.2 IP, W, 9 K)
+    pitcher = entry[_PITCHER_KEY]
+    assert pitcher, "pitcher line must not be empty for a TWP"
+    assert pitcher[1] == "1", f"expected W=1, got {pitcher[1]}"  # W
+    assert pitcher[4] == "9", f"expected K=9, got {pitcher[4]}"  # K
+    # _pitcher_line formats IP as f"{ip:.1f}" where ip = _ip_outs_to_decimal("5.2")
+    # = 5 + 2/3 ≈ 5.6667 → formatted as "5.7"
+    assert pitcher[0] == "5.7", f"expected IP='5.7', got {pitcher[0]}"
