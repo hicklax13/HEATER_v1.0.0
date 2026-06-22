@@ -1,5 +1,6 @@
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
+import { liveOrMock } from "@/lib/api/live";
 
 /**
  * Hitter Matchup 7-day grid data. Mock by default; with NEXT_PUBLIC_HEATER_LIVE=1,
@@ -198,16 +199,15 @@ export const HITTER_MATCHUPS_MOCK: HitterMatchupsData = {
   ],
 };
 
-/** Mock by default; live (NEXT_PUBLIC_HEATER_LIVE=1) fetches the grid, falling
- *  back to the mock on any error or empty response. */
+/** Live: GET /api/schedule/hitter-matchups → adapt; live errors propagate (HIGH-3)
+ *  so usePageData reaches error/locked/unlinked. Mock (off-live, or live with an
+ *  empty grid): the in-memory HITTER_MATCHUPS_MOCK after a simulated delay. */
 export async function fetchHitterMatchups(delayMs = 500): Promise<HitterMatchupsData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiHitterGrid>("/schedule/hitter-matchups", { days: 7, team_name: "Team Hickey" });
-      if ((api.teams?.length ?? 0) > 0) return apiToData(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(HITTER_MATCHUPS_MOCK), delayMs));
+      return (api.teams?.length ?? 0) > 0 ? apiToData(api) : HITTER_MATCHUPS_MOCK;
+    },
+    () => new Promise<HitterMatchupsData>((resolve) => setTimeout(() => resolve(HITTER_MATCHUPS_MOCK), delayMs)),
+  );
 }

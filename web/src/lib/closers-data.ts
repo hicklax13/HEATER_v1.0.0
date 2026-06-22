@@ -1,6 +1,7 @@
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiClosersToData } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiClosersResponse } from "@/lib/api/types";
 import { securityFor } from "./closer-security";
 
@@ -76,14 +77,15 @@ export const CLOSERS: ClosersData = {
   ],
 };
 
+/** Live: GET /api/closers → adapt; live errors propagate (HIGH-3) so usePageData
+ *  reaches error/locked/unlinked. Mock (off-live, or live with no entries): the
+ *  in-memory CLOSERS after a simulated delay. */
 export async function fetchClosers(delayMs = 600): Promise<ClosersData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiClosersResponse>("/closers");
-      if (api.entries.length > 0) return apiClosersToData(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(CLOSERS), delayMs));
+      return api.entries.length > 0 ? apiClosersToData(api) : CLOSERS;
+    },
+    () => new Promise<ClosersData>((resolve) => setTimeout(() => resolve(CLOSERS), delayMs)),
+  );
 }

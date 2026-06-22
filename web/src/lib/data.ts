@@ -2,6 +2,7 @@ import type { MyTeamData } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiMyTeamToData } from "@/lib/api/adapters";
 import { setViewerTeam } from "@/lib/viewer-team";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiMyTeamResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 
 /**
@@ -101,21 +102,18 @@ export const MY_TEAM: MyTeamData = {
 // endpoint slices movers/lever/ops by team_name (like /api/matchup).
 const VIEWER_TEAM = "Team Hickey";
 
-/** Live: GET /api/me/team?team_name=… → adapt. Falls back to the mock on a throw
- *  or an unresolved team. Mock: the in-memory MY_TEAM after a simulated delay. */
+/** Live: GET /api/me/team?team_name=… → adapt; live errors propagate (HIGH-3) so
+ *  usePageData reaches error/locked/unlinked. Mock (off-live): the in-memory
+ *  MY_TEAM after a simulated delay. */
 export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiMyTeamResponse>("/me/team", { team_name: VIEWER_TEAM });
-      if (api.team_name) {
-        setViewerTeam(api.team_name); // cache the identity-resolved team for "you" markers app-wide
-        return apiMyTeamToData(api);
-      }
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(MY_TEAM), delayMs));
+      if (api.team_name) setViewerTeam(api.team_name); // cache the identity-resolved team for "you" markers app-wide
+      return apiMyTeamToData(api);
+    },
+    () => new Promise<MyTeamData>((resolve) => setTimeout(() => resolve(MY_TEAM), delayMs)),
+  );
 }
 
 /** Your forward playoff odds (0–100) for the Team header chip. Self-fetched so it

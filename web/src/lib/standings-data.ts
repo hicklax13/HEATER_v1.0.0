@@ -2,6 +2,7 @@ import { apiGet } from "@/lib/api/client";
 import { apiStandingsToData, applyPlayoffOdds } from "@/lib/api/adapters";
 import type { ApiStandingsResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 import { isPaywall } from "@/lib/api/errors";
+import { liveOrMock } from "@/lib/api/live";
 
 /**
  * Standings data. The standings table wires to GET /api/standings (Yahoo-
@@ -76,9 +77,14 @@ export const STANDINGS: StandingsData = {
   ],
 };
 
+/** Live: GET /api/standings (+ best-effort /playoff-odds). The OUTER /standings
+ *  error propagates under live (HIGH-3) → usePageData error/locked/unlinked; the
+ *  INNER /playoff-odds keeps its own 402→locked-panel handling (team-optional, so
+ *  an unassigned viewer still gets the table, just no `you` highlight). Mock
+ *  (off-live, or live with an empty standings): the in-memory STANDINGS. */
 export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       // Standings + playoff odds in parallel; the odds sim (~2.4s) is best-effort
       // — a failure leaves the table + panel without odds (graceful empty-state).
       const [stdg, oddsResult] = await Promise.all([
@@ -93,9 +99,9 @@ export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
         if (oddsResult.odds) data = applyPlayoffOdds(data, oddsResult.odds);
         return { ...data, playoffOddsLocked: oddsResult.locked };
       }
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(STANDINGS), delayMs));
+      // Empty standings (Yahoo not synced yet) → demo snapshot, not an error.
+      return STANDINGS;
+    },
+    () => new Promise<StandingsData>((resolve) => setTimeout(() => resolve(STANDINGS), delayMs)),
+  );
 }

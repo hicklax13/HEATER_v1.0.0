@@ -1,6 +1,7 @@
 import type { PlayerRef } from "./types";
 import { apiGet, apiPost } from "@/lib/api/client";
 import { apiStreamingToData, apiScorecard } from "@/lib/api/adapters";
+import { isLive, liveOrMock } from "@/lib/api/live";
 import type { ApiStreamingResponse, ApiStreamAnalyzeResponse } from "@/lib/api/types";
 
 /**
@@ -210,18 +211,17 @@ export function factorsFor(c: StreamCandidate): FactorDetail[] {
   }));
 }
 
-/** Mock by default; live (NEXT_PUBLIC_HEATER_LIVE=1) fetches the board, falling
- *  back to the mock on any error or empty response. */
+/** Live: GET /api/streaming → adapt; live errors propagate (HIGH-3) so usePageData
+ *  reaches error/locked/unlinked. Mock (off-live, or live with an empty board):
+ *  the in-memory STREAMING after a simulated delay. */
 export async function fetchStreaming(delayMs = 600): Promise<StreamingData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiStreamingResponse>("/streaming");
-      if ((api.candidates?.length ?? 0) > 0) return apiStreamingToData(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(STREAMING), delayMs));
+      return (api.candidates?.length ?? 0) > 0 ? apiStreamingToData(api) : STREAMING;
+    },
+    () => new Promise<StreamingData>((resolve) => setTimeout(() => resolve(STREAMING), delayMs)),
+  );
 }
 
 /** Synthesize a scorecard from the mock board / a deterministic pitcher hash. */

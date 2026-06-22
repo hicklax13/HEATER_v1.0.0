@@ -1,5 +1,6 @@
 import { apiGet } from "@/lib/api/client";
 import { apiPuntToData } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiPuntResponse } from "@/lib/api/types";
 
 /**
@@ -71,14 +72,15 @@ export const PUNT: PuntData = {
   ],
 };
 
+/** Live: GET /api/punt → adapt; live errors propagate (HIGH-3) so usePageData
+ *  reaches error/locked/unlinked. Mock (off-live, or live with no categories yet):
+ *  the in-memory PUNT after a simulated delay. */
 export async function fetchPunt(delayMs = 600): Promise<PuntData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       const api = await apiGet<ApiPuntResponse>("/punt", { team_name: "Team Hickey" });
-      if ((api.categories?.length ?? 0) > 0) return apiPuntToData(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(PUNT), delayMs));
+      return (api.categories?.length ?? 0) > 0 ? apiPuntToData(api) : PUNT;
+    },
+    () => new Promise<PuntData>((resolve) => setTimeout(() => resolve(PUNT), delayMs)),
+  );
 }

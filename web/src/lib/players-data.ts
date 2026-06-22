@@ -1,6 +1,7 @@
 import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiPoolToPlayers } from "@/lib/api/adapters";
+import { liveOrMock } from "@/lib/api/live";
 import type { ApiFreeAgentPoolResponse } from "@/lib/api/types";
 
 /**
@@ -72,18 +73,19 @@ export const PLAYERS: PlayersData = {
   ],
 };
 
+/** Live: GET /api/free-agents/pool → adapt; live errors propagate (HIGH-3) so
+ *  usePageData reaches error/locked/unlinked. Mock (off-live, or live with an
+ *  empty pool): the in-memory PLAYERS after a simulated delay. */
 export async function fetchPlayers(delayMs = 600): Promise<PlayersData> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
+  return liveOrMock(
+    async () => {
       // Single-league context: the user's team is fixed until multi-tenancy (M4).
       const api = await apiGet<ApiFreeAgentPoolResponse>("/free-agents/pool", {
         team_name: "Team Hickey",
         limit: 50,
       });
-      if (api.free_agents.length > 0) return apiPoolToPlayers(api);
-    } catch {
-      // fall through to mock
-    }
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(PLAYERS), delayMs));
+      return api.free_agents.length > 0 ? apiPoolToPlayers(api) : PLAYERS;
+    },
+    () => new Promise<PlayersData>((resolve) => setTimeout(() => resolve(PLAYERS), delayMs)),
+  );
 }

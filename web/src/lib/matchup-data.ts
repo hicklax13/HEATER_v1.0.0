@@ -8,6 +8,7 @@
  */
 import { apiGet } from "@/lib/api/client";
 import { apiMatchupToData } from "@/lib/api/adapters";
+import { liveOrMock, withTimeout } from "@/lib/api/live";
 import type { ApiMatchupResponse } from "@/lib/api/types";
 
 export type GameState = "final" | "live" | "sched" | "none";
@@ -215,7 +216,6 @@ export const MATCHUP: MatchupData = {
   ],
 };
 
-const isLive = () => process.env.NEXT_PUBLIC_HEATER_LIVE === "1";
 const LIVE_TIMEOUT_MS = 6000;
 
 // Single-league viewer until M4 auth resolves the team from the session. The
@@ -224,20 +224,21 @@ const LIVE_TIMEOUT_MS = 6000;
 // (trades/page.tsx `YOU`, adapters.ts standings `isUser`).
 const VIEWER_TEAM = "Team Hickey";
 
-/** Live: GET /api/matchup?team_name=… → adapt. Falls back to the mock when the
- *  API is down (throw), hangs (>6s), or returns a useless matchup (no categories
- *  AND no roster rows) — so the page always renders. A useful-but-partial response
- *  (e.g. categories present, rosters not yet synced) renders as-is. Mock: the
- *  in-memory MATCHUP after a simulated delay. */
-export async function fetchMatchup(delayMs = 600): Promise<MatchupData> {
-  if (isLive()) {
-    const live = apiGet<ApiMatchupResponse>("/matchup", { team_name: VIEWER_TEAM })
-      .then(apiMatchupToData)
-      .then((d) => (d.cats.length > 0 || d.hitters.length > 0 || d.pitchers.length > 0 ? d : null))
-      .catch(() => null);
-    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), LIVE_TIMEOUT_MS));
-    const result = await Promise.race([live, timeout]);
-    if (result) return result;
-  }
-  return new Promise((resolve) => setTimeout(() => resolve(MATCHUP), delayMs));
+/** Live: GET /api/matchup?team_name=… → adapt. Live errors propagate (HIGH-3) so
+ *  usePageData reaches error/locked/unlinked, and a hang (>6s) rejects via
+ *  withTimeout into the error state instead of resolving to mock. A useful-but-
+ *  partial response (e.g. categories present, rosters not yet synced) renders
+ *  as-is; a truly empty one → null → page `empty`. Mock (off-live): the in-memory
+ *  MATCHUP after a simulated delay. */
+export async function fetchMatchup(delayMs = 600): Promise<MatchupData | null> {
+  return liveOrMock(
+    async () => {
+      const d = await withTimeout(
+        apiGet<ApiMatchupResponse>("/matchup", { team_name: VIEWER_TEAM }).then(apiMatchupToData),
+        LIVE_TIMEOUT_MS,
+      );
+      return d.cats.length > 0 || d.hitters.length > 0 || d.pitchers.length > 0 ? d : null;
+    },
+    () => new Promise<MatchupData>((resolve) => setTimeout(() => resolve(MATCHUP), delayMs)),
+  );
 }
