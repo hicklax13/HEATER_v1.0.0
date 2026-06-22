@@ -33,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta } from "@/lib/api/bubba";
-import { captureScreen, readImageFile } from "./attachments";
+import { captureScreen, extractPdfText, readImageFile } from "./attachments";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
@@ -225,6 +225,13 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         if (file.type.startsWith("image/")) {
           const dataUrl = await readImageFile(file);
           setImages((s) => [...s, { id: crypto.randomUUID(), label: file.name, dataUrl, source: "file" }]);
+        } else if (file.type === "application/pdf") {
+          const text = await extractPdfText(file);
+          if (!text) {
+            setAttachError(`No readable text found in "${file.name}".`);
+            continue;
+          }
+          setDocs((s) => [...s, { id: crypto.randomUUID(), label: file.name, text }]);
         } else {
           setAttachError(`"${file.name}" isn't a supported file type.`);
         }
