@@ -7,12 +7,15 @@ Fernet value). Plaintext keys are never written to the DB or logged.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet
 
 from src.app_settings import get_setting, set_setting
+
+logger = logging.getLogger(__name__)
 
 _SHARED_KEY_SETTING = "ai_shared_key"  # JSON {provider: ciphertext}
 
@@ -67,7 +70,8 @@ def get_key(user_id: int, provider: str) -> str | None:
     if row is not None:
         try:
             return _decrypt(row["encrypted_key"])
-        except Exception:
+        except Exception as exc:
+            logger.warning("keys.get_key: decrypt failed for user_id=%s provider=%s: %s", user_id, provider, exc)
             return None
     return get_admin_shared_key(provider)
 
@@ -144,7 +148,8 @@ def get_admin_shared_key(provider: str) -> str | None:
         return None
     try:
         return _decrypt(ct)
-    except Exception:
+    except Exception as exc:
+        logger.warning("keys.get_admin_shared_key: decrypt failed for provider=%s: %s", provider, exc)
         return None
 
 

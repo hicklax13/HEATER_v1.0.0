@@ -4,6 +4,7 @@ degrades to an empty candidates list rather than raising."""
 
 from __future__ import annotations
 
+import logging
 import math
 
 from api.contracts.streaming import (
@@ -18,6 +19,8 @@ from api.contracts.streaming import (
     StreamingResponse,
 )
 from api.services.player_ref import make_player_ref
+
+logger = logging.getLogger(__name__)
 
 
 def _f(value, default: float = 0.0) -> float:
@@ -158,7 +161,8 @@ class StreamingService:
                     probables = [_to_probable(row) for _, row in full_board.iterrows()]
             except Exception:
                 probables = []
-        except Exception:
+        except Exception as exc:
+            logger.warning("StreamingService.get_streaming failed: %s", exc)
             candidates = []  # cold env / no data → empty list
 
         return StreamingResponse(
@@ -252,6 +256,6 @@ class StreamingService:
                     cand = self._to_candidate(row, rank)
                     scorecard = PitcherScorecard(**cand.model_dump(), factors=_factors(row))
                     return StreamAnalyzeResponse(found=True, scorecard=scorecard)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("StreamingService.analyze_pitcher failed: %s", exc)
         return StreamAnalyzeResponse(found=False, scorecard=None)

@@ -312,7 +312,8 @@ class MatchupService:
             projected_cat_wins = float(wins_count)
             n = len(categories)
             win_prob = round(wins_count / n, 4) if n > 0 else 0.0
-        except Exception:
+        except Exception as exc:
+            logger.warning("MatchupService.get_matchup failed: %s", exc)
             categories = []  # cold env / no data → empty list
 
         # Set per-category win field now that categories are built.
@@ -344,8 +345,9 @@ class MatchupService:
                 hitter_totals,
                 pitcher_totals,
             ) = self._build_roster_tables(team_name, opponent, _yds, week)
-        except Exception:
-            pass  # cold env — leave roster fields at defaults
+        except Exception as exc:
+            logger.warning("MatchupService._build_roster_tables failed: %s", exc)
+            # cold env — leave roster fields at defaults
 
         you = self._team_side(team_name, you_score)
         opp = self._team_side(opponent, opp_score)

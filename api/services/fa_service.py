@@ -4,8 +4,12 @@ degrades to an empty recommendation list rather than raising."""
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.free_agents import FreeAgentRec, FreeAgentsResponse
 from api.services.player_ref import player_ref_from_pool
+
+logger = logging.getLogger(__name__)
 
 
 class FreeAgentService:
@@ -27,7 +31,8 @@ class FreeAgentService:
             )
             for move in recommend_fa_moves(ctx, max_moves=limit) or []:
                 recs.append(self._to_rec(move, getattr(ctx, "player_pool", None)))
-        except Exception:
+        except Exception as exc:
+            logger.warning("FreeAgentService.get_free_agents failed: %s", exc)
             recs = []  # cold env / no data → empty list (page shows EmptyState)
         return FreeAgentsResponse(team_name=team_name, recommendations=recs)
 

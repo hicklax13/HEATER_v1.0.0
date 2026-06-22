@@ -100,8 +100,16 @@ class TeamService:
 
         yds = get_yahoo_data_service()
         cfg = LeagueConfig()
-        raw_matchup = yds.get_matchup()
-        standings = yds.get_standings()
+        try:
+            raw_matchup = yds.get_matchup()
+        except Exception as exc:
+            logger.warning("TeamService.get_my_team: get_matchup failed: %s", exc)
+            raw_matchup = None
+        try:
+            standings = yds.get_standings()
+        except Exception as exc:
+            logger.warning("TeamService.get_my_team: get_standings failed: %s", exc)
+            standings = None
         rank, record = self._rank_and_record(standings, team_name)
         week = int(raw_matchup.get("week", 0)) if raw_matchup else 0
         n_teams = self._team_count(standings)

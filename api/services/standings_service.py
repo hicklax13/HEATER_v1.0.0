@@ -4,7 +4,11 @@ degrades to an empty team list rather than raising."""
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.standings import StandingsResponse, TeamStanding
+
+logger = logging.getLogger(__name__)
 
 
 class StandingsService:
@@ -18,7 +22,8 @@ class StandingsService:
             if df is None or df.empty:
                 return StandingsResponse(teams=[])
             teams = self._build_teams(df)
-        except Exception:
+        except Exception as exc:
+            logger.warning("StandingsService.get_standings failed: %s", exc)
             teams = []  # cold env / no data → empty list
         return StandingsResponse(teams=teams)
 
