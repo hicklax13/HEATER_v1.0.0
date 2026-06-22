@@ -57,7 +57,13 @@ def get_managed_ai_cap(
     """The caller's DAILY managed-AI cap (shared-key spend), or None while billing
     is dormant -> budget.is_over_cap falls back to the admin cap (today's behavior).
     Never raises: an unverifiable caller / store error -> None (safe admin-cap
-    fallback; the chat route's own require_app_user owns the 401)."""
+    fallback; the chat route's own require_app_user owns the 401).
+
+    Degraded-path note: a subscription-read failure returns None, so the caller
+    gets the ADMIN cap, which may EXCEED a free user's tier cap (≈$1.00 vs $0.10) —
+    a bounded, WARNING-logged over-grant during an api_state.db outage. This favors
+    availability (keep chatting) over hard-blocking, and the blast radius is at most
+    (admin_cap − tier_cap) per user per day."""
     if not stripe_enabled():
         return None
     try:
