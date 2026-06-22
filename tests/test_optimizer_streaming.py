@@ -15,6 +15,22 @@ from src.optimizer.streaming import (
 # ── compute_streaming_value ──────────────────────────────────────────
 
 
+def test_get_present_nan_returns_default():
+    """A present-but-NaN stat must yield the caller's default (the league-avg the
+    callers pass for era/whip), NOT NaN — else NaN poisons the Stream Score."""
+    import math
+
+    from src.optimizer.streaming import _get
+
+    assert _get({"era": float("nan")}, "era", 4.00) == 4.00
+    assert _get({"whip": float("nan")}, "whip", 1.30) == 1.30
+    # missing key still uses the default; a real value still passes through.
+    assert _get({}, "era", 4.00) == 4.00
+    assert _get({"era": 3.10}, "era", 4.00) == 3.10
+    # never returns NaN for a present-NaN value
+    assert not math.isnan(_get({"k": float("nan")}, "k", 0.0))
+
+
 def test_streaming_value_good_pitcher():
     """A low-ERA, high-K pitcher should have a positive net value."""
     pitcher = {"k": 8.0, "w": 0.5, "era": 2.50, "whip": 0.95, "ip": 6.0}
