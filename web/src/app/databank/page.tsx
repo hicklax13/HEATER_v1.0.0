@@ -65,6 +65,11 @@ export default function DatabankPage() {
           onPick={(p) => {
             setSelected(p);
             setRetryCount(0);
+            // Clear stale data/error and show the skeleton immediately on pick,
+            // so the "No history found" card can't flash before the fetch settles.
+            setData(null);
+            setFetchError(null);
+            setLoading(true);
           }}
           onClear={() => {
             setSelected(null);
@@ -84,7 +89,11 @@ export default function DatabankPage() {
             <p className="text-[13px] font-semibold text-navy">Could not load player history</p>
             <p className="mt-1 text-[12px] text-ink-2">{fetchError}</p>
             <button
-              onClick={() => setRetryCount((n) => n + 1)}
+              onClick={() => {
+                setFetchError(null);
+                setLoading(true);
+                setRetryCount((n) => n + 1);
+              }}
               className="mt-4 inline-flex min-h-9 items-center rounded-lg border border-line px-4 text-[13px] font-semibold text-navy transition-colors hover:bg-surface"
             >
               Retry
