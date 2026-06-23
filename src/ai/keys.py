@@ -7,12 +7,15 @@ Fernet value). Plaintext keys are never written to the DB or logged.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet
 
 from src.app_settings import get_setting, set_setting
+
+logger = logging.getLogger(__name__)
 
 _SHARED_KEY_SETTING = "ai_shared_key"  # JSON {provider: ciphertext}
 
@@ -68,6 +71,15 @@ def get_key(user_id: int, provider: str) -> str | None:
         try:
             return _decrypt(row["encrypted_key"])
         except Exception:
+            # A stored key that won't decrypt (rotated HEATER_AI_KEY, corruption)
+            # would otherwise silently look like "user has no key" — surface it so
+            # the operator can see why a user's BYOK key stopped working. The Fernet
+            # error carries no key material; user_id/provider are not secrets.
+            logger.warning(
+                "ai key decrypt failed for user_id=%s provider=%s (rotated HEATER_AI_KEY?)",
+                user_id,
+                provider,
+            )
             return None
     return get_admin_shared_key(provider)
 
@@ -145,6 +157,9 @@ def get_admin_shared_key(provider: str) -> str | None:
     try:
         return _decrypt(ct)
     except Exception:
+        # Shared-key decrypt failure (rotated HEATER_AI_KEY) would silently disable
+        # the fallback for every user — log it so the operator can re-set the key.
+        logger.warning("admin shared key decrypt failed for provider=%s (rotated HEATER_AI_KEY?)", provider)
         return None
 
 
