@@ -41,9 +41,18 @@ export default function RootLayout({
         <AuthProvider>
           <SubscriptionProvider>
             <Providers>
+              {/* Skip-to-content link: visually hidden until focused (sr-only + focus:not-sr-only). */}
+              <a
+                href="#main-content"
+                className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[9999] focus:rounded focus:bg-heat focus:px-3 focus:py-2 focus:text-sm focus:font-bold focus:text-white focus:outline-none"
+              >
+                Skip to content
+              </a>
               <div className="flex min-h-full flex-col">
                 <TopBar />
-                {children}
+                <div id="main-content" className="contents">
+                  {children}
+                </div>
               </div>
               <Bubba />
             </Providers>

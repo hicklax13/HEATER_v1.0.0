@@ -16,6 +16,7 @@ function rankColor(rank: number, n: number): string {
 function TH({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
   return (
     <th
+      scope="col"
       className={cn(
         "whitespace-nowrap px-2 py-2 text-[10px] font-bold uppercase tracking-wide text-navy",
         align === "right" && "text-right",
