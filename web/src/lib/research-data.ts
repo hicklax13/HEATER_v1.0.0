@@ -86,13 +86,15 @@ export function fetchLens(lens: Lens): Promise<LeaderRow[]> {
 /** Initial load. Live: fetch ONLY the overall board (fast — the default tab);
  *  the other lenses load on demand (see fetchLens) so one slow lens can't block
  *  the page and parallel requests can't starve each other on a single-worker
- *  API. Falls back to the full mock if the overall board is empty. */
-export async function fetchResearch(delayMs = 600): Promise<ResearchData> {
+ *  API. Empty live board → null → honest empty state. Mock (off-live): in-memory
+ *  RESEARCH after a simulated delay. */
+export async function fetchResearch(delayMs = 600): Promise<ResearchData | null> {
   if (isLive()) {
     const overall = await fetchLens("overall");
     if (overall.length > 0) {
       return { byLens: { overall, hot: [], cold: [], breakout: [], sell: [] } };
     }
+    return null;
   }
   return new Promise((resolve) => setTimeout(() => resolve(RESEARCH), delayMs));
 }

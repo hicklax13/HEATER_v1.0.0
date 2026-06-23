@@ -762,11 +762,8 @@ export interface components {
             adds_total: number;
             /** Cats In Play */
             cats_in_play?: string[];
-            /**
-             * Ip Pace
-             * @default 0
-             */
-            ip_pace: number;
+            /** Ip Pace */
+            ip_pace?: number | null;
             /**
              * Ip Target
              * @default 54
@@ -904,9 +901,7 @@ export interface components {
              * Tool Trace
              * @default []
              */
-            tool_trace: {
-                [key: string]: unknown;
-            }[];
+            tool_trace: components["schemas"]["ToolTraceEntry"][];
         };
         /** CheckoutSessionRequest */
         CheckoutSessionRequest: {
@@ -1785,7 +1780,7 @@ export interface components {
              */
             state: string;
             /** Stats */
-            stats?: string[];
+            stats?: components["schemas"]["StatItem"][];
             /**
              * Status
              * @default
@@ -1806,8 +1801,9 @@ export interface components {
             /**
              * Win
              * @default
+             * @enum {string}
              */
-            win: string;
+            win: "" | "you" | "opp";
             /** Win Prob */
             win_prob: number;
             /** You */
@@ -1893,13 +1889,15 @@ export interface components {
             /**
              * Tag
              * @default
+             * @enum {string}
              */
-            tag: string;
+            tag: "hot" | "cold" | "";
             /**
              * Trend
              * @default flat
+             * @enum {string}
              */
-            trend: string;
+            trend: "up" | "down" | "flat";
         };
         /** MutationResponse */
         MutationResponse: {
@@ -1975,8 +1973,9 @@ export interface components {
             /**
              * Status
              * @default ok
+             * @enum {string}
              */
-            status: string;
+            status: "ok" | "warn" | "danger";
             /** Total */
             total: number;
             /** Value */
@@ -2031,8 +2030,9 @@ export interface components {
             /**
              * Confidence
              * @default
+             * @enum {string}
              */
-            confidence: string;
+            confidence: "" | "HIGH" | "MEDIUM" | "LOW";
             /**
              * Expected Er
              * @default 0
@@ -2116,8 +2116,9 @@ export interface components {
             /**
              * Status
              * @default
+             * @enum {string}
              */
-            status: string;
+            status: "" | "PROBABLE" | "LOCKED" | "FINAL" | "OPEN";
             /**
              * Team
              * @default
@@ -2290,6 +2291,7 @@ export interface components {
              * @default
              */
             projected_record: string;
+            projected_record_wlt?: components["schemas"]["Record"] | null;
             /**
              * Projected Wins
              * @default 0
@@ -2517,6 +2519,27 @@ export interface components {
             /** Team Name */
             team_name: string;
         };
+        /**
+         * Record
+         * @description Structured win-loss-tie record (additive complement to the display string).
+         */
+        Record: {
+            /**
+             * Losses
+             * @default 0
+             */
+            losses: number;
+            /**
+             * Ties
+             * @default 0
+             */
+            ties: number;
+            /**
+             * Wins
+             * @default 0
+             */
+            wins: number;
+        };
         /** RosterRow */
         RosterRow: {
             opp?: components["schemas"]["MatchPlayer"] | null;
@@ -2561,9 +2584,9 @@ export interface components {
         /** SideTotals */
         SideTotals: {
             /** Opp */
-            opp?: string[];
+            opp?: components["schemas"]["StatItem"][];
             /** You */
-            you?: string[];
+            you?: components["schemas"]["StatItem"][];
         };
         /** StandingsResponse */
         StandingsResponse: {
@@ -2628,8 +2651,9 @@ export interface components {
             /**
              * Status
              * @default info
+             * @enum {string}
              */
-            status: string;
+            status: "ok" | "warn" | "info";
             /** Value */
             value: number;
         };
@@ -2672,8 +2696,9 @@ export interface components {
             /**
              * Confidence
              * @default
+             * @enum {string}
              */
-            confidence: string;
+            confidence: "" | "HIGH" | "MEDIUM" | "LOW";
             /**
              * Expected Er
              * @default 0
@@ -2755,8 +2780,9 @@ export interface components {
             /**
              * Status
              * @default
+             * @enum {string}
              */
-            status: string;
+            status: "" | "PROBABLE" | "LOCKED" | "FINAL" | "OPEN";
             /**
              * Team
              * @default
@@ -2868,6 +2894,7 @@ export interface components {
              * @default
              */
             record: string;
+            record_wlt?: components["schemas"]["Record"] | null;
             /**
              * Score
              * @default 0
@@ -2907,6 +2934,24 @@ export interface components {
              * @default 0
              */
             wins: number;
+        };
+        /**
+         * ToolTraceEntry
+         * @description One tool call in the AI assistant's trace (name + args).
+         */
+        ToolTraceEntry: {
+            /**
+             * Args
+             * @default {}
+             */
+            args: {
+                [key: string]: unknown;
+            };
+            /**
+             * Name
+             * @default
+             */
+            name: string;
         };
         /** TradeEvaluateRequest */
         TradeEvaluateRequest: {

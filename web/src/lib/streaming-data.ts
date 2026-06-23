@@ -214,11 +214,11 @@ export function factorsFor(c: StreamCandidate): FactorDetail[] {
 /** Live: GET /api/streaming → adapt; live errors propagate (HIGH-3) so usePageData
  *  reaches error/locked/unlinked. Mock (off-live, or live with an empty board):
  *  the in-memory STREAMING after a simulated delay. */
-export async function fetchStreaming(delayMs = 600): Promise<StreamingData> {
+export async function fetchStreaming(delayMs = 600): Promise<StreamingData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiStreamingResponse>("/streaming");
-      return (api.candidates?.length ?? 0) > 0 ? apiStreamingToData(api) : STREAMING;
+      return (api.candidates?.length ?? 0) > 0 ? apiStreamingToData(api) : null;
     },
     () => new Promise<StreamingData>((resolve) => setTimeout(() => resolve(STREAMING), delayMs)),
   );

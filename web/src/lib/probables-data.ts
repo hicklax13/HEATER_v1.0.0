@@ -215,11 +215,11 @@ export const PROBABLES_MOCK: ProbablesData = {
 /** Live: GET /api/schedule/probables → adapt; live errors propagate (HIGH-3) so
  *  usePageData reaches error/locked/unlinked. Mock (off-live, or live with an
  *  empty grid): the in-memory PROBABLES_MOCK after a simulated delay. */
-export async function fetchProbables(delayMs = 500): Promise<ProbablesData> {
+export async function fetchProbables(delayMs = 500): Promise<ProbablesData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiProbableGrid>("/schedule/probables", { days: 7, team_name: getViewerTeam() });
-      return (api.teams?.length ?? 0) > 0 ? apiToData(api) : PROBABLES_MOCK;
+      return (api.teams?.length ?? 0) > 0 ? apiToData(api) : null;
     },
     () => new Promise<ProbablesData>((resolve) => setTimeout(() => resolve(PROBABLES_MOCK), delayMs)),
   );

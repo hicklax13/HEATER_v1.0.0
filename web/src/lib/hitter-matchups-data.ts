@@ -203,11 +203,11 @@ export const HITTER_MATCHUPS_MOCK: HitterMatchupsData = {
 /** Live: GET /api/schedule/hitter-matchups → adapt; live errors propagate (HIGH-3)
  *  so usePageData reaches error/locked/unlinked. Mock (off-live, or live with an
  *  empty grid): the in-memory HITTER_MATCHUPS_MOCK after a simulated delay. */
-export async function fetchHitterMatchups(delayMs = 500): Promise<HitterMatchupsData> {
+export async function fetchHitterMatchups(delayMs = 500): Promise<HitterMatchupsData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiHitterGrid>("/schedule/hitter-matchups", { days: 7, team_name: getViewerTeam() });
-      return (api.teams?.length ?? 0) > 0 ? apiToData(api) : HITTER_MATCHUPS_MOCK;
+      return (api.teams?.length ?? 0) > 0 ? apiToData(api) : null;
     },
     () => new Promise<HitterMatchupsData>((resolve) => setTimeout(() => resolve(HITTER_MATCHUPS_MOCK), delayMs)),
   );

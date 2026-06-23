@@ -76,11 +76,11 @@ export const PUNT: PuntData = {
 /** Live: GET /api/punt → adapt; live errors propagate (HIGH-3) so usePageData
  *  reaches error/locked/unlinked. Mock (off-live, or live with no categories yet):
  *  the in-memory PUNT after a simulated delay. */
-export async function fetchPunt(delayMs = 600): Promise<PuntData> {
+export async function fetchPunt(delayMs = 600): Promise<PuntData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiPuntResponse>("/punt", { team_name: getViewerTeam() });
-      return (api.categories?.length ?? 0) > 0 ? apiPuntToData(api) : PUNT;
+      return (api.categories?.length ?? 0) > 0 ? apiPuntToData(api) : null;
     },
     () => new Promise<PuntData>((resolve) => setTimeout(() => resolve(PUNT), delayMs)),
   );

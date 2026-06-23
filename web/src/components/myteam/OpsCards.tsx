@@ -21,6 +21,9 @@ export function OpsCards({ cards }: { cards: OpsCard[] }) {
   );
 }
 
+/** Display helper: integers render whole, floats render 1 decimal. */
+const fmtOpsNum = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
 function OpsCardItem({ card }: { card: OpsCard }) {
   const s = STATUS[card.status];
   const Icon = s.icon;
@@ -33,10 +36,10 @@ function OpsCardItem({ card }: { card: OpsCard }) {
             {card.label}
           </div>
           <div className="mt-1 font-display text-3xl font-extrabold text-navy">
-            <span className="tnum">{card.value}</span>
+            <span className="tnum">{fmtOpsNum(card.value)}</span>
             <span className="tnum ml-0.5 text-sm font-normal text-ink-2">
               {" "}
-              / {card.total}
+              / {fmtOpsNum(card.total)}
               {card.unit ? ` ${card.unit}` : ""}
             </span>
           </div>
