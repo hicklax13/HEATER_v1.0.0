@@ -6,6 +6,7 @@ NOTE: synchronous for B1; MC path becomes an Arq background job in B3."""
 from __future__ import annotations
 
 import logging
+import math
 
 from api.contracts.common import PlayerRef
 from api.contracts.trade import (
@@ -16,6 +17,17 @@ from api.contracts.trade import (
 from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
+
+
+def _f(value, default: float = 0.0) -> float:
+    """Finite-float coercion (None/NaN/inf/junk → default). ``float(v or 0.0)``
+    does NOT guard NaN (NaN is truthy), so a NaN engine value (surplus_sgp, a
+    category delta, confidence_pct) would serialize as NaN into the response."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if (math.isnan(f) or math.isinf(f)) else f
 
 
 class TradeService:
@@ -103,7 +115,7 @@ class TradeService:
         # band mirroring _compute_grade_range's default SD=0.8.
         grade_range: GradeRange | None = None
         raw_gr = g("grade_range", None)
-        surplus = float(g("surplus_sgp", 0.0) or 0.0)
+        surplus = _f(g("surplus_sgp"))
         if raw_gr is not None:
             _uncertainty_sd = 0.8
             grade_range = GradeRange(
@@ -121,9 +133,9 @@ class TradeService:
         if isinstance(raw_ci, dict):
             for cat, entry in raw_ci.items():
                 if isinstance(entry, dict):
-                    delta = float(entry.get("delta", 0.0) or 0.0)
+                    delta = _f(entry.get("delta"))
                 else:
-                    delta = float(entry or 0.0)
+                    delta = _f(entry)
                 cat_impacts.append(CategoryImpact(cat=str(cat), delta=delta))
 
         # --- giving / receiving PlayerRefs from pool
@@ -148,7 +160,7 @@ class TradeService:
         return TradeEvaluationResponse(
             grade=str(g("grade", "") or ""),
             verdict=str(g("verdict", "") or ""),
-            confidence_pct=float(g("confidence_pct", 0.0) or 0.0),
+            confidence_pct=_f(g("confidence_pct")),
             surplus_sgp=surplus,
             grade_range=grade_range,
             giving=giving_refs,

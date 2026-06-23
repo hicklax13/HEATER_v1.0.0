@@ -744,8 +744,13 @@ def compute_positional_scarcity_factor(positions: str, replacement_levels: dict)
         return 1.0
     # Replacement level (lower = scarcer position). Pick the scarcest
     # position the player qualifies at — best-case scarcity for them.
-    best_repl = min(replacement_levels.get(p, 0.0) for p in valid)
-    repl_values = [v for v in replacement_levels.values() if v is not None]
+    # Filter NaN/inf: a single bad value would make min()/sorted() degenerate.
+    valid_repls = [replacement_levels.get(p, 0.0) for p in valid]
+    valid_repls = [v for v in valid_repls if v is not None and np.isfinite(v)]
+    if not valid_repls:
+        return 1.0
+    best_repl = min(valid_repls)
+    repl_values = [v for v in replacement_levels.values() if v is not None and np.isfinite(v)]
     if not repl_values:
         return 1.0
     median_repl = sorted(repl_values)[len(repl_values) // 2]

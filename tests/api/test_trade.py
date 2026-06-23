@@ -159,3 +159,15 @@ def test_trade_evaluate_dormant_uses_body_team():
     )
     assert resp.status_code == 200
     assert spy.seen == "Team Hickey"
+
+
+def test_to_response_nan_safe():
+    """A NaN engine value (surplus_sgp / confidence_pct) must serialize as 0.0, not
+    NaN, in the trade response — `float(v or 0.0)` doesn't guard NaN."""
+    from api.services.trade_service import TradeService
+
+    nan = float("nan")
+    result = {"surplus_sgp": nan, "confidence_pct": nan, "grade": "B", "verdict": "Fair"}
+    resp = TradeService._to_response(result, None, [], [], False)
+    assert resp.surplus_sgp == 0.0
+    assert resp.confidence_pct == 0.0
