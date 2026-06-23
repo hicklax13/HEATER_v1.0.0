@@ -219,7 +219,8 @@ def run_kalman_for_feature(
     # Compute final Kalman gain
     final_pred_var = f_var[-1] + proc_var if len(f_var) > 0 else prior_variance
     final_obs_var = obs_var[-1] if len(obs_var) > 0 else 1.0
-    final_K = final_pred_var / (final_pred_var + final_obs_var)
+    _k_denom = final_pred_var + final_obs_var
+    final_K = final_pred_var / _k_denom if _k_denom > 0 else 0.0  # guard 0/0 on all-zero variances
 
     return {
         "filtered_mean": float(f_mean[-1]) if len(f_mean) > 0 else prior_mean,

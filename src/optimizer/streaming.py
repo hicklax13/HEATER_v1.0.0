@@ -45,8 +45,10 @@ WEEKLY_ADDS_BUDGET: int = WEEKLY_TRANSACTION_LIMIT
 # Default IP per start for a typical starting pitcher.
 _DEFAULT_IP_PER_START = 5.5
 
-# Default team total IP per week used for rate-stat dilution.
-_DEFAULT_TEAM_WEEKLY_IP = 55.0
+# Default team total IP per week used for rate-stat dilution. Sourced from the
+# constants registry (reconciled to 54.0 = stream_ip_target) so this can't drift
+# from the canonical value — the local 55.0 literal had drifted (DCV-A2-001).
+_DEFAULT_TEAM_WEEKLY_IP = float(_CR["default_team_weekly_ip"].value)
 
 # 2nd start rate stat quality factor (7% ERA/WHIP decay from fatigue).
 _TWO_START_FATIGUE_FACTOR = 0.93

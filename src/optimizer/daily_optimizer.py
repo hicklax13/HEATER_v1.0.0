@@ -464,7 +464,10 @@ def compute_matchup_multiplier(
         except (TypeError, ValueError):
             pass
 
-    # Weather adjustment — hot temps boost HR/power production
+    # Weather adjustment — hot temps boost HR/power. NOTE (known limitation): this
+    # is a whole-hitter multiplier, so a HR-specific weather bonus "leaks" into the
+    # other hitting cats (R/RBI/SB/AVG/OBP); per-category multipliers would be
+    # needed to isolate it (deferred — small effect, bounded by the ±0.3..3.0 clamp).
     if temp_f is not None and is_hitter:
         try:
             from src.optimizer.matchup_adjustments import weather_hr_adjustment
@@ -472,7 +475,7 @@ def compute_matchup_multiplier(
             weather_mult = weather_hr_adjustment(temp_f)
             if weather_mult and weather_mult > 0:
                 mult *= weather_mult
-        except (ImportError, Exception):
+        except Exception:  # noqa: BLE001 — best-effort weather adj; never block a lineup
             pass
 
     return max(0.3, min(3.0, mult))  # Clamp to reasonable range
