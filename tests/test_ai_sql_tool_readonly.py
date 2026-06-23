@@ -57,11 +57,13 @@ def test_select_queries_secret_table_blocked():
     assert out["error"] is not None
 
 
-def test_write_is_physically_impossible(tmp_path):
-    # Even a crafted statement can't write: the connection is opened read-only.
+def test_read_only_cte_select_allowed():
+    # A `WITH ... SELECT` is still a read: the SELECT-only gate must PERMIT it
+    # (a CTE is not a smuggled write) and return its rows. Write rejection is
+    # covered by test_rejects_insert / test_rejects_non_select — this asserts
+    # the gate doesn't over-block a legitimate CTE query.
     from src.ai.sql_tool import run_read_only_sql
 
-    # WITH ... still SELECT; a write smuggled via CTE must fail at the driver too.
     out = run_read_only_sql("WITH x AS (SELECT 1) SELECT * FROM x")
     assert out["error"] is None
     assert out["rows"] == [{"1": 1}]

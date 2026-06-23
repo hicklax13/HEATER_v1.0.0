@@ -53,6 +53,12 @@ openpyxl>=3.1.0
 # fixture state intact. See `.github/workflows/ci.yml` for usage.
 pytest-split>=0.10.0
 pytest-xdist>=3.5.0
+# Linter — PINNED EXACT to CI (.github/workflows/ci.yml installs ruff==0.14.10).
+# ruff's formatter changes between minors, so an unpinned local install (e.g.
+# 0.15.x) reformats files the pre-commit hook touches into a shape CI's 0.14.10
+# `ruff format --check` then rejects (and vice-versa) — silent version skew.
+# Keep this == the ci.yml pin; bump both together.
+ruff==0.14.10
 # Pinned EXACT: FastAPI auto-generates the OpenAPI error schemas (ValidationError
 # gained `ctx`/`input` in 0.137.x), so the version that builds api/openapi.json must
 # match CI/Railway/local or tests/api/test_openapi_contract.py fails with no code

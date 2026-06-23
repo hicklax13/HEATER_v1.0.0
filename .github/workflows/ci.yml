@@ -78,6 +78,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: requirements.txt
 
+      # NOTE: requirements.txt deliberately omits the optional heavy extras
+      # (PyMC, XGBoost). Tests behind `@pytest.mark.skipif(not PYMC_AVAILABLE)` /
+      # `XGBOOST_AVAILABLE` therefore SKIP in CI — a conscious speed/footprint
+      # trade-off, not an oversight. Those Bayesian/ensemble paths are verified
+      # locally where the extras are installed (see CLAUDE.md "Dependencies").
       - name: Install dependencies
         run: |
           uv pip install --system -r requirements.txt
