@@ -331,10 +331,28 @@ def _overall_win_prob_copula(
     Returns:
         Overall matchup win probability in [0, 1].
     """
+    win, tie, _loss = _overall_outcome_probs_copula(per_category, n_sims=n_sims, rng=rng)
+    # Yahoo splits an even category tie as half a win for the headline number.
+    return win + 0.5 * tie
+
+
+def _overall_outcome_probs_copula(
+    per_category: dict[str, float],
+    n_sims: int,
+    rng: np.random.RandomState | None,
+) -> tuple[float, float, float]:
+    """``(P_win, P_tie, P_loss)`` for the overall matchup from the SAME correlated
+    Gaussian-copula draw as :func:`_overall_win_prob_copula` — split into the three
+    mutually-exclusive outcomes (sum to 1) instead of the Yahoo-blended scalar.
+
+    win  = winning MORE than half the categories,
+    tie  = winning EXACTLY half (an even category split),
+    loss = winning FEWER than half.
+    """
     cats = [c for c in _COPULA_CATS_LOWER if c in per_category]
     n_cats = len(cats)
     if n_cats == 0:
-        return 0.5  # No data -> coin flip
+        return 0.5, 0.0, 0.5  # No data -> coin flip (no tie information)
 
     if rng is None:
         rng = np.random.RandomState()
@@ -350,9 +368,10 @@ def _overall_win_prob_copula(
 
     wins = (u <= probs).sum(axis=1).astype(float)
     half = n_cats / 2.0
-    won = float((wins > half).sum())
-    tied = float((wins == half).sum())
-    return (won + 0.5 * tied) / float(n_sims)
+    n = float(n_sims)
+    win = float((wins > half).sum()) / n
+    tie = float((wins == half).sum()) / n
+    return win, tie, max(0.0, 1.0 - win - tie)
 
 
 def estimate_h2h_win_probability(
@@ -415,3 +434,33 @@ def estimate_h2h_win_probability(
         "expected_wins": expected_wins,
         "overall_win_prob": overall_win_prob,
     }
+
+
+def estimate_h2h_outcome_probs(
+    my_totals: dict[str, float],
+    opp_totals: dict[str, float],
+    category_variances: dict[str, float] | None = None,
+    n_sims: int = _DEFAULT_OVERALL_SIMS,
+    rng: np.random.RandomState | None = None,
+) -> dict[str, float]:
+    """``{"win", "tie", "loss"}`` probabilities for the overall matchup (each in
+    [0, 1], summing to 1) — the same correlated Gaussian-copula joint draw as
+    :func:`estimate_h2h_win_probability`, but split into the three mutually-
+    exclusive matchup outcomes so a UI can show Win / Tie / Loss directly.
+
+    A TIE is winning exactly half the categories (an even split). ``win + 0.5*tie``
+    equals the legacy ``overall_win_prob`` (Yahoo's even-split convention).
+    """
+    if category_variances is None:
+        category_variances = default_category_variances()
+
+    per_category: dict[str, float] = {}
+    for cat in ALL_CATEGORIES:
+        my_val = my_totals.get(cat)
+        opp_val = opp_totals.get(cat)
+        if my_val is None or opp_val is None:
+            continue
+        per_category[cat] = _per_category_win_prob(cat, float(my_val), float(opp_val), category_variances)
+
+    win, tie, loss = _overall_outcome_probs_copula(per_category, n_sims=n_sims, rng=rng)
+    return {"win": win, "tie": tie, "loss": loss}

@@ -295,6 +295,20 @@ def _is_pitcher(pid, eligible: str, side_pool) -> bool:
     return False
 
 
+def _parse_cat_value(raw) -> float:
+    """Parse a Yahoo category value. The bare ``-`` (and empty) is Yahoo's
+    not-yet-played placeholder → 0.0. A real value KEEPS its sign — unlike the old
+    blanket ``str(x).replace("-", "0")`` which turned ``"-5"`` into ``"05"`` = 5.0
+    (sign flip; masked only because H2H category totals are normally non-negative)."""
+    s = str(raw).strip()
+    if s in ("", "-"):
+        return 0.0
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class MatchupService:
     def get_matchup(self, team_name: str) -> MatchupResponse:
         from src.yahoo_data_service import get_yahoo_data_service
@@ -666,16 +680,8 @@ class MatchupService:
             cat = str(entry.get("cat", "") or "").strip()
             if not cat:
                 continue
-            you_raw = entry.get("you", "0")
-            opp_raw = entry.get("opp", "0")
-            try:
-                you = float(str(you_raw).replace("-", "0") or 0)
-            except (TypeError, ValueError):
-                you = 0.0
-            try:
-                opp = float(str(opp_raw).replace("-", "0") or 0)
-            except (TypeError, ValueError):
-                opp = 0.0
+            you = _parse_cat_value(entry.get("you", "0"))
+            opp = _parse_cat_value(entry.get("opp", "0"))
             inverse = cat.upper() in inverse_stats
             # Simple win prob: 1.0 if winning, 0.0 if losing, 0.5 if tied
             if inverse:

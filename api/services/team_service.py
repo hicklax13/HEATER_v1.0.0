@@ -137,7 +137,7 @@ class TeamService:
             team_name=team_name,
             record=record,
             rank=rank,
-            matchup=self._matchup(raw_matchup, cfg),
+            matchup=self._matchup(raw_matchup, cfg, ctx),
             categories=self._categories(raw_matchup, cfg),
             eyebrow=self._eyebrow(team_name, week),
             subline=self._subline(record, rank, n_teams, standings),
@@ -400,32 +400,26 @@ class TeamService:
         return 0, "0-0-0"
 
     @staticmethod
-    def _matchup(raw_matchup: dict | None, cfg) -> MatchupHero | None:
+    def _matchup(raw_matchup: dict | None, cfg, ctx=None) -> MatchupHero | None:
         """Build the matchup hero from the raw Yahoo matchup (``MatchupResult``).
 
         Its keys are ``opp_name`` + the live category record ``wins``/``losses``/
         ``ties`` — NOT ``opponent``/``win_prob`` (the old code read non-existent
         keys, so the hero was always hollow: blank opponent, 0% gauge).
 
-        The raw matchup carries no win-probability, so win/tie/loss are the
-        CURRENT category-lead share (fraction of decided categories led/tied/lost
-        — a mid-week standings snapshot, sums to 1). A true forward win-prob needs
-        the H2H matchup engine (follow-up). Returns None when there's no real
-        opponent so the page never renders a hollow 'vs ' header.
+        win/tie/loss are a TRUE forward-looking simulated matchup win probability
+        (the canonical H2H Gaussian-copula engine over both rosters' projected
+        category totals from ``ctx``) when those totals are available, else they
+        degrade to the CURRENT category-lead share (a mid-week snapshot from the
+        live record). Returns None when there's no real opponent so the page never
+        renders a hollow 'vs ' header.
         """
         if not raw_matchup:
             return None
         opponent = str(raw_matchup.get("opp_name", "") or "").strip()
         if not opponent:
             return None
-        wins = _f(raw_matchup.get("wins"), 0.0)
-        losses = _f(raw_matchup.get("losses"), 0.0)
-        ties = _f(raw_matchup.get("ties"), 0.0)
-        decided = wins + losses + ties
-        if decided > 0:
-            win_prob, tie_prob, loss_prob = wins / decided, ties / decided, losses / decided
-        else:
-            win_prob = tie_prob = loss_prob = 0.0
+        win_prob, tie_prob, loss_prob = TeamService._sim_outcome(ctx) or TeamService._category_lead_share(raw_matchup)
         return MatchupHero(
             opponent=opponent,
             week=int(_f(raw_matchup.get("week"), 0.0)),
@@ -433,6 +427,36 @@ class TeamService:
             tie_prob=tie_prob,
             loss_prob=loss_prob,
         )
+
+    @staticmethod
+    def _sim_outcome(ctx) -> tuple[float, float, float] | None:
+        """True simulated (win, tie, loss) from both rosters' projected totals via
+        the canonical H2H copula engine. None (→ caller degrades to the live
+        category-lead share) when ctx/totals are missing or the engine fails."""
+        my = getattr(ctx, "my_totals", None)
+        opp = getattr(ctx, "opp_totals", None)
+        if not my or not opp:
+            return None
+        try:
+            from src.optimizer.h2h_engine import estimate_h2h_outcome_probs
+
+            r = estimate_h2h_outcome_probs(my, opp)
+            return _f(r.get("win")), _f(r.get("tie")), _f(r.get("loss"))
+        except Exception as exc:
+            logger.warning("TeamService matchup sim win-prob failed; using category-lead share: %s", exc)
+            return None
+
+    @staticmethod
+    def _category_lead_share(raw_matchup: dict) -> tuple[float, float, float]:
+        """Mid-week snapshot: the fraction of DECIDED categories led/tied/lost
+        (sums to 1). 0/0/0 before any category is decided."""
+        wins = _f(raw_matchup.get("wins"), 0.0)
+        losses = _f(raw_matchup.get("losses"), 0.0)
+        ties = _f(raw_matchup.get("ties"), 0.0)
+        decided = wins + losses + ties
+        if decided <= 0:
+            return 0.0, 0.0, 0.0
+        return wins / decided, ties / decided, losses / decided
 
     @staticmethod
     def _categories(raw_matchup: dict | None, cfg) -> list[CategoryLine]:

@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import type { StandingsData } from "@/lib/standings-data";
 
 /** Monte-Carlo playoff picture: per-team playoff% bar + championship%, top-N cut
- *  line. Odds aren't in /api/standings yet → graceful note on live data. */
+ *  line. Odds come from /api/playoff-odds (best-effort, ~2.4s sim, merged by
+ *  applyPlayoffOdds); the empty-state note shows only when none are available. */
 export function PlayoffOddsPanel({ data }: { data: StandingsData }) {
   const teams = [...data.teams].sort((a, b) => b.playoffOdds - a.playoffOdds);
   const anyOdds = teams.some((t) => t.playoffOdds > 0);
@@ -36,7 +37,7 @@ export function PlayoffOddsPanel({ data }: { data: StandingsData }) {
         </div>
       ) : !anyOdds ? (
         <div className="text-[13px] text-ink-2">
-          Playoff odds need the season-simulation endpoint (a backend add) — not available on live data yet.
+          Playoff odds aren&apos;t available right now — they appear once the season simulation has run.
         </div>
       ) : (
         <div className="space-y-2">

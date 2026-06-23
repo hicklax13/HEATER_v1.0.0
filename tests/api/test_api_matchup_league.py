@@ -123,3 +123,18 @@ def test_league_contract_round_trips():
     assert dumped["league"][0]["a"]["name"] == "Team Hickey"
     assert dumped["league"][0]["a"]["score"] == 7
     assert dumped["league"][0]["b"]["manager"] == "dandre"
+
+
+def test_build_categories_preserves_negative_and_dash_placeholder():
+    """Yahoo's '-' (not-yet-played) → 0, but a real negative value KEEPS its sign.
+    The old `str(x).replace('-','0')` turned '-5' into '05'=5.0 (sign flip) — masked
+    only because H2H category totals are normally non-negative."""
+    raw = [
+        {"cat": "R", "you": "-5", "opp": "3"},
+        {"cat": "HR", "you": "-", "opp": "2"},  # Yahoo not-yet-played placeholder
+        {"cat": "AVG", "you": "0.275", "opp": "0.260"},
+    ]
+    by = {c.cat: c for c in MatchupService._build_categories(raw, "Team A")}
+    assert by["R"].you == -5.0  # NOT 5.0
+    assert by["HR"].you == 0.0  # placeholder → 0
+    assert by["AVG"].you == 0.275
