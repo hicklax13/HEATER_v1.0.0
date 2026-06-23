@@ -28,16 +28,13 @@ const DEMO_SEASONS: DatabankSeason[] = [
 ];
 
 /** Look up a player's multi-year history. Live → GET /api/databank?player_id=N
- *  (real locally). Off-live → a demo history carrying the picked player's
- *  identity. Returns null on a throw. */
+ *  (real locally) — errors propagate so the caller can distinguish an outage
+ *  from a genuinely empty history. Off-live → a demo history carrying the picked
+ *  player's identity (never throws). */
 export async function fetchDatabank(player: PlayerPick): Promise<DatabankData | null> {
   if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
-    try {
-      const api = await apiGet<ApiDatabankResponse>("/databank", { player_id: player.id });
-      return apiDatabankToData(api);
-    } catch {
-      return null;
-    }
+    const api = await apiGet<ApiDatabankResponse>("/databank", { player_id: player.id });
+    return apiDatabankToData(api);
   }
   return {
     player: { name: player.name, pos: player.pos, teamAbbr: player.teamAbbr, teamId: player.teamId, mlbId: player.mlbId },

@@ -2,6 +2,7 @@ import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiOverallToResearch } from "@/lib/api/adapters";
 import type { ApiLeadersOverallResponse } from "@/lib/api/types";
+import { isLive } from "@/lib/api/live";
 
 /**
  * Research data — a cross-category value leaderboard with 5 lenses
@@ -68,8 +69,6 @@ function groupByLens(rows: LeaderRow[]): Record<Lens, LeaderRow[]> {
 }
 
 export const RESEARCH: ResearchData = { byLens: groupByLens(MOCK_ROWS) };
-
-const isLive = () => process.env.NEXT_PUBLIC_HEATER_LIVE === "1";
 
 /** Fetch a single lens board. Live: /api/leaders/overall?lens=… with a 4s
  *  timeout (the backend breakout lens currently hangs >12s) — a timeout/error
