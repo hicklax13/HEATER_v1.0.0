@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { CalendarDays } from "lucide-react";
-import { fetchStreaming, type StreamingData } from "@/lib/streaming-data";
+import { fetchStreaming, formatStreamDate, type StreamingData } from "@/lib/streaming-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { usePageData } from "@/lib/use-page-data";
 import { Footer } from "@/components/chrome/Footer";
@@ -34,7 +34,7 @@ function Loaded({ data }: { data: StreamingData }) {
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
       <motion.div variants={staggerItem}>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">Daily · {data.date}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">Daily · {formatStreamDate(data.date)}</div>
         <h1 className="font-display text-3xl font-extrabold text-navy">Pitcher Streaming</h1>
         <p className="mt-1 text-[13px] text-ink-2">Heat-ranked probable starters, scored on matchup, park, form, skill, and win odds.</p>
       </motion.div>

@@ -150,24 +150,14 @@ function toStreamCandidate(c: ApiStreamCandidate): StreamCandidate {
   };
 }
 
-/** The API's streaming `date` is a raw `YYYY-MM-DD` (server "today"); the page
- *  renders it verbatim ("Daily · {date}"). Format it to the human "Wed Jun 23"
- *  style the mock uses. Non-ISO / empty values pass through unchanged.
- *  Parsed as a LOCAL date (no UTC offset) so it never shows the prior day. */
-function formatStreamDate(raw: string | undefined): string {
-  if (!raw) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  if (!m) return raw;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  if (Number.isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-/** Map the /api/streaming response → the frontend StreamingData. */
+/** Map the /api/streaming response → the frontend StreamingData. `date` stays
+ *  the canonical raw `YYYY-MM-DD` (it is ALSO the body of the live
+ *  /streaming/analyze POST) — the page formats it for display via
+ *  `formatStreamDate`, never here. */
 export function apiStreamingToData(api: ApiStreamingResponse): StreamingData {
   const b = api.budget;
   return {
-    date: formatStreamDate(api.date),
+    date: api.date ?? "",
     budget: {
       addsLeft: b?.adds_left ?? 0,
       addsTotal: b?.adds_total ?? 10,

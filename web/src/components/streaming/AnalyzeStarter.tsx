@@ -5,7 +5,7 @@ import { Microscope } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { StreamScorecard } from "@/components/viz/StreamScorecard";
-import { analyzePitcher, type ProbableStarter, type PosGroup, type PitcherScorecard } from "@/lib/streaming-data";
+import { analyzePitcher, formatStreamDate, type ProbableStarter, type PosGroup, type PitcherScorecard } from "@/lib/streaming-data";
 
 const GROUPS: (PosGroup | "All")[] = ["All", "SP", "SP/RP", "RP"];
 
@@ -97,7 +97,7 @@ export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter
         <div className="mt-5 text-[13px] text-ember">Couldn&apos;t reach the scorer. Try again.</div>
       )}
       {!loading && !failed && !card && selected && (
-        <div className="mt-5 text-[13px] text-ink-3">Couldn&apos;t score this starter for {date}.</div>
+        <div className="mt-5 text-[13px] text-ink-3">Couldn&apos;t score this starter for {formatStreamDate(date)}.</div>
       )}
       {!loading && card && selected && (
         <div className="mt-5 flex flex-wrap items-start gap-6">

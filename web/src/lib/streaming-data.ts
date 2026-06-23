@@ -80,11 +80,25 @@ export interface BudgetStrip {
 }
 
 export interface StreamingData {
-  date: string;
+  date: string; // canonical YYYY-MM-DD (also the /streaming/analyze POST body); format for DISPLAY only
   budget: BudgetStrip;
   topPick: StreamCandidate | null;
   board: StreamCandidate[];
   probables: ProbableStarter[];
+}
+
+/** Format the canonical `YYYY-MM-DD` streaming date for human display
+ *  ("Wed Jun 23"). Parsed as a LOCAL date (no UTC offset) so it never shows the
+ *  prior day; non-ISO (e.g. the mock's "Thu Jun 19") / empty values pass through
+ *  unchanged. Display-only — never mutate the stored `date`, which the live
+ *  analyze request sends as-is to the backend. */
+export function formatStreamDate(raw: string | undefined): string {
+  if (!raw) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) return raw;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 const FACTOR_LABEL: Record<keyof StreamComponents, string> = {
