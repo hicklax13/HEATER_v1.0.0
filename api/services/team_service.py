@@ -112,8 +112,16 @@ class TeamService:
 
         yds = get_yahoo_data_service()
         cfg = LeagueConfig()
-        raw_matchup = yds.get_matchup()
-        standings = yds.get_standings()
+        try:
+            raw_matchup = yds.get_matchup()
+        except Exception as exc:
+            logger.warning("TeamService.get_my_team: get_matchup failed: %s", exc)
+            raw_matchup = None
+        try:
+            standings = yds.get_standings()
+        except Exception as exc:
+            logger.warning("TeamService.get_my_team: get_standings failed: %s", exc)
+            standings = None
         records = self._load_records()
         rank, record = self._rank_and_record(standings, records, team_name)
         week = int(raw_matchup.get("week", 0)) if raw_matchup else 0
@@ -371,6 +379,11 @@ class TeamService:
             logger.warning("TeamService._rank_and_record: records path failed for %r: %s", team_name, exc)
 
         # 2. Standings WINS/LOSSES/TIES fallback.
+        # Guard None/no-frame here (mirrors the records-path guard above) so a
+        # failed get_standings — already logged once at the call site — doesn't
+        # subscript None and emit a second, spurious TypeError warning.
+        if standings is None or "team_name" not in getattr(standings, "columns", []):
+            return 0, "0-0-0"
         try:
             team_rows = standings[standings["team_name"] == team_name]
             wins_rows = team_rows[team_rows["category"] == "WINS"]

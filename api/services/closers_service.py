@@ -4,9 +4,13 @@ degrades to an empty entry list rather than raising."""
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.closers import CloserEntry, ClosersResponse
 from api.contracts.common import PlayerRef
 from api.services.player_ref import make_player_ref
+
+logger = logging.getLogger(__name__)
 
 
 class CloserService:
@@ -20,12 +24,14 @@ class CloserService:
             player_pool = None
             try:
                 player_pool = load_player_pool()
-            except Exception:
-                pass  # pool unavailable — grid still works with defaults
+            except Exception as exc:
+                logger.debug("CloserService.get_closers: pool load failed: %s", exc)
+                # pool unavailable — grid still works with defaults
             grid = build_closer_grid(depth_data, player_pool=player_pool)
             for row in grid or []:
                 entries.append(self._to_entry(row, player_pool))
-        except Exception:
+        except Exception as exc:
+            logger.warning("CloserService.get_closers failed: %s", exc)
             entries = []  # cold env / no data → empty list
         return ClosersResponse(entries=entries)
 

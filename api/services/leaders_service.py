@@ -4,8 +4,12 @@ or unknown category degrades to empty rows rather than raising."""
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.leaders import LeaderRow, LeadersResponse
 from api.services.player_ref import make_player_ref
+
+logger = logging.getLogger(__name__)
 
 # Map display category names to the lowercase stat column in the DataFrame
 _STAT_COL_MAP: dict[str, str] = {
@@ -79,7 +83,8 @@ class LeadersService:
 
             for rank, (_, row) in enumerate(ldf.iterrows(), start=1):
                 rows.append(self._to_leader_row(rank, row, stat_col))
-        except Exception:
+        except Exception as exc:
+            logger.warning("LeadersService.get_leaders failed: %s", exc)
             rows = []  # cold env / no data / unknown category → empty rows
         return LeadersResponse(category=category, rows=rows)
 

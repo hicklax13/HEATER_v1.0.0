@@ -135,18 +135,17 @@ export const TRADES: TradesData = {
 
 /** Live: GET /api/trade-finder?team_name=… → adapt. Live errors propagate
  *  (HIGH-3) so usePageData reaches error/locked (402)/unlinked (409) — NEVER the
- *  fabricated mock. Empty suggestions (roster-relative → empty locally, real on
- *  Railway) still resolve to the showcase mock so the page demos. Mock (off-live):
+ *  fabricated mock. Empty suggestions → null → honest empty state. Mock (off-live):
  *  the in-memory TRADES after a simulated delay. */
-export async function fetchTrades(delayMs = 600): Promise<TradesData> {
+export async function fetchTrades(delayMs = 600): Promise<TradesData | null> {
   const mock = () => new Promise<TradesData>((resolve) => setTimeout(() => resolve(TRADES), delayMs));
   return liveOrMock(async () => {
     const api = await apiGet<ApiTradeFinderResponse>("/trade-finder", {
       team_name: getViewerTeam(),
       limit: 10,
     });
-    // Real suggestions → adapt; empty (no error) → fall back to the demo mock.
-    return (api.suggestions?.length ?? 0) > 0 ? apiTradeFinderToData(api) : mock();
+    // Real suggestions → adapt; empty (no error) → honest empty state.
+    return (api.suggestions?.length ?? 0) > 0 ? apiTradeFinderToData(api) : null;
   }, mock);
 }
 

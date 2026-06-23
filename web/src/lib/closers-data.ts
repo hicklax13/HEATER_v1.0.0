@@ -80,11 +80,11 @@ export const CLOSERS: ClosersData = {
 /** Live: GET /api/closers → adapt; live errors propagate (HIGH-3) so usePageData
  *  reaches error/locked/unlinked. Mock (off-live, or live with no entries): the
  *  in-memory CLOSERS after a simulated delay. */
-export async function fetchClosers(delayMs = 600): Promise<ClosersData> {
+export async function fetchClosers(delayMs = 600): Promise<ClosersData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiClosersResponse>("/closers");
-      return api.entries.length > 0 ? apiClosersToData(api) : CLOSERS;
+      return api.entries.length > 0 ? apiClosersToData(api) : null;
     },
     () => new Promise<ClosersData>((resolve) => setTimeout(() => resolve(CLOSERS), delayMs)),
   );

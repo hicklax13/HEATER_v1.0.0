@@ -103,14 +103,18 @@ export const MY_TEAM: MyTeamData = {
 const VIEWER_TEAM = "Team Hickey";
 
 /** Live: GET /api/me/team?team_name=… → adapt; live errors propagate (HIGH-3) so
- *  usePageData reaches error/locked/unlinked. Mock (off-live): the in-memory
- *  MY_TEAM after a simulated delay. */
-export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
+ *  usePageData reaches error/locked/unlinked. A response with no movers, no ops,
+ *  and no categories is fully empty → null → honest empty state. Mock (off-live):
+ *  the in-memory MY_TEAM after a simulated delay. */
+export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData | null> {
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiMyTeamResponse>("/me/team", { team_name: VIEWER_TEAM });
       if (api.team_name) setViewerTeam(api.team_name); // cache the identity-resolved team for "you" markers app-wide
-      return apiMyTeamToData(api);
+      const data = apiMyTeamToData(api);
+      // Fully empty response (no roster data synced yet) → empty state, not a blank dashboard.
+      if (!data.movers.length && !data.ops.length && !data.categories.length) return null;
+      return data;
     },
     () => new Promise<MyTeamData>((resolve) => setTimeout(() => resolve(MY_TEAM), delayMs)),
   );

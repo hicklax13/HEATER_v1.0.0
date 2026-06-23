@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, X, Library } from "lucide-react";
+import { Search, X, Library, AlertTriangle } from "lucide-react";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -18,6 +18,8 @@ export default function DatabankPage() {
   const [selected, setSelected] = useState<PlayerPick | null>(null);
   const [data, setData] = useState<DatabankData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!selected) return;
@@ -26,11 +28,18 @@ export default function DatabankPage() {
     Promise.resolve()
       .then(() => {
         if (!alive) return;
+        setFetchError(null);
         setLoading(true);
         return fetchDatabank(selected);
       })
       .then((d) => {
         if (alive) setData(d ?? null);
+      })
+      .catch((e: unknown) => {
+        if (alive) {
+          setData(null);
+          setFetchError(e instanceof Error ? e.message : "Failed to load player history.");
+        }
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -38,7 +47,7 @@ export default function DatabankPage() {
     return () => {
       alive = false;
     };
-  }, [selected]);
+  }, [selected, retryCount]);
 
   return (
     <>
@@ -53,10 +62,20 @@ export default function DatabankPage() {
 
         <SearchPicker
           selected={selected}
-          onPick={setSelected}
+          onPick={(p) => {
+            setSelected(p);
+            setRetryCount(0);
+            // Clear stale data/error and show the skeleton immediately on pick,
+            // so the "No history found" card can't flash before the fetch settles.
+            setData(null);
+            setFetchError(null);
+            setLoading(true);
+          }}
           onClear={() => {
             setSelected(null);
             setData(null);
+            setFetchError(null);
+            setRetryCount(0);
           }}
         />
 
@@ -64,6 +83,22 @@ export default function DatabankPage() {
           <Skeleton className="h-64 w-full rounded-2xl" />
         ) : selected && data ? (
           <SeasonsTable data={data} />
+        ) : selected && fetchError ? (
+          <Card className="p-10 text-center">
+            <AlertTriangle className="mx-auto mb-2 size-7 text-heat" aria-hidden />
+            <p className="text-[13px] font-semibold text-navy">Could not load player history</p>
+            <p className="mt-1 text-[12px] text-ink-2">{fetchError}</p>
+            <button
+              onClick={() => {
+                setFetchError(null);
+                setLoading(true);
+                setRetryCount((n) => n + 1);
+              }}
+              className="mt-4 inline-flex min-h-9 items-center rounded-lg border border-line px-4 text-[13px] font-semibold text-navy transition-colors hover:bg-surface"
+            >
+              Retry
+            </button>
+          </Card>
         ) : !selected ? (
           <Card className="p-10 text-center">
             <Library className="mx-auto mb-2 size-7 text-ink-3" aria-hidden />

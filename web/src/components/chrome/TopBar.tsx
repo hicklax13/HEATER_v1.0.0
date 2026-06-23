@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { usePalette } from "./Providers";
 import { HexMesh } from "@/components/ui/HexMesh";
 import { authEnabled } from "@/lib/auth-config";
+import { getViewerTeam } from "@/lib/viewer-team";
 import { ClerkAccountArea } from "./ClerkAccountArea";
 
 const NAV = [
@@ -159,44 +160,67 @@ export function TopBar() {
         {authEnabled ? (
           <ClerkAccountArea />
         ) : (
-          <>
-        <span className="tnum rounded-md bg-gradient-to-b from-heat-bright to-heat px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
-          PRO
-        </span>
-
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger
-            aria-label="Account menu"
-            className="flex items-center gap-1 rounded-full"
-          >
-            <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-b from-heat-bright to-heat font-display text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
-              CH
-            </span>
-            <ChevronDown className="size-4 text-white/50" aria-hidden />
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="end"
-              sideOffset={8}
-              className="z-50 min-w-[208px] rounded-xl border border-white/10 bg-navy p-1.5 text-chrome shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
-            >
-              <div className="px-2.5 py-2">
-                <div className="text-sm font-medium text-white">Connor Hickey</div>
-                <div className="text-xs text-white/50">Team Hickey</div>
-              </div>
-              <DropdownMenu.Separator className="my-1 h-px bg-white/10" />
-              <MenuItem icon={User} label="Profile" />
-              <MenuItem icon={Settings} label="Settings" />
-              <MenuItem icon={Sparkles} label="Manage Pro" accent />
-              <DropdownMenu.Separator className="my-1 h-px bg-white/10" />
-              <MenuItem icon={LogOut} label="Sign out" />
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-          </>
+          <DormantAccountMenu />
         )}
       </div>
     </header>
+  );
+}
+
+/**
+ * Account dropdown for the dormant (Clerk-off) app. Reads the identity-resolved
+ * team name from the module-level cache populated by the Team page fetchMyTeam()
+ * call. Name comes from Clerk's `useUser()` which is safe here ONLY when authEnabled
+ * is true (ClerkProvider mounted); dormant path must NOT call useUser — instead we
+ * use a separate inner component rendered only when authEnabled is true.
+ *
+ * Dormant case: show team name from getViewerTeam(); initials derived from it.
+ */
+function DormantAccountMenu() {
+  const team = getViewerTeam();
+  // Derive initials from the team name (e.g. "Team Hickey" → "TH").
+  const initials = team
+    .split(/\s+/)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "?";
+
+  return (
+    <>
+      <span className="tnum rounded-md bg-gradient-to-b from-heat-bright to-heat px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
+        PRO
+      </span>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger
+          aria-label="Account menu"
+          className="flex items-center gap-1 rounded-full"
+        >
+          <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-b from-heat-bright to-heat font-display text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(255,92,16,0.35)]">
+            {initials}
+          </span>
+          <ChevronDown className="size-4 text-white/50" aria-hidden />
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={8}
+            className="z-50 min-w-[208px] rounded-xl border border-white/10 bg-navy p-1.5 text-chrome shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+          >
+            <div className="px-2.5 py-2">
+              <div className="text-sm font-medium text-white">Account</div>
+              <div className="text-xs text-white/50">{team}</div>
+            </div>
+            <DropdownMenu.Separator className="my-1 h-px bg-white/10" />
+            <MenuItem icon={User} label="Profile" />
+            <MenuItem icon={Settings} label="Settings" />
+            <MenuItem icon={Sparkles} label="Manage Pro" accent />
+            <DropdownMenu.Separator className="my-1 h-px bg-white/10" />
+            <MenuItem icon={LogOut} label="Sign out" />
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    </>
   );
 }
 

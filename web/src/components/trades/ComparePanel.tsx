@@ -201,6 +201,13 @@ function CompareTable({ compare }: { compare: CompareData }) {
       </div>
 
       <table className="w-full text-[13px]">
+        <thead className="sr-only">
+          <tr>
+            <th scope="col">{a?.name ?? "Player 1"}</th>
+            <th scope="col">Category</th>
+            <th scope="col">{b?.name ?? "Player 2"}</th>
+          </tr>
+        </thead>
         <tbody>
           {rows.map(({ cat, va, vb, best }) => (
             <tr key={cat} className="border-b border-line/60 last:border-0">
@@ -209,19 +216,23 @@ function CompareTable({ compare }: { compare: CompareData }) {
                   "tnum px-4 py-2.5 text-right",
                   best === 0 ? "bg-heat/10 font-bold text-navy" : "text-ink-2",
                 )}
+                aria-label={`${a?.name ?? "Player 1"} ${cat}: ${va === undefined ? "—" : formatCatValue(cat, va)}${best === 0 ? " (better)" : ""}`}
               >
+                {best === 0 && <span className="mr-1 text-[9px] text-heat" aria-hidden>▲</span>}
                 {va === undefined ? "—" : formatCatValue(cat, va)}
               </td>
-              <td className="px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-ink-3">
+              <th scope="row" className="px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-ink-3">
                 {cat}
-              </td>
+              </th>
               <td
                 className={cn(
                   "tnum px-4 py-2.5 text-left",
                   best === 1 ? "bg-heat/10 font-bold text-navy" : "text-ink-2",
                 )}
+                aria-label={`${b?.name ?? "Player 2"} ${cat}: ${vb === undefined ? "—" : formatCatValue(cat, vb)}${best === 1 ? " (better)" : ""}`}
               >
                 {vb === undefined ? "—" : formatCatValue(cat, vb)}
+                {best === 1 && <span className="ml-1 text-[9px] text-heat" aria-hidden>▲</span>}
               </td>
             </tr>
           ))}

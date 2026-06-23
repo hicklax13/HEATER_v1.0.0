@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import math
 
+from api.contracts.common import Record, StatItem
 from api.contracts.matchup import (
     LeagueMatchup,
     MatchPlayer,
@@ -69,7 +70,7 @@ def _format_record(wins, losses, ties, rank) -> str:
     return f"{w}-{l}-{t} · {r}{suffix}"
 
 
-def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[str]:
+def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[StatItem]:
     """Aggregate a side's roster stat line: counting stats summed (scaled to weekly when
     `weeks` given), rate stats weighted (AVG=Σh/Σab, OBP=Σ(h+bb+hbp)/Σ(ab+bb+hbp+sf),
     ERA=Σer·9/Σip, WHIP=Σ(bb_allowed+h_allowed)/Σip — scale-invariant). NaN/zero-safe."""
@@ -89,7 +90,7 @@ def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[str]:
         obp_den = ab + bb + hbp + sf
         avg = (h / ab) if ab > 0 else 0.0  # rates from UNSCALED sums (ratio is scale-invariant)
         obp = ((h + bb + hbp) / obp_den) if obp_den > 0 else 0.0
-        return [
+        vals = [
             f"{round(_scale(h, weeks))}/{round(_scale(ab, weeks))}",
             str(round(_scale(_sum("r"), weeks))),
             str(round(_scale(_sum("hr"), weeks))),
@@ -98,11 +99,12 @@ def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[str]:
             _avg(avg),
             _avg(obp),
         ]
+        return [StatItem(label=c, value=v) for c, v in zip(_HITTER_COLUMNS, vals)]
     ip = _sum("ip")
     er, bba, ha = _sum("er"), _sum("bb_allowed"), _sum("h_allowed")
     era = (er * 9.0 / ip) if ip > 0 else 0.0
     whip = ((bba + ha) / ip) if ip > 0 else 0.0
-    return [
+    vals = [
         f"{_scale(ip, weeks):.1f}",
         str(round(_scale(_sum("w"), weeks))),
         str(round(_scale(_sum("l"), weeks))),
@@ -111,11 +113,12 @@ def _aggregate_totals(rows, hitter: bool, weeks=None) -> list[str]:
         f"{era:.2f}",
         f"{whip:.2f}",
     ]
+    return [StatItem(label=c, value=v) for c, v in zip(_PITCHER_COLUMNS, vals)]
 
 
-def _fmt_hitter_stats(row, weeks=None) -> list[str]:
+def _fmt_hitter_stats(row, weeks=None) -> list[StatItem]:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
-    return [
+    vals = [
         f"{round(_scale(g('h'), weeks))}/{round(_scale(g('ab'), weeks))}",
         str(round(_scale(g("r"), weeks))),
         str(round(_scale(g("hr"), weeks))),
@@ -124,11 +127,12 @@ def _fmt_hitter_stats(row, weeks=None) -> list[str]:
         _avg(g("avg")),
         _avg(g("obp")),
     ]
+    return [StatItem(label=c, value=v) for c, v in zip(_HITTER_COLUMNS, vals)]
 
 
-def _fmt_pitcher_stats(row, weeks=None) -> list[str]:
+def _fmt_pitcher_stats(row, weeks=None) -> list[StatItem]:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
-    return [
+    vals = [
         f"{_scale(g('ip'), weeks):.1f}",
         str(round(_scale(g("w"), weeks))),
         str(round(_scale(g("l"), weeks))),
@@ -137,6 +141,7 @@ def _fmt_pitcher_stats(row, weeks=None) -> list[str]:
         f"{_f(g('era')):.2f}",
         f"{_f(g('whip')):.2f}",
     ]
+    return [StatItem(label=c, value=v) for c, v in zip(_PITCHER_COLUMNS, vals)]
 
 
 def _cat_win(you, opp, inverse: bool) -> str:
@@ -246,7 +251,7 @@ def _apply_live_lines(hitters, pitchers, schedule, date_key: str) -> None:
     if not live:
         return
 
-    def _override(rows, key: str) -> None:
+    def _override(rows, key: str, columns: list[str]) -> None:
         for row in rows:
             for mp in (row.you, row.opp):
                 if mp is None or mp.state not in ("live", "final"):
@@ -255,13 +260,14 @@ def _apply_live_lines(hitters, pitchers, schedule, date_key: str) -> None:
                 entry = live.get(int(mid)) if mid else None
                 if not entry:
                     continue
-                line = entry.get(key) or []
+                line: list[str] = entry.get(key) or []
                 if line:
-                    mp.stats = line
+                    # live_boxscore returns list[str]; wrap into list[StatItem] for the contract
+                    mp.stats = [StatItem(label=col, value=v) for col, v in zip(columns, line)]
                     mp.status = entry.get("status") or mp.status
 
-    _override(hitters, "hitter")
-    _override(pitchers, "pitcher")
+    _override(hitters, "hitter", _HITTER_COLUMNS)
+    _override(pitchers, "pitcher", _PITCHER_COLUMNS)
 
 
 _PITCHER_SLOTS = frozenset({"SP", "RP", "P"})
@@ -326,7 +332,8 @@ class MatchupService:
             projected_cat_wins = float(wins_count)
             n = len(categories)
             win_prob = round(wins_count / n, 4) if n > 0 else 0.0
-        except Exception:
+        except Exception as exc:
+            logger.warning("MatchupService.get_matchup failed: %s", exc)
             categories = []  # cold env / no data → empty list
 
         # Set per-category win field now that categories are built.
@@ -358,8 +365,9 @@ class MatchupService:
                 hitter_totals,
                 pitcher_totals,
             ) = self._build_roster_tables(team_name, opponent, _yds, week)
-        except Exception:
-            pass  # cold env — leave roster fields at defaults
+        except Exception as exc:
+            logger.warning("MatchupService._build_roster_tables failed: %s", exc)
+            # cold env — leave roster fields at defaults
 
         you = self._team_side(team_name, you_score)
         opp = self._team_side(opponent, opp_score)
@@ -406,7 +414,8 @@ class MatchupService:
                     a_score, b_score = self._pairing_scores(a, b, week)
                 out.append(LeagueMatchup(a=self._team_side(a, a_score), b=self._team_side(b, b_score)))
             return out
-        except Exception:
+        except Exception as exc:
+            logger.warning("MatchupService._league failed: %s", exc)
             return []
 
     def _pairing_scores(self, a: str, b: str, week: int) -> tuple[int, int]:
@@ -439,6 +448,7 @@ class MatchupService:
     @staticmethod
     def _team_side(team_name: str, score: int) -> TeamSide:
         manager, record = "", ""
+        record_wlt: Record | None = None
         try:
             from src.database import get_connection, load_league_records
 
@@ -454,10 +464,16 @@ class MatchupService:
                 m = recs[recs["team_name"] == team_name]
                 if not m.empty:
                     row = m.iloc[0]
-                    record = _format_record(row.get("wins"), row.get("losses"), row.get("ties"), row.get("rank"))
-        except Exception:
-            pass
-        return TeamSide(name=team_name, manager=manager, record=record, score=int(score))
+                    # Parse W-L-T once; both the structured field and the display
+                    # string derive from the SAME ints so they can't drift.
+                    w = int(_f(row.get("wins")))
+                    l = int(_f(row.get("losses")))
+                    t = int(_f(row.get("ties")))
+                    record_wlt = Record(wins=w, losses=l, ties=t)
+                    record = _format_record(w, l, t, row.get("rank"))
+        except Exception as exc:
+            logger.warning("MatchupService._team_side failed: %s", exc)
+        return TeamSide(name=team_name, manager=manager, record=record, record_wlt=record_wlt, score=int(score))
 
     @staticmethod
     def _build_roster_tables(

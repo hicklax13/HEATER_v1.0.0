@@ -13,7 +13,7 @@ import {
 } from "./draft-data";
 import { isPaywall } from "@/lib/api/errors";
 
-export type DraftPhase = "setup" | "drafting" | "complete" | "locked";
+export type DraftPhase = "setup" | "drafting" | "complete" | "locked" | "error";
 
 interface DraftState {
   phase: DraftPhase;
@@ -24,6 +24,7 @@ interface DraftState {
   recs: DraftRec[];
   summary: string;
   busy: boolean;
+  errorMsg: string;
 }
 
 const INITIAL: DraftState = {
@@ -35,6 +36,7 @@ const INITIAL: DraftState = {
   recs: [],
   summary: "",
   busy: false,
+  errorMsg: "",
 };
 
 /**
@@ -82,11 +84,16 @@ export function useDraft() {
         recs: r.recs,
         summary: r.summary,
         busy: false,
+        errorMsg: "",
       });
     } catch (e) {
-      // Live: 402 → locked; any other API/network error surfaces back to setup
-      // (no fabricated mock draft). Off-live, advance() resolves from the mock.
-      setState({ ...INITIAL, phase: isPaywall(e) ? "locked" : "setup", config });
+      // 402 → locked; any other error → error phase (carry config so retry works).
+      if (isPaywall(e)) {
+        setState({ ...INITIAL, phase: "locked", config });
+      } else {
+        const msg = e instanceof Error ? e.message : "Draft failed to start.";
+        setState({ ...INITIAL, phase: "error", config, errorMsg: msg });
+      }
     }
   }, []);
 
@@ -118,7 +125,21 @@ export function useDraft() {
         busy: false,
       }));
     } catch (e) {
-      setState((s) => ({ ...s, busy: false, phase: isPaywall(e) ? "locked" : s.phase }));
+      // 402 → locked; any other error → error phase, revert the optimistic pick.
+      if (isPaywall(e)) {
+        setState((s) => ({ ...s, busy: false, phase: "locked" }));
+      } else {
+        const msg = e instanceof Error ? e.message : "Pick failed. Please retry.";
+        setState((s) => ({
+          ...s,
+          // revert optimistic: restore the log/roster to pre-pick state
+          pickLog: cur.pickLog,
+          myRoster: cur.myRoster,
+          busy: false,
+          phase: "error",
+          errorMsg: msg,
+        }));
+      }
     }
   }, []);
 

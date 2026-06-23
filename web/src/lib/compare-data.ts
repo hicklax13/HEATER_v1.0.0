@@ -110,12 +110,12 @@ function mockCompare(players: PlayerPick[]): CompareData {
  *  /api/compare?ids=…; live errors propagate (HIGH-3) so the caller surfaces them
  *  instead of fabricating a demo line for the user's real picks. Mock (off-live,
  *  or live with an empty response): a demo comparison. */
-export async function fetchCompare(players: PlayerPick[]): Promise<CompareData> {
+export async function fetchCompare(players: PlayerPick[]): Promise<CompareData | null> {
   if (players.length < 2) return { categories: [], players: [] };
   return liveOrMock(
     async () => {
       const api = await apiGet<ApiCompareResponse>("/compare", { ids: players.map((p) => p.id).join(",") });
-      return (api.players?.length ?? 0) > 0 ? apiCompareToData(api) : mockCompare(players);
+      return (api.players?.length ?? 0) > 0 ? apiCompareToData(api) : null;
     },
     () => mockCompare(players),
   );

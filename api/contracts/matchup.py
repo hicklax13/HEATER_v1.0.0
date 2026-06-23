@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
-from api.contracts.common import PlayerRef
+from api.contracts.common import PlayerRef, Record, StatItem
 
 
 class MatchupCategory(BaseModel):
@@ -13,7 +15,7 @@ class MatchupCategory(BaseModel):
     opp: float
     win_prob: float
     inverse: bool = False
-    win: str = ""  # "you" | "opp" | "" (tie)
+    win: Literal["", "you", "opp"] = ""
 
 
 class MatchPlayer(BaseModel):
@@ -21,7 +23,7 @@ class MatchPlayer(BaseModel):
     pos: str = ""
     status: str = ""  # basic game status (NOT live play-by-play — see live-stats follow-up)
     state: str = "none"  # sched/live/final/none
-    stats: list[str] = Field(default_factory=list)  # 7-stat projected line
+    stats: list[StatItem] = Field(default_factory=list)  # 7-stat projected line as StatItem
     badge: str | None = None  # IL / DTD
 
 
@@ -34,13 +36,14 @@ class RosterRow(BaseModel):
 class TeamSide(BaseModel):
     name: str = ""
     manager: str = ""
-    record: str = ""  # "4-7-1 · 8th"
+    record: str = ""  # "4-7-1 · 8th" — display string (kept for backward-compat)
+    record_wlt: Record | None = None  # structured W-L-T (additive)
     score: int = 0  # this-week category-win count
 
 
 class SideTotals(BaseModel):
-    you: list[str] = Field(default_factory=list)
-    opp: list[str] = Field(default_factory=list)
+    you: list[StatItem] = Field(default_factory=list)
+    opp: list[StatItem] = Field(default_factory=list)
 
 
 class LeagueMatchup(BaseModel):

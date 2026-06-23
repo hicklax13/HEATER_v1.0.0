@@ -70,16 +70,8 @@ def get_key(user_id: int, provider: str) -> str | None:
     if row is not None:
         try:
             return _decrypt(row["encrypted_key"])
-        except Exception:
-            # A stored key that won't decrypt (rotated HEATER_AI_KEY, corruption)
-            # would otherwise silently look like "user has no key" — surface it so
-            # the operator can see why a user's BYOK key stopped working. The Fernet
-            # error carries no key material; user_id/provider are not secrets.
-            logger.warning(
-                "ai key decrypt failed for user_id=%s provider=%s (rotated HEATER_AI_KEY?)",
-                user_id,
-                provider,
-            )
+        except Exception as exc:
+            logger.warning("keys.get_key: decrypt failed for user_id=%s provider=%s: %s", user_id, provider, exc)
             return None
     return get_admin_shared_key(provider)
 
@@ -156,10 +148,8 @@ def get_admin_shared_key(provider: str) -> str | None:
         return None
     try:
         return _decrypt(ct)
-    except Exception:
-        # Shared-key decrypt failure (rotated HEATER_AI_KEY) would silently disable
-        # the fallback for every user — log it so the operator can re-set the key.
-        logger.warning("admin shared key decrypt failed for provider=%s (rotated HEATER_AI_KEY?)", provider)
+    except Exception as exc:
+        logger.warning("keys.get_admin_shared_key: decrypt failed for provider=%s: %s", provider, exc)
         return None
 
 

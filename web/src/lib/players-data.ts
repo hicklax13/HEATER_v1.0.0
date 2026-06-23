@@ -77,7 +77,7 @@ export const PLAYERS: PlayersData = {
 /** Live: GET /api/free-agents/pool → adapt; live errors propagate (HIGH-3) so
  *  usePageData reaches error/locked/unlinked. Mock (off-live, or live with an
  *  empty pool): the in-memory PLAYERS after a simulated delay. */
-export async function fetchPlayers(delayMs = 600): Promise<PlayersData> {
+export async function fetchPlayers(delayMs = 600): Promise<PlayersData | null> {
   return liveOrMock(
     async () => {
       // Single-league context: the user's team is fixed until multi-tenancy (M4).
@@ -85,7 +85,7 @@ export async function fetchPlayers(delayMs = 600): Promise<PlayersData> {
         team_name: getViewerTeam(),
         limit: 50,
       });
-      return api.free_agents.length > 0 ? apiPoolToPlayers(api) : PLAYERS;
+      return api.free_agents.length > 0 ? apiPoolToPlayers(api) : null;
     },
     () => new Promise<PlayersData>((resolve) => setTimeout(() => resolve(PLAYERS), delayMs)),
   );

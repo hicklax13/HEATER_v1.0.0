@@ -63,18 +63,23 @@ export function AnalyzeStarter({ probables, date }: { probables: ProbableStarter
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="group" aria-label="Filter by position group">
           {GROUPS.map((g) => (
             <button
               key={g}
               onClick={() => setGroup(g)}
+              aria-pressed={group === g}
               className={`rounded-lg px-2.5 py-1 text-[12px] font-bold ${group === g ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-surface-2"}`}
             >
               {g}
             </button>
           ))}
         </div>
+        <label htmlFor="analyze-starter-select" className="sr-only">
+          Select a probable starter to analyze
+        </label>
         <select
+          id="analyze-starter-select"
           value={selected?.player.mlbId ?? 0}
           onChange={(e) => setMlbId(Number(e.target.value))}
           className="min-h-9 flex-1 rounded-lg border border-line bg-canvas px-3 text-sm font-semibold text-navy"

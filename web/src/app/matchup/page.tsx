@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Trophy, ChevronLeft, ChevronRight } from "lucide-react";
 import {
@@ -47,10 +48,11 @@ export default function MatchupPage() {
 }
 
 function Loaded({ data }: { data: MatchupData }) {
+  const [activeTab, setActiveTab] = useState(0);
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
       <motion.div variants={staggerItem}>
-        <ScoreHeader data={data} />
+        <ScoreHeader data={data} activeTab={activeTab} onTabChange={setActiveTab} />
       </motion.div>
       <motion.div variants={staggerItem}>
         <CategoryBattle cats={data.cats} youScore={data.you.score} oppScore={data.opp.score} />
@@ -125,32 +127,46 @@ function stateColor(state: GameState): string {
 
 /* ---------------- score header ---------------- */
 
-function ScoreHeader({ data }: { data: MatchupData }) {
+function ScoreHeader({
+  data,
+  activeTab,
+  onTabChange,
+}: {
+  data: MatchupData;
+  activeTab: number;
+  onTabChange: (i: number) => void;
+}) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#15294a] to-navy text-chrome shadow-[0_1px_0_rgba(255,92,16,0.4),0_18px_44px_rgba(11,24,48,0.28)]">
       <HexMesh />
       <div className="relative p-5">
         <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
           <div className="flex items-center gap-1 rounded-full border border-white/15 px-1">
-            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10" aria-label="Previous week">
+            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50" aria-label="Previous week">
               <ChevronLeft className="size-4" aria-hidden />
             </button>
             <span className="px-1 text-[13px] font-bold text-white">Week {data.week}</span>
-            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10" aria-label="Next week">
+            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50" aria-label="Next week">
               <ChevronRight className="size-4" aria-hidden />
             </button>
           </div>
+          {/* Date tabs — visual only; the matchup contract is a weekly aggregate
+              and per-date slicing is a deferred feature. Kept as <button> elements
+              for keyboard focusability, but no filter ARIA (role/aria-current)
+              since nothing actually changes when a tab is selected. */}
           <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
             {data.dateTabs.map((t, i) => (
-              <span
+              <button
                 key={t}
+                type="button"
+                onClick={() => onTabChange(i)}
                 className={cn(
-                  "rounded-md px-2 py-1 font-semibold",
-                  i === 0 ? "bg-heat text-white" : "text-white/65 hover:bg-white/10",
+                  "rounded-md px-2 py-1 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50",
+                  i === activeTab ? "bg-heat text-white" : "text-white/65 hover:bg-white/10",
                 )}
               >
                 {t}
-              </span>
+              </button>
             ))}
           </div>
         </div>
@@ -195,13 +211,13 @@ function CatTotals({ data }: { data: MatchupData }) {
         <table className="w-full min-w-[820px] text-[13px]">
           <thead>
             <tr className="border-b border-line bg-surface">
-              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Team</th>
+              <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Team</th>
               {data.cats.map((c) => (
-                <th key={c.key} className="px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-ink-3">
+                <th key={c.key} scope="col" className="px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-ink-3">
                   {c.key}
                 </th>
               ))}
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-navy">Score</th>
+              <th scope="col" className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-navy">Score</th>
             </tr>
           </thead>
           <tbody>
@@ -225,7 +241,13 @@ function CatRow({ team, cats, side }: { team: TeamSide; cats: CatCol[]; side: "y
           <td
             key={c.key}
             className={cn("tnum px-2 py-2.5 text-right", wins ? "bg-heat/10 font-bold text-navy" : "text-ink-2")}
+            /* Screen readers announce the category key + whether this side wins. */
+            aria-label={`${c.key}: ${val}${wins ? " (win)" : ""}`}
           >
+            {/* Non-color winner cue: a "▲" glyph visible in grayscale/for colorblind users. */}
+            {wins && (
+              <span className="mr-1 text-[9px] text-heat" aria-hidden>▲</span>
+            )}
             {val}
           </td>
         );

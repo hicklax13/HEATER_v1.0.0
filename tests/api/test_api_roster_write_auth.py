@@ -77,11 +77,11 @@ class _RecordingWriteService:
     def __init__(self):
         self.called = False
 
-    def set_lineup(self, req) -> MutationResult:
+    def set_lineup(self, req, caller_team=None) -> MutationResult:
         self.called = True
         return MutationResult(ok=True, applied=len(req.assignments))
 
-    def add_drop(self, req) -> MutationResult:
+    def add_drop(self, req, caller_team=None) -> MutationResult:
         self.called = True
         return MutationResult(ok=True)
 

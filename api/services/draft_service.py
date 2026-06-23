@@ -12,6 +12,8 @@ production passes neither (the real engine + pool are loaded lazily)."""
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.draft import (
     DraftCategoryGrade,
     DraftClock,
@@ -26,6 +28,8 @@ from api.contracts.draft import (
 )
 from api.services.player_ref import make_player_ref
 
+logger = logging.getLogger(__name__)
+
 _TOP_N_CAP = 50
 _SIM_CAP = 1000
 _ZERO_CLOCK = DraftClock(current_pick=0, round=0, pick_in_round=0, picking_team_index=0, is_user_turn=False)
@@ -35,7 +39,8 @@ class DraftService:
     def recommend(self, req: DraftRecommendRequest, engine=None, pool=None) -> DraftRecommendResponse:
         try:
             ds = self._rebuild_state(req)
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.recommend: invalid draft state: %s", exc)
             return DraftRecommendResponse(clock=_ZERO_CLOCK, recommendations=[], summary="Invalid draft state.")
         clock = self._clock(ds)
         try:
@@ -46,7 +51,8 @@ class DraftService:
                 recommendations=recs,
                 summary=f"{len(recs)} recommendation{'s' if len(recs) != 1 else ''} for pick {ds.current_pick + 1}.",
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.recommend engine failed: %s", exc)
             return DraftRecommendResponse(
                 clock=clock,
                 recommendations=[],
@@ -56,7 +62,8 @@ class DraftService:
     def simulate_picks(self, req: DraftSimulatePicksRequest, pool=None) -> DraftSimulatePicksResponse:
         try:
             ds = self._rebuild_state(req)
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.simulate_picks: invalid draft state: %s", exc)
             return DraftSimulatePicksResponse(clock=_ZERO_CLOCK, picks=[], summary="Invalid draft state.")
         try:
             import numpy as np
@@ -76,7 +83,8 @@ class DraftService:
                 picks=picks,
                 summary=f"{n} opponent pick{'s' if n != 1 else ''} simulated.",
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.simulate_picks failed: %s", exc)
             try:
                 clock = self._clock(ds)
             except Exception:
@@ -113,7 +121,8 @@ class DraftService:
             from src.draft_grader import grade_draft
 
             return self._to_grade_response(grade_draft(draft_picks, pool, cfg))
-        except Exception:
+        except Exception as exc:
+            logger.warning("DraftService.grade failed: %s", exc)
             return DraftGradeResponse()
 
     @staticmethod

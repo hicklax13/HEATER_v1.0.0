@@ -285,7 +285,7 @@ function toMatchPlayer(mp: ApiMatchPlayer | null | undefined): MatchPlayer | nul
     pos: r.pos,
     status: mp.status ?? "",
     state,
-    stats: mp.stats ?? [],
+    stats: (mp.stats ?? []).map((s) => s.value),
     badge: mp.badge === "IL" || mp.badge === "DTD" ? mp.badge : undefined,
   };
 }
@@ -295,7 +295,7 @@ function toRosterRow(r: ApiRosterRow): RosterRow {
 }
 
 function toTotals(t: ApiSideTotals | undefined): { you: string[]; opp: string[] } {
-  return { you: t?.you ?? [], opp: t?.opp ?? [] };
+  return { you: (t?.you ?? []).map((s) => s.value), opp: (t?.opp ?? []).map((s) => s.value) };
 }
 
 /** Normalize a team name for matching: strip emoji/punctuation (Yahoo names can be

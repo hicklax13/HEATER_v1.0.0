@@ -4,6 +4,8 @@ these produce (see scripts/export_openapi.py)."""
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from api.contracts.common import PlayerRef, StatItem
@@ -31,8 +33,8 @@ class Mover(BaseModel):
 
     player: PlayerRef
     stats: list[StatItem] = Field(default_factory=list)  # up to 2 stats, e.g. [{HR: 18}, {AVG: .322}]
-    trend: str = "flat"  # "up" | "down"
-    tag: str = ""  # "hot" | "cold"
+    trend: Literal["up", "down", "flat"] = "flat"
+    tag: Literal["hot", "cold", ""] = ""
     context: str = ""  # short note, e.g. "Trending hot vs projection"
     rostered_by_you: bool = True
 
@@ -42,7 +44,7 @@ class StatusChip(BaseModel):
 
     label: str  # "IL", "News"
     value: int  # count
-    status: str = "info"  # "ok" | "warn" | "info"
+    status: Literal["ok", "warn", "info"] = "info"
 
 
 class LeverPickup(BaseModel):
@@ -69,7 +71,7 @@ class OpsCard(BaseModel):
     value: float  # current value (projected IP / adds remaining / healthy count)
     total: float  # target/ceiling (IP target / 10 / roster size)
     verdict: str = ""  # human-readable status line
-    status: str = "ok"  # "ok" | "warn" | "danger"
+    status: Literal["ok", "warn", "danger"] = "ok"
 
 
 class MyTeamResponse(BaseModel):

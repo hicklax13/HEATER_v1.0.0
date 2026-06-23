@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { useDraft } from "@/lib/use-draft";
 import type { DraftRec, DraftClock } from "@/lib/draft-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
@@ -25,7 +25,35 @@ export default function DraftPage() {
       {d.phase === "drafting" && <Drafting d={d} />}
       {d.phase === "complete" && <Complete d={d} />}
       {d.phase === "locked" && <PageLocked feature="The Draft Simulator" />}
+      {d.phase === "error" && <DraftError d={d} />}
     </main>
+  );
+}
+
+function DraftError({ d }: { d: Draft }) {
+  return (
+    <Card className="mx-auto max-w-md p-10 text-center">
+      <AlertTriangle className="mx-auto mb-3 size-8 text-heat" aria-hidden />
+      <p className="text-[15px] font-bold text-navy">Draft simulation failed</p>
+      <p className="mt-1 text-[13px] text-ink-2">
+        {d.errorMsg || "An unexpected error occurred. Please try again."}
+      </p>
+      <div className="mt-5 flex justify-center gap-3">
+        <button
+          onClick={() => d.config && d.start(d.config)}
+          disabled={!d.config}
+          className="inline-flex min-h-10 items-center rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.32)] transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
+        >
+          Retry
+        </button>
+        <button
+          onClick={d.reset}
+          className="inline-flex min-h-10 items-center rounded-xl border border-line px-5 text-sm font-semibold text-navy transition-colors hover:bg-surface"
+        >
+          Back to Setup
+        </button>
+      </div>
+    </Card>
   );
 }
 

@@ -9,7 +9,11 @@ Punt detection logic (per CLAUDE.md):
 
 from __future__ import annotations
 
+import logging
+
 from api.contracts.punt import PuntCategory, PuntResponse
+
+logger = logging.getLogger(__name__)
 
 
 class PuntService:
@@ -58,7 +62,8 @@ class PuntService:
                 )
                 if is_punt:
                     punt_candidates.append(cat)
-        except Exception:
+        except Exception as exc:
+            logger.warning("PuntService.get_punt failed: %s", exc)
             categories = []  # cold env / no data → empty list
             punt_candidates = []
 

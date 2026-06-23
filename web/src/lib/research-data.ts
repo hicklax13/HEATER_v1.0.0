@@ -2,6 +2,7 @@ import type { PlayerRef } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiOverallToResearch } from "@/lib/api/adapters";
 import type { ApiLeadersOverallResponse } from "@/lib/api/types";
+import { isLive } from "@/lib/api/live";
 
 /**
  * Research data — a cross-category value leaderboard with 5 lenses
@@ -69,8 +70,6 @@ function groupByLens(rows: LeaderRow[]): Record<Lens, LeaderRow[]> {
 
 export const RESEARCH: ResearchData = { byLens: groupByLens(MOCK_ROWS) };
 
-const isLive = () => process.env.NEXT_PUBLIC_HEATER_LIVE === "1";
-
 /** Fetch a single lens board. Live: /api/leaders/overall?lens=… with a 4s
  *  timeout (the backend breakout lens currently hangs >12s) — a timeout/error
  *  yields an empty board, never a throw. Mock: the in-memory board. */
@@ -86,13 +85,15 @@ export function fetchLens(lens: Lens): Promise<LeaderRow[]> {
 /** Initial load. Live: fetch ONLY the overall board (fast — the default tab);
  *  the other lenses load on demand (see fetchLens) so one slow lens can't block
  *  the page and parallel requests can't starve each other on a single-worker
- *  API. Falls back to the full mock if the overall board is empty. */
-export async function fetchResearch(delayMs = 600): Promise<ResearchData> {
+ *  API. Empty live board → null → honest empty state. Mock (off-live): in-memory
+ *  RESEARCH after a simulated delay. */
+export async function fetchResearch(delayMs = 600): Promise<ResearchData | null> {
   if (isLive()) {
     const overall = await fetchLens("overall");
     if (overall.length > 0) {
       return { byLens: { overall, hot: [], cold: [], breakout: [], sell: [] } };
     }
+    return null;
   }
   return new Promise((resolve) => setTimeout(() => resolve(RESEARCH), delayMs));
 }

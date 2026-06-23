@@ -83,7 +83,7 @@ export const STANDINGS: StandingsData = {
  *  INNER /playoff-odds keeps its own 402→locked-panel handling (team-optional, so
  *  an unassigned viewer still gets the table, just no `you` highlight). Mock
  *  (off-live, or live with an empty standings): the in-memory STANDINGS. */
-export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
+export async function fetchStandings(delayMs = 600): Promise<StandingsData | null> {
   return liveOrMock(
     async () => {
       // Standings + playoff odds in parallel; the odds sim (~2.4s) is best-effort
@@ -100,8 +100,8 @@ export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
         if (oddsResult.odds) data = applyPlayoffOdds(data, oddsResult.odds);
         return { ...data, playoffOddsLocked: oddsResult.locked };
       }
-      // Empty standings (Yahoo not synced yet) → demo snapshot, not an error.
-      return STANDINGS;
+      // Empty standings (Yahoo not synced yet) → honest empty state.
+      return null;
     },
     () => new Promise<StandingsData>((resolve) => setTimeout(() => resolve(STANDINGS), delayMs)),
   );

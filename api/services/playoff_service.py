@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from api.contracts.common import Record
 from api.contracts.playoff import PlayoffOddsResponse, PlayoffTeam
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,7 @@ class PlayoffService:
                     playoff_odds=_odds(prob),
                     projected_wins=round(w, 1),
                     projected_record=f"{w:.0f}-{lo:.0f}-{t:.0f}",
+                    projected_record_wlt=Record(wins=int(w), losses=int(lo), ties=int(t)),
                     current_wins=int(current_wins.get(str(team), 0)),
                     rank=rank,
                     in_cut=rank <= _PLAYOFF_SPOTS,
