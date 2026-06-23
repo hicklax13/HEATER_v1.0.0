@@ -193,8 +193,12 @@ class StreamingService:
             num_starts = 1  # NaN/junk → default (int(nan) would raise)
         raw_status = str(g("status", "") or "")
         status = raw_status if raw_status in _ALLOWED_STATUS else ""
+        if raw_status and not status:
+            logger.debug("StreamingService: unknown status %r coerced to ''", raw_status)
         raw_conf = str(g("confidence", "") or "")
         confidence = raw_conf if raw_conf in _ALLOWED_CONF else ""
+        if raw_conf and not confidence:
+            logger.debug("StreamingService: unknown confidence %r coerced to ''", raw_conf)
         return StreamCandidate(
             player=make_player_ref(
                 id=pid_int,

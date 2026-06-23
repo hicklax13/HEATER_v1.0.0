@@ -464,11 +464,13 @@ class MatchupService:
                 m = recs[recs["team_name"] == team_name]
                 if not m.empty:
                     row = m.iloc[0]
-                    record = _format_record(row.get("wins"), row.get("losses"), row.get("ties"), row.get("rank"))
+                    # Parse W-L-T once; both the structured field and the display
+                    # string derive from the SAME ints so they can't drift.
                     w = int(_f(row.get("wins")))
                     l = int(_f(row.get("losses")))
                     t = int(_f(row.get("ties")))
                     record_wlt = Record(wins=w, losses=l, ties=t)
+                    record = _format_record(w, l, t, row.get("rank"))
         except Exception as exc:
             logger.warning("MatchupService._team_side failed: %s", exc)
         return TeamSide(name=team_name, manager=manager, record=record, record_wlt=record_wlt, score=int(score))

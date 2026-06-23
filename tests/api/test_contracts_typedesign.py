@@ -315,9 +315,11 @@ def test_chat_send_response_tool_trace_coerces_dicts():
 # ---------------------------------------------------------------------------
 
 
-def test_streaming_mapper_coerces_unknown_status_and_confidence():
-    """StreamingService._to_candidate with a WEIRD status/confidence must not raise
-    and must degrade to "" for both fields."""
+def test_streaming_mapper_coerces_unknown_status_and_confidence(caplog):
+    """StreamingService._to_candidate with a WEIRD status/confidence must not raise,
+    must degrade to "" for both fields, and must log the drop at DEBUG (observability)."""
+    import logging
+
     from api.services.streaming_service import StreamingService
 
     row = {
@@ -344,9 +346,12 @@ def test_streaming_mapper_coerces_unknown_status_and_confidence():
         "risk_flags": [],
         "components": {},
     }
-    cand = StreamingService._to_candidate(row, rank=1)
+    with caplog.at_level(logging.DEBUG, logger="api.services.streaming_service"):
+        cand = StreamingService._to_candidate(row, rank=1)
     assert cand.status == "", f"Expected '' got {cand.status!r}"
     assert cand.confidence == "", f"Expected '' got {cand.confidence!r}"
+    assert any("unknown status" in r.message for r in caplog.records)
+    assert any("unknown confidence" in r.message for r in caplog.records)
 
 
 def test_streaming_mapper_preserves_valid_status_and_confidence():

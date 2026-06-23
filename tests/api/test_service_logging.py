@@ -644,3 +644,21 @@ def test_closer_service_pool_load_failure_logs_debug(monkeypatch, caplog):
         "CloserService" in r.message and "pool" in r.message.lower() and r.levelno == logging.WARNING
         for r in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# TeamService._rank_and_record — None standings must not double-warn
+# ---------------------------------------------------------------------------
+
+
+def test_rank_and_record_none_standings_returns_default_without_spurious_warning(caplog):
+    """When get_standings failed (wrapped to None at the call site, already logged
+    once), _rank_and_record must return the (0, '0-0-0') default WITHOUT subscripting
+    None and emitting a second, spurious TypeError warning."""
+    from api.services.team_service import TeamService
+
+    with caplog.at_level(logging.WARNING):
+        rank, record = TeamService._rank_and_record(None, None, "Team Hickey")
+
+    assert (rank, record) == (0, "0-0-0")
+    assert not any("_rank_and_record" in r.message for r in caplog.records)
