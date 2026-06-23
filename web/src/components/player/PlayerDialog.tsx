@@ -49,7 +49,10 @@ export function PlayerDialog({ player, children }: { player: DialogPlayer; child
     return () => {
       active = false;
     };
-  }, [open, loaded, player]);
+    // Keyed by the stable mlbId, not the `player` object: a parent re-render
+    // that passes a new-but-equal player object must not trigger a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, loaded, player.mlbId]);
   const d = loaded ?? fallback;
   const tb = teamBrand(d.teamId);
 

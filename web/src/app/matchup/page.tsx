@@ -279,10 +279,10 @@ function RosterCompare({
                 className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60"
               >
                 <PlayerCell p={row.you} rosteredBy={you} />
-                <StatCells p={row.you} />
+                <StatCells p={row.you} cols={columns.length} />
                 <td className="bg-surface px-2 py-2 text-center font-bold text-navy">{row.slot}</td>
                 <PlayerCell p={row.opp} rosteredBy={opp} />
-                <StatCells p={row.opp} />
+                <StatCells p={row.opp} cols={columns.length} />
               </tr>
             ))}
             <tr className="border-t-2 border-line bg-surface font-bold text-navy">
@@ -336,8 +336,11 @@ function PlayerCell({ p, rosteredBy }: { p: MatchPlayer | null; rosteredBy: stri
   );
 }
 
-function StatCells({ p }: { p: MatchPlayer | null }) {
-  const vals = p ? p.stats : ["-", "-", "-", "-", "-", "-", "-"];
+function StatCells({ p, cols }: { p: MatchPlayer | null; cols: number }) {
+  // An empty slot must emit exactly `cols` cells (the column count this table
+  // was built with) so the row stays aligned even if the API ever returns a
+  // different number of stat columns than the hitter/pitcher default.
+  const vals = p ? p.stats : Array.from({ length: cols }, () => "-");
   return (
     <>
       {vals.map((v, i) => (
