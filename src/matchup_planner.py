@@ -569,7 +569,6 @@ def _projected_hitter_adjusted(
     if not games:
         return {}
 
-    len(games)
     # Estimate per-game rates from season projections (~140 games)
     season_games = 140.0
 
