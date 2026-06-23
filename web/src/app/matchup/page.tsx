@@ -150,15 +150,16 @@ function ScoreHeader({
               <ChevronRight className="size-4" aria-hidden />
             </button>
           </div>
-          {/* Date tabs — real <button> elements so they are keyboard-focusable and
-              activatable via Enter/Space. aria-current marks the active date. */}
-          <div className="flex flex-wrap items-center gap-1 text-[12.5px]" role="group" aria-label="Filter by date">
+          {/* Date tabs — visual only; the matchup contract is a weekly aggregate
+              and per-date slicing is a deferred feature. Kept as <button> elements
+              for keyboard focusability, but no filter ARIA (role/aria-current)
+              since nothing actually changes when a tab is selected. */}
+          <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
             {data.dateTabs.map((t, i) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => onTabChange(i)}
-                aria-current={i === activeTab ? "true" : undefined}
                 className={cn(
                   "rounded-md px-2 py-1 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50",
                   i === activeTab ? "bg-heat text-white" : "text-white/65 hover:bg-white/10",
@@ -210,13 +211,13 @@ function CatTotals({ data }: { data: MatchupData }) {
         <table className="w-full min-w-[820px] text-[13px]">
           <thead>
             <tr className="border-b border-line bg-surface">
-              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Team</th>
+              <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Team</th>
               {data.cats.map((c) => (
-                <th key={c.key} className="px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-ink-3">
+                <th key={c.key} scope="col" className="px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-ink-3">
                   {c.key}
                 </th>
               ))}
-              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-navy">Score</th>
+              <th scope="col" className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-navy">Score</th>
             </tr>
           </thead>
           <tbody>
