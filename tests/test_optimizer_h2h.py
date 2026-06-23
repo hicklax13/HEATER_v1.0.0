@@ -16,8 +16,43 @@ from src.optimizer.h2h_engine import (
     INVERSE_CATS,
     compute_h2h_category_weights,
     default_category_variances,
+    estimate_h2h_outcome_probs,
     estimate_h2h_win_probability,
 )
+
+
+# ── estimate_h2h_outcome_probs: split the copula sim into win/tie/loss ──────────
+class TestOutcomeProbs:
+    def test_outcome_probs_sum_to_one(self) -> None:
+        r = estimate_h2h_outcome_probs(_tied_totals(), _tied_totals())
+        assert set(r) == {"win", "tie", "loss"}
+        assert abs((r["win"] + r["tie"] + r["loss"]) - 1.0) < 1e-9
+
+    def test_outcome_probs_dominant_team_wins(self) -> None:
+        r = estimate_h2h_outcome_probs(_dominant_totals(), _weak_totals())
+        assert r["win"] > 0.9
+        assert r["win"] > r["loss"]
+        assert abs((r["win"] + r["tie"] + r["loss"]) - 1.0) < 1e-9
+
+    def test_outcome_probs_behind_team_loses(self) -> None:
+        r = estimate_h2h_outcome_probs(_weak_totals(), _dominant_totals())
+        assert r["loss"] > 0.9
+        assert r["loss"] > r["win"]
+
+    def test_outcome_probs_balanced_symmetric(self) -> None:
+        r = estimate_h2h_outcome_probs(_tied_totals(), _tied_totals())
+        # Identical rosters → win and loss should be ~symmetric.
+        assert r["win"] == pytest.approx(r["loss"], abs=0.1)
+
+    def test_outcome_win_consistent_with_blended_win_prob(self) -> None:
+        # win + 0.5*tie (Yahoo even-split) must equal the legacy blended win prob.
+        import numpy as np
+
+        my, opp = _dominant_totals(), _tied_totals()
+        out = estimate_h2h_outcome_probs(my, opp, rng=np.random.RandomState(11))
+        blended = estimate_h2h_win_probability(my, opp, rng=np.random.RandomState(11))
+        assert out["win"] + 0.5 * out["tie"] == pytest.approx(blended["overall_win_prob"], abs=1e-9)
+
 
 # ── Helper: build tied totals ────────────────────────────────────────
 

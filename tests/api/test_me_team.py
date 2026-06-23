@@ -356,14 +356,79 @@ def test_matchup_hero_none_when_no_opponent():
 
 
 def test_matchup_hero_undecided_week_zero_probs():
-    """Opponent known but no categories decided yet → opponent+week show, probs 0."""
+    """Opponent known but no categories decided yet → opponent+week show, probs 0
+    (no ctx totals → falls back to the live category-lead share)."""
     from src.valuation import LeagueConfig
 
     raw = {"week": 1, "opp_name": "Rivals", "wins": 0, "losses": 0, "ties": 0}
-    hero = _real_service()._matchup(raw, LeagueConfig())
+    hero = _real_service()._matchup(raw, LeagueConfig(), None)
     assert hero is not None
     assert hero.opponent == "Rivals"
     assert (hero.win_prob, hero.tie_prob, hero.loss_prob) == (0.0, 0.0, 0.0)
+
+
+class _Ctx:
+    """Minimal stand-in for the optimizer context (just the projected totals)."""
+
+    def __init__(self, my, opp):
+        self.my_totals = my
+        self.opp_totals = opp
+
+
+_DOMINANT = {
+    "r": 120.0,
+    "hr": 40.0,
+    "rbi": 115.0,
+    "sb": 25.0,
+    "avg": 0.310,
+    "obp": 0.400,
+    "w": 14.0,
+    "l": 3.0,
+    "sv": 12.0,
+    "k": 110.0,
+    "era": 2.50,
+    "whip": 0.95,
+}
+_WEAK = {
+    "r": 50.0,
+    "hr": 8.0,
+    "rbi": 45.0,
+    "sb": 3.0,
+    "avg": 0.230,
+    "obp": 0.290,
+    "w": 3.0,
+    "l": 11.0,
+    "sv": 1.0,
+    "k": 40.0,
+    "era": 5.20,
+    "whip": 1.50,
+}
+
+
+def test_matchup_hero_uses_true_sim_when_ctx_has_totals():
+    """With both rosters' projected totals, the hero shows the TRUE simulated
+    matchup win prob (H2H copula engine), NOT the current category-lead share.
+    The raw record says you're behind (2-10), but your projection dominates → the
+    sim win prob is high, proving it's the sim, not the 2/12=0.17 share."""
+    from src.valuation import LeagueConfig
+
+    raw = {"week": 13, "opp_name": "Rivals", "wins": 2, "losses": 10, "ties": 0}
+    ctx = _Ctx(_DOMINANT, _WEAK)
+    hero = _real_service()._matchup(raw, LeagueConfig(), ctx)
+    assert hero is not None
+    assert hero.win_prob > 0.8  # the dominant sim, not the 0.17 category-lead share
+    assert abs((hero.win_prob + hero.tie_prob + hero.loss_prob) - 1.0) < 1e-6
+
+
+def test_matchup_hero_falls_back_to_share_when_ctx_totals_empty():
+    """Cold env / no opponent projection → degrade to the category-lead share."""
+    from src.valuation import LeagueConfig
+
+    raw = {"week": 13, "opp_name": "Rivals", "wins": 7, "losses": 4, "ties": 1}
+    ctx = _Ctx({}, {})  # no projected totals
+    hero = _real_service()._matchup(raw, LeagueConfig(), ctx)
+    assert hero is not None
+    assert hero.win_prob == pytest.approx(7 / 12)  # the snapshot fallback
 
 
 # ── slice-2 lever (DB-free: build_optimizer_context + rank_free_agents monkeypatched
