@@ -389,9 +389,13 @@ def test_keys_get_admin_shared_key_logs_decrypt_failure(monkeypatch, caplog):
 
     import src.ai.keys as keys_mod
 
-    # Return a valid JSON map so the code reaches _decrypt
+    # Return a valid JSON map so the code reaches _decrypt. Patch the name BOUND
+    # IN keys (it does `from src.app_settings import get_setting`), not the source
+    # module — otherwise the patch misses and the test leans on shared DB state
+    # (passes alone, fails in the full suite).
     monkeypatch.setattr(
-        "src.app_settings.get_setting",
+        keys_mod,
+        "get_setting",
         lambda key: json.dumps({"openai": "fakeciphertext"}),
         raising=False,
     )
