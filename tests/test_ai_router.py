@@ -60,6 +60,16 @@ def test_price_table_known_models():
     assert price_per_token("ollama/qwen2.5:7b") == (0.0, 0.0)
 
 
+def test_price_per_token_unknown_model_uses_nonzero_fallback():
+    """An unpriced (non-local) model must NOT meter as free — it falls back to a
+    conservative paid rate so it can't run free against a managed spend cap."""
+    from src.ai.router import _FALLBACK_PRICE_PER_TOKEN, price_per_token
+
+    assert _FALLBACK_PRICE_PER_TOKEN != (0.0, 0.0)
+    assert price_per_token("someprovider/brand-new-2027-model") == _FALLBACK_PRICE_PER_TOKEN
+    assert price_per_token("ollama/whatever") == (0.0, 0.0)  # local still free
+
+
 def test_deepseek_models_priced_and_in_catalog():
     from src.ai.router import label_for_model, model_catalog, price_per_token, provider_of
 

@@ -35,11 +35,13 @@ def _sf(value, default: float = 0.0) -> float:
 
 
 def _norm_value(z) -> float:
-    """Overall category_value → 0-100. NaN/inf → 0.0.
+    """Overall category_value (a SUM of up to 6 per-category z-scores, so it ranges
+    to ~±10, NOT a single z) → 0-100. NaN/inf → 0.0.
 
-    NOTE: `category_value` is a SUM of up to 6 per-category z-scores (one per
-    scoring cat), so it ranges to ~±10 — NOT a single z (~±4). Mapping [-10,10]
-    keeps the top of the board differentiated instead of saturating at 100.
+    A LOGISTIC map (not a clamped linear one): the old ``(z+10)/20*100`` clamped
+    every sum-of-z ≥ 10 to a flat 100, so the elite top of the board all read 100
+    and lost their ordering on the heat bar. The sigmoid asymptotes toward 100 but
+    keeps differentiating the top (z=10→88, 15→95, 20→98). Midpoint z=0 → 50.
     """
     try:
         fval = float(z)
@@ -47,7 +49,8 @@ def _norm_value(z) -> float:
         return 0.0
     if math.isnan(fval) or math.isinf(fval):
         return 0.0
-    return round(max(0.0, min(100.0, (fval + 10.0) / 20.0 * 100.0)), 1)
+    fval = max(-50.0, min(50.0, fval))  # guard exp() against overflow on garbage
+    return round(100.0 / (1.0 + math.exp(-fval / 5.0)), 1)
 
 
 def _norm_delta(d) -> float:

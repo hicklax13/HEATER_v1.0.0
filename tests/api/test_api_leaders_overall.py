@@ -13,16 +13,18 @@ from api.services.leaders_overall_service import (
 )
 
 
-def test_norm_value_maps_and_clamps():
+def test_norm_value_logistic_desaturates_top():
     # category_value is a SUM of up to 6 z-scores (~±10), not a single z.
-    assert _norm_value(0.0) == 50.0  # (0+10)/20*100
-    assert _norm_value(10.0) == 100.0
-    assert _norm_value(-10.0) == 0.0
-    assert _norm_value(99.0) == 100.0  # clamp
+    assert _norm_value(0.0) == 50.0  # logistic midpoint
+    # The elite top of the board must stay DIFFERENTIATED, not all flatten to 100.
+    assert _norm_value(10.0) < 100.0  # was clamped to a flat 100
+    assert _norm_value(20.0) > _norm_value(10.0)  # higher sum-of-z still ranks higher
+    assert _norm_value(15.0) > _norm_value(10.0)
+    # ...and symmetric on the bottom.
+    assert _norm_value(-20.0) < _norm_value(-10.0)
     assert _norm_value(float("nan")) == 0.0  # NaN-safe
-    # regression guard: a realistic top sum-of-z (~6.5) must NOT saturate to 100
-    assert _norm_value(6.5) == 82.5
-    assert _norm_value(4.0) < 100.0  # was wrongly 100 under the single-z window
+    assert _norm_value(float("inf")) == 0.0
+    assert _norm_value(1000.0) <= 100.0  # no exp() overflow on garbage
 
 
 def test_norm_delta_maps_and_clamps():

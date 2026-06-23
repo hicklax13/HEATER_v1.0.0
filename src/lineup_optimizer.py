@@ -67,6 +67,18 @@ ALL_CATS = HITTING_CATS + PITCHING_CATS
 INVERSE_CATS = {c.lower() for c in _LC_ONCE.inverse_stats}
 del _LC_ONCE
 
+
+def _safe_num(value, default: float = 0.0) -> float:
+    """Finite-float coercion (None/NaN/inf/junk → default). ``float(v or 0)`` does
+    NOT guard pandas NaN: NaN is truthy, so ``float(nan or 0)`` = nan, which then
+    poisons the LP objective (a single NaN stat can make the whole solve nan)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if (np.isnan(f) or np.isinf(f)) else f
+
+
 # LO-E1 ratio-protect: how much worse a pure-SP's ERA must be than the rest of
 # the staff before its P-flex fill bonus is dropped in a ratio-protect posture.
 # 0.30 ERA ≈ ~1 standings win in a 12-team H2H league (e.g. 3.50 vs 3.80) — the
@@ -244,7 +256,7 @@ class LineupOptimizer:
             for cat in ALL_CATS:
                 if cat not in row.index:
                     continue
-                val = float(row.get(cat, 0) or 0)
+                val = _safe_num(row.get(cat))
                 w = weights.get(cat, 1.0)
                 s = scale.get(cat, 1.0)
 
@@ -837,11 +849,11 @@ def _compute_player_value(player: pd.Series, weights: dict[str, float], scale: d
                If None, uses raw values (backward compat for tests).
     """
     value = 0.0
-    ip = float(player.get("ip", 0) or 0)
+    ip = _safe_num(player.get("ip"))
     for cat in ALL_CATS:
         if cat not in player.index:
             continue
-        val = float(player.get(cat, 0) or 0)
+        val = _safe_num(player.get(cat))
         w = weights.get(cat, 1.0)
         s = scale.get(cat, 1.0) if scale else 1.0
         if cat in ("era", "whip"):

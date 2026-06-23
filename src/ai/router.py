@@ -8,8 +8,17 @@ price a newer model (it returns 0 for models outside its bundled map).
 from __future__ import annotations
 
 import json
+import logging
 
 from src.app_settings import get_setting, set_setting
+
+logger = logging.getLogger(__name__)
+
+# A model missing from the price table falls back to this conservative paid rate
+# (Sonnet-class), NOT zero — for a managed-spend cap, slightly OVER-counting an
+# unpriced model is far safer than letting it run free. Operators see a warning to
+# add the model's real price.
+_FALLBACK_PRICE_PER_TOKEN = (3e-6, 15e-6)
 
 _TIER_MODELS_SETTING = "ai_tier_models"
 
@@ -112,9 +121,21 @@ def provider_of(model: str) -> str:
 
 
 def price_per_token(model: str) -> tuple[float, float]:
+    """Per-token (input, output) USD price. ``ollama/*`` (local) is genuinely free;
+    a model missing from the table falls back to a conservative paid rate (+ a
+    warning so operators add it) rather than (0, 0), which would silently
+    under-count managed spend and let an unpriced model run free against a cap."""
     if model.startswith("ollama/"):
         return (0.0, 0.0)
-    return _PRICE_PER_TOKEN.get(model, (0.0, 0.0))
+    price = _PRICE_PER_TOKEN.get(model)
+    if price is not None:
+        return price
+    logger.warning(
+        "price_per_token: %r is not in the price table — using the conservative fallback %s; add its real price.",
+        model,
+        _FALLBACK_PRICE_PER_TOKEN,
+    )
+    return _FALLBACK_PRICE_PER_TOKEN
 
 
 # Thinking-effort dial (Bubba B2.1). The UI offers Off/Low/Med/High; off/low map
