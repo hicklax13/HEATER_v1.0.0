@@ -575,3 +575,148 @@ def test_roster_health_all_active():
     ctx = _FakeCtx({}, pd.DataFrame(), pd.DataFrame(), [], roster=roster)
     card = _real_service()._roster_health_card(ctx)
     assert card.value == 2.0 and card.status == "ok" and card.verdict == "All active"
+
+
+# ── A1 (L-4): team_name reconciliation in _rank_and_record + _roster ──────────
+# A bare "Team Hickey" must match the Yahoo "🏆 Team Hickey" (emoji/whitespace),
+# mirroring playoff_service which already normalizes. Exact match still wins.
+def test_rank_and_record_reconciles_emoji_team_name():
+    """records carry the Yahoo emoji name; the request has the bare name → resolve,
+    not (0,'0-0-0')."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["🏆 Team Hickey"], "category": ["HR"], "total": [50.0], "rank": [8]})
+    records = pd.DataFrame([{"team_name": "🏆 Team Hickey", "wins": 5, "losses": 7, "ties": 1, "rank": 8}])
+    rank, record = svc._rank_and_record(standings, records, "Team Hickey")
+    assert record == "5-7-1"
+    assert rank == 8
+
+
+def test_rank_and_record_reconciles_in_standings_fallback():
+    """records empty; the standings WINS row carries the emoji name → still reconcile."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["🏆 Team Hickey"], "category": ["WINS"], "total": ["7-3-0"], "rank": [2]})
+    rank, record = svc._rank_and_record(standings, pd.DataFrame(), "Team Hickey")
+    assert record == "7-3-0"
+    assert rank == 2
+
+
+def test_rank_and_record_exact_match_still_works():
+    """Exact match is the fast path — unchanged behavior."""
+    svc = _real_service()
+    standings = pd.DataFrame({"team_name": ["Team A"], "category": ["HR"], "total": [50.0], "rank": [3]})
+    records = pd.DataFrame([{"team_name": "Team A", "wins": 8, "losses": 4, "ties": 1, "rank": 3}])
+    rank, record = svc._rank_and_record(standings, records, "Team A")
+    assert record == "8-4-1" and rank == 3
+
+
+def test_roster_reconciles_emoji_team_name(monkeypatch):
+    """_roster slices league_rosters by team — a bare name must match the emoji roster
+    name so the roster isn't empty."""
+    lr = pd.DataFrame(
+        {
+            "team_name": ["🏆 Team Hickey", "🏆 Team Hickey", "Other Team"],
+            "player_id": [10, 11, 99],
+            "status": ["active", "IL10", "active"],
+        }
+    )
+    monkeypatch.setattr("src.database.load_league_rosters", lambda: lr)
+    roster = _real_service()._roster("Team Hickey")
+    assert sorted(roster["player_id"].tolist()) == [10, 11]  # only my two, not Other Team
+
+
+def test_roster_empty_when_no_team_matches(monkeypatch):
+    lr = pd.DataFrame({"team_name": ["Other Team"], "player_id": [99], "status": ["active"]})
+    monkeypatch.setattr("src.database.load_league_rosters", lambda: lr)
+    assert _real_service()._roster("Team Hickey").empty
+
+
+# ── A2 (M-7): MatchupHero.opp_name populated from the resolved opponent ───────
+def test_matchup_hero_sets_opp_name_from_opponent():
+    """opp_name mirrors the resolved opponent (same source as `opponent`), so an API
+    consumer reading opp_name gets the value instead of None."""
+    from src.valuation import LeagueConfig
+
+    raw = {"week": 13, "opp_name": "Baty Babies", "wins": 7, "losses": 4, "ties": 1}
+    hero = _real_service()._matchup(raw, LeagueConfig())
+    assert hero is not None
+    assert hero.opponent == "Baty Babies"
+    assert hero.opp_name == "Baty Babies"  # populated, not None
+
+
+def test_matchup_hero_opp_name_none_when_no_opponent():
+    """No opponent → the whole hero is None (so opp_name is never a hollow '')."""
+    from src.valuation import LeagueConfig
+
+    assert _real_service()._matchup({"week": 5, "opp_name": ""}, LeagueConfig()) is None
+
+
+# ── A3 (L-1): News chip counts DISTINCT recent players, not all history rows ──
+def test_news_count_distinct_and_recent(monkeypatch):
+    """The chip must count DISTINCT roster players with RECENT news, not every
+    historical row (was COUNT(*) → 930-1490)."""
+    import datetime as _dt
+
+    now = datetime.now(UTC)
+    recent = (now - timedelta(days=2)).isoformat()
+    old = (now - timedelta(days=400)).isoformat()
+
+    class _FakeCur:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchone(self):
+            return self._rows
+
+    class _FakeConn:
+        def __init__(self, rows):
+            self.captured = None
+            self._rows = rows
+
+        def execute(self, sql, params):
+            self.captured = (sql, params)
+            # Emulate sqlite: COUNT(DISTINCT player_id) over (recent rows only).
+            assert "DISTINCT" in sql.upper()
+            # the recency cutoff param must be an ISO string within the window
+            cutoff = params[-1]
+            assert isinstance(cutoff, str) and cutoff < recent  # cutoff older than the recent row
+            assert cutoff > old  # but newer than the 400-day-old row → excludes it
+            return _FakeCur(self._rows)
+
+        def close(self):
+            pass
+
+    # Two roster players, one with 5 recent rows (distinct=1) + one old row (excluded):
+    # the right answer is the DISTINCT-recent count the query computes (we assert it's
+    # the query result, and that the query is shaped correctly above).
+    fake = _FakeConn((1,))
+    monkeypatch.setattr("src.database.get_connection", lambda: fake)
+    assert _dt  # keep import referenced
+    n = _real_service()._news_count([10, 11])
+    assert n == 1  # the DISTINCT-recent count, not 6
+
+
+def test_news_count_empty_roster_returns_none():
+    assert _real_service()._news_count([]) is None
+
+
+# ── A4 (L-2): per-category win_prob is None (not a misleading 0.0) ────────────
+def test_categories_win_prob_is_none_not_zero():
+    """The raw Yahoo matchup carries no per-category win_prob, so emit None — never a
+    misleading 0.0."""
+    from src.valuation import LeagueConfig
+
+    raw = {"categories": [{"cat": "HR", "you": 20.0, "opp": 14.0}]}
+    cats = _real_service()._categories(raw, LeagueConfig())
+    assert len(cats) == 1
+    assert cats[0].cat == "HR"
+    assert cats[0].you == 20.0 and cats[0].opp == 14.0
+    assert cats[0].win_prob is None  # not 0.0
+
+
+def test_categories_win_prob_passthrough_when_present():
+    """If a future source DID carry a per-category win_prob, pass it through."""
+    from src.valuation import LeagueConfig
+
+    raw = {"categories": [{"cat": "HR", "you": 20.0, "opp": 14.0, "win_prob": 0.62}]}
+    cats = _real_service()._categories(raw, LeagueConfig())
+    assert cats[0].win_prob == 0.62

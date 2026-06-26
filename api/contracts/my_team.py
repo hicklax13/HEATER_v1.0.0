@@ -13,6 +13,9 @@ from api.contracts.common import PlayerRef, StatItem
 
 class MatchupHero(BaseModel):
     opponent: str
+    # Alias of `opponent` so a consumer reading `opp_name` gets the value (was None).
+    # None only when there is genuinely no opponent (the hero itself is None then).
+    opp_name: str | None = None
     week: int
     win_prob: float = Field(ge=0.0, le=1.0)
     tie_prob: float = Field(ge=0.0, le=1.0)
@@ -24,7 +27,10 @@ class CategoryLine(BaseModel):
     you: float
     opp: float
     edge: float
-    win_prob: float = Field(ge=0.0, le=1.0)
+    # Per-category win prob is not yet computed (the raw Yahoo matchup carries none),
+    # so this is None rather than a misleading 0.0. A real per-category H2H compute is
+    # out of scope (would need the H2H engine per category).
+    win_prob: float | None = Field(default=None, ge=0.0, le=1.0)
     inverse: bool = False
 
 

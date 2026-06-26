@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from api.contracts.common import StatItem
 from api.contracts.my_team import (
@@ -33,6 +33,9 @@ _IL_PREFIXES = ("IL10", "IL15", "IL60", "IL ", "DTD")
 # Freshness is reported from the most-relevant live sources for this page.
 _FRESHNESS_SOURCES = ("yahoo_standings", "season_stats", "yahoo_rosters")
 _PLAYOFF_CUT_FALLBACK = 4
+# News chip recency window: count distinct players with news this recent (not all
+# history). 30 days ≈ "currently in the news" without dropping a lingering injury.
+_NEWS_RECENCY_DAYS = 30
 
 
 def _is_il_status(status: str) -> bool:
@@ -103,6 +106,26 @@ def _cat_stat(pool_row, cat: str) -> StatItem:
         else (lambda k, d=None: None)
     )
     return StatItem(label=cat, value=_stat_value(g(f"ytd_{cat.lower()}"), cat))
+
+
+def _team_name_mask(frame, team_name: str):
+    """Boolean mask selecting a frame's rows for ``team_name``.
+
+    Exact equality is the fast path; if it matches nothing, fall back to a
+    normalized (emoji/whitespace/case-insensitive) match so a bare 'Team Hickey'
+    reconciles with the Yahoo '🏆 Team Hickey' — mirrors playoff_service, which
+    already normalizes. Returns the exact mask when neither matches (→ empty)."""
+    # Local import: api.tenancy pulls the DI graph (api.deps) at module load, which
+    # imports this service back → a module-level import would be a circular import.
+    from api.tenancy import normalize_team_name
+
+    col = frame["team_name"]
+    exact = col == team_name
+    if bool(exact.any()):
+        return exact
+    target = normalize_team_name(team_name)
+    norm = col.map(lambda v: normalize_team_name(v) == target)
+    return norm if bool(norm.any()) else exact
 
 
 class TeamService:
@@ -366,7 +389,7 @@ class TeamService:
         # 1. Records table (authoritative).
         try:
             if records is not None and not records.empty and "team_name" in records.columns:
-                rrow = records[records["team_name"] == team_name]
+                rrow = records[_team_name_mask(records, team_name)]
                 if not rrow.empty:
                     r = rrow.iloc[0]
                     w = _opt_int(r.get("wins"))
@@ -385,7 +408,7 @@ class TeamService:
         if standings is None or "team_name" not in getattr(standings, "columns", []):
             return 0, "0-0-0"
         try:
-            team_rows = standings[standings["team_name"] == team_name]
+            team_rows = standings[_team_name_mask(standings, team_name)]
             wins_rows = team_rows[team_rows["category"] == "WINS"]
             if not wins_rows.empty:
                 rank = _opt_int(wins_rows["rank"].iloc[0]) if "rank" in wins_rows.columns else None
@@ -427,6 +450,7 @@ class TeamService:
         win_prob, tie_prob, loss_prob = TeamService._sim_outcome(ctx) or TeamService._category_lead_share(raw_matchup)
         return MatchupHero(
             opponent=opponent,
+            opp_name=opponent,  # mirror `opponent` so opp_name consumers get the value
             week=int(_f(raw_matchup.get("week"), 0.0)),
             win_prob=win_prob,
             tie_prob=tie_prob,
@@ -473,13 +497,16 @@ class TeamService:
             cat = str(c.get("cat", ""))
             you = float(c.get("you", 0.0))
             opp = float(c.get("opp", 0.0))
+            # The raw Yahoo matchup carries no per-category win_prob → emit None, never a
+            # misleading 0.0. Pass through only if a source actually provides one.
+            wp = c.get("win_prob")
             out.append(
                 CategoryLine(
                     cat=cat,
                     you=you,
                     opp=opp,
                     edge=you - opp,
-                    win_prob=float(c.get("win_prob", 0.0)),
+                    win_prob=(_f(wp) if wp is not None else None),
                     inverse=cat in inverse,
                 )
             )
@@ -497,7 +524,7 @@ class TeamService:
             lr = load_league_rosters()
             if lr is None or lr.empty or "team_name" not in lr.columns:
                 return pd.DataFrame()
-            return lr[lr["team_name"] == team_name].copy()
+            return lr[_team_name_mask(lr, team_name)].copy()
         except Exception as exc:
             logger.warning("TeamService._roster failed: %s", exc)
             return pd.DataFrame()
@@ -599,17 +626,25 @@ class TeamService:
 
     @staticmethod
     def _news_count(roster_ids: list[int]) -> int | None:
+        """Count DISTINCT roster players with RECENT news (within
+        ``_NEWS_RECENCY_DAYS``). The old ``COUNT(*)`` over ALL history produced a
+        meaningless 930-1490 badge; the chip should read 'how many of my players have
+        fresh news'. ``published_at`` is ISO text (string-comparable) but nullable, so
+        coalesce to ``fetched_at``."""
         if not roster_ids:
             return None
         try:
             from src.database import get_connection
 
+            cutoff = (datetime.now(UTC) - timedelta(days=_NEWS_RECENCY_DAYS)).isoformat()
             conn = get_connection()
             try:
                 placeholders = ",".join("?" * len(roster_ids))
                 cur = conn.execute(
-                    f"SELECT COUNT(*) FROM player_news WHERE player_id IN ({placeholders})",
-                    roster_ids,
+                    f"SELECT COUNT(DISTINCT player_id) FROM player_news "
+                    f"WHERE player_id IN ({placeholders}) "
+                    f"AND COALESCE(published_at, fetched_at) >= ?",
+                    [*roster_ids, cutoff],
                 )
                 row = cur.fetchone()
                 return int(row[0]) if row else 0
