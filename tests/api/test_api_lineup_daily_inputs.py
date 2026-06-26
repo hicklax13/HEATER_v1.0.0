@@ -73,7 +73,7 @@ def test_daily_forwards_rich_inputs(monkeypatch):
     monkeypatch.setattr(gd, "get_target_game_date", lambda: "2026-04-05")
 
     class _YDS:
-        def get_rosters(self):
+        def get_team_roster(self, team_name):
             return pd.DataFrame([{"player_id": 1}])
 
         def get_matchup(self):

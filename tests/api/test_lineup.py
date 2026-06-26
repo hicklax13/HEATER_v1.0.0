@@ -129,6 +129,22 @@ def test_to_slots_starters_from_assignments_and_bench_from_roster():
     assert all(b.status == "bench" and b.action == "SIT" for b in bench)
 
 
+def test_to_slots_starter_name_from_pool_not_lp_placeholder():
+    """The standard LP names its decision variables 'P0'/'P1' (not real names) in the
+    assignment dict. The starter's PlayerRef must show the real name resolved from the
+    pool by player_id — not the placeholder. (Exposed once H-1 made the lineup populate.)"""
+    import pandas as pd
+
+    lineup = _lineup([{"slot": "OF", "player_name": "P0", "player_id": 11}])
+    pool = pd.DataFrame(
+        {"player_id": [11], "name": ["Aaron Judge"], "positions": ["OF"], "mlb_id": [592450], "team": ["NYY"]}
+    )
+    starters, _ = LineupService._to_slots(lineup, pool=pool, roster=None)
+    assert starters[0].player.id == 11
+    assert starters[0].player.name == "Aaron Judge"  # real name, not the "P0" LP-var placeholder
+    assert starters[0].player.mlb_id == 592450
+
+
 def test_impact_formats_counting_and_rate():
     impact = {c.key: c for c in LineupService._impact({"r": 6.4, "avg": 0.275, "era": 3.5, "hr": 2.0})}
     assert impact["R"].proj == "6" and impact["R"].trend == "flat"  # counting → int
@@ -280,6 +296,111 @@ def test_daily_meta_builds_swaps_and_summary():
     # only the currently-benched START is a swap
     assert [sw.player.id for sw in meta.swaps] == [9]
     assert meta.ip_pace is None  # roster=None → no IP pace
+
+
+# ── H-1 regression: the optimizer must use the ENRICHED, team-filtered roster ──
+# (yds.get_team_roster(team_name)), NOT the bare all-teams yds.get_rosters(). The bug
+# fed the whole ~316-player league (no projections) to the pipeline, so the LP objective
+# was 0 and it started nobody → "Lineup unavailable" / empty lineup in every environment.
+
+
+class _OptYDS:
+    """Fake YahooDataService: get_team_roster → the user's ENRICHED single-team roster
+    (positions + projection stats); get_rosters → the WRONG bare all-teams frame the bug used."""
+
+    def __init__(self, calls):
+        self._calls = calls
+
+    def get_team_roster(self, team_name):
+        import pandas as pd
+
+        self._calls["get_team_roster"] = team_name
+        return pd.DataFrame(
+            {
+                "player_id": [11, 18],
+                "name": ["Judge", "Soto"],
+                "positions": ["OF", "OF"],
+                "selected_position": ["OF", "BN"],
+                "team": ["NYY", "NYY"],
+                "total_dcv": [20.0, 10.0],
+                "r": [80, 70],
+                "hr": [30, 25],
+            }
+        )
+
+    def get_rosters(self):
+        import pandas as pd
+
+        self._calls["get_rosters"] = True  # bug path: all 4 teams, bare (no stats)
+        return pd.DataFrame({"player_id": [1, 2, 3, 4], "team_name": ["A", "A", "B", "C"]})
+
+    def get_matchup(self):
+        return None
+
+
+def _patch_optimizer_seam(monkeypatch, fake_pipeline):
+    import pandas as pd
+
+    calls: dict = {}
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _OptYDS(calls))
+    monkeypatch.setattr("src.optimizer.pipeline.LineupOptimizerPipeline", fake_pipeline)
+    monkeypatch.setattr("src.game_day.get_target_game_date", lambda: "2026-06-26")
+    monkeypatch.setattr("src.database.load_player_pool", lambda: pd.DataFrame())
+    return calls
+
+
+def test_optimize_standard_uses_enriched_team_roster_not_all_teams(monkeypatch):
+    captured: dict = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["roster"] = roster
+
+        def optimize(self, **kw):
+            ids = list(captured["roster"]["player_id"]) if "player_id" in captured["roster"].columns else []
+            return {
+                "lineup": {
+                    "assignments": [{"slot": "OF", "player_name": "x", "player_id": int(i)} for i in ids],
+                    "projected_stats": {"hr": 55},
+                    "status": "Optimal",
+                }
+            }
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    resp = LineupService().optimize(team_name="Team Hickey", mode="standard")
+
+    # roster came from the team-filtered ENRICHED source, NOT the all-teams bare source
+    assert calls.get("get_team_roster") == "Team Hickey"
+    assert "get_rosters" not in calls
+    # the pipeline received the user's 2-player enriched roster (not the 4-player all-teams frame)
+    assert list(captured["roster"]["player_id"]) == [11, 18]
+    # → a real (non-empty) lineup, not "Lineup unavailable"
+    assert [s.player.id for s in resp.slots] == [11, 18]
+    assert resp.summary.startswith("2 starters")
+
+
+def test_optimize_daily_uses_enriched_team_roster_not_all_teams(monkeypatch):
+    captured: dict = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["roster"] = roster
+
+        def optimize(self, **kw):
+            dcv = captured["roster"].copy()
+            starters = [
+                {"name": str(n), "slot": "OF", "total_dcv": float(d)} for n, d in zip(dcv["name"], dcv["total_dcv"])
+            ]
+            return {"daily_dcv": dcv, "daily_lineup": {"starters": starters, "bench": []}}
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    resp = LineupService().optimize(team_name="Team Hickey", mode="daily")
+
+    # daily mode ALSO uses the team-filtered enriched roster (same bug, both methods)
+    assert calls.get("get_team_roster") == "Team Hickey"
+    assert "get_rosters" not in calls
+    assert list(captured["roster"]["player_id"]) == [11, 18]
+    assert resp.mode == "daily"
 
 
 def test_ip_pace_filters_pitchers_and_merges_pool_ip(monkeypatch):

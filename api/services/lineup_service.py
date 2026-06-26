@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 
 from api.contracts.lineup import (
     CatImpact,
@@ -21,6 +22,17 @@ logger = logging.getLogger(__name__)
 
 # Yahoo slots that are NOT in the active lineup (a player here is benched/stashed).
 _NON_LINEUP_SLOTS = {"BN", "IL", "IL10", "IL15", "IL60", "NA", "DTD", "", "BENCH"}
+
+# The standard LP labels its decision variables "P0"/"P1"/… in each assignment's
+# player_name — a placeholder, not a real name. _engine_name() keeps a REAL engine
+# name (which player_ref_from_pool prefers) but drops a P-var placeholder so the real
+# name is resolved from the pool by player_id instead.
+_LP_VAR_RE = re.compile(r"^P\d+$")
+
+
+def _engine_name(name) -> str | None:
+    s = str(name or "").strip()
+    return None if (not s or _LP_VAR_RE.match(s)) else s
 
 
 class LineupService:
@@ -47,7 +59,14 @@ class LineupService:
 
             resolved_date = date or str(get_target_game_date())
             yds = get_yahoo_data_service()
-            roster = yds.get_rosters()
+            # The user's ENRICHED, team-filtered roster (player names + positions +
+            # projection stats, via the players/season_stats/projections JOIN in
+            # league_manager.get_team_roster) — NOT the bare, all-teams get_rosters().
+            # The pipeline needs projections to differentiate starters; a bare league
+            # roster zeroes the LP objective → it starts nobody → empty "Lineup
+            # unavailable". This is the same enriched roster the Streamlit optimizer
+            # page uses (pages/2_Line-up_Optimizer.py).
+            roster = yds.get_team_roster(team_name)
             pipeline = LineupOptimizerPipeline(roster, mode="standard", config=LeagueConfig())
             # The pipeline method is optimize() (NOT run()); it returns an OptimizerResult
             # dict whose "lineup" is {assignments, bench, projected_stats, status}.
@@ -89,7 +108,9 @@ class LineupService:
 
             resolved_date = date or str(get_target_game_date())
             yds = get_yahoo_data_service()
-            roster = yds.get_rosters()
+            # Enriched, team-filtered roster (see _optimize_standard) — the daily DCV
+            # path needs projections + positions just like the standard LP does.
+            roster = yds.get_team_roster(team_name)
             matchup = None
             try:
                 matchup = yds.get_matchup()
@@ -481,7 +502,11 @@ class LineupService:
             starters.append(
                 LineupSlot(
                     slot=str(g("slot", "") or ""),
-                    player=player_ref_from_pool(pid, pool, name=g("player_name", ""), positions=g("positions", "")),
+                    # _engine_name drops the LP-var placeholder ("P0"/"P1") so the real name
+                    # resolves from the pool by player_id; a real engine name is still preferred.
+                    player=player_ref_from_pool(
+                        pid, pool, name=_engine_name(g("player_name", "")), positions=g("positions", "")
+                    ),
                     action="START",
                     projected=0.0,  # per-player value is daily-mode (DCV) → slice 2
                     status="start",
