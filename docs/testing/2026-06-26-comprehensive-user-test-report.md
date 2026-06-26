@@ -235,9 +235,10 @@ All remaining open items above are now implemented, reviewed, merged to `master`
 
 **Stripe webhook event-id dedup — SHIPPED (pre-billing hardening, dormant).** New `ProcessedEventStore` + idempotent/ordered webhook processing; the link-only `checkout.session.completed` no longer advances the ordering watermark (silent-failure-hunter finding). Commits `a4dd99b`/`bcdc6b3` + `8c20be7`; 11 tests. No effect on the friends-beta (Stripe unset).
 
+**★ FULL LIVE VERIFICATION (2026-06-26, signed in as conlaxer13@gmail.com / Team Hickey via a controlled Chrome):** **M-2/M-3 FIXED** — hard-load **and** F5-refresh of `/optimizer` both **stay on `/optimizer`** (no bounce home); `/standings` stays + renders the 14-row table; `/closers` stays + renders. Every previously-bouncing route now holds and the league-wide pages render for the signed-in viewer. **M-4** — live titles "HEATER — Lineup Optimizer / Standings / Closer Monitor / Players". **M-1** — live `GET /api/free-agents/pool` returns NON-ZERO value (Valente Bellozo `100`, Carlos Correa `83.2`, Alex Call `68.9`, Robert Garcia `68.5`) where the report had `0` for every FA. **So M-1/M-2/M-3/M-4 are all live-verified.**
+
 **Secret scan (owner-requested):** the repo (working tree + full git history) + GitHub (secret-scanning alerts `[]`, Actions secrets) are **clean** — no AI provider keys for OpenAI/Gemini/xAI/Anthropic/DeepSeek/OpenRouter. `.env` holds only the Fernet `HEATER_AI_KEY` (an encryption key, not a provider key). The local `draft_tool.db` (gitignored → not in the repo/GitHub) has a few *encrypted, undecryptable* keys (orphaned by a Fernet-key rotation) — unusable. So M-5 needs a fresh key.
 
 ### Still owner-gated (need Connor)
 - **M-5 AI key** — provide `provider=… key=…`; the env-set + redeploy is then mechanical.
-- **Clerk dev→prod** — a Clerk *production* instance requires a **custom domain** (DNS CNAMEs); a `*.vercel.app` subdomain can't host those. Decision: acquire a domain now, or keep the dev instance for the 12-friend beta (works fine) and do prod at public launch. **M-2/M-3 do NOT depend on this.**
-- **M-2 behavioral live-verify** — needs a signed-in session (Connor's Chrome).
+- **Clerk dev→prod** — a Clerk *production* instance requires a **custom domain** (DNS CNAMEs); a `*.vercel.app` subdomain can't host those. Decision: acquire a domain now, or keep the dev instance for the 12-friend beta (works fine) and do prod at public launch. **M-2/M-3 do NOT depend on this** (live-verified fixed on the dev instance).
