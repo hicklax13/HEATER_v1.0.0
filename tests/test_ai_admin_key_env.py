@@ -10,7 +10,22 @@ dormant: unset env → byte-identical to today (DB/app_settings path only).
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
 import src.ai.keys as keys
+
+
+@pytest.fixture(autouse=True)
+def _clear_admin_env(monkeypatch):
+    """Hermetic: clear any managed-key env (the single pair + every per-provider
+    HEATER_AI_ADMIN_KEY_* var) so a real .env on the dev box can't leak in."""
+    monkeypatch.delenv("HEATER_AI_ADMIN_PROVIDER", raising=False)
+    monkeypatch.delenv("HEATER_AI_ADMIN_KEY", raising=False)
+    for name in list(os.environ):
+        if name.startswith("HEATER_AI_ADMIN_KEY_"):
+            monkeypatch.delenv(name, raising=False)
 
 
 def test_env_admin_key_dormant_when_unset(monkeypatch):
@@ -84,3 +99,50 @@ def test_half_configured_env_warns_once(monkeypatch, caplog):
         keys.list_admin_shared_providers()
     half = [r for r in caplog.records if "half-configured" in r.getMessage()]
     assert len(half) == 1
+
+
+# --- multi-provider: per-provider env vars (HEATER_AI_ADMIN_KEY_<PROVIDER>) ----
+
+
+def test_per_provider_env_key_surfaces_only_that_provider(monkeypatch):
+    monkeypatch.setenv("HEATER_AI_ADMIN_KEY_DEEPSEEK", "sk-ds")
+    monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: None)
+    assert keys.get_admin_shared_key("deepseek") == "sk-ds"
+    assert keys.get_admin_shared_key("openai") is None
+    assert keys.list_admin_shared_providers() == ["deepseek"]
+
+
+def test_all_six_per_provider_env_keys_surface(monkeypatch):
+    six = {
+        "anthropic": "sk-ant-x",
+        "openai": "sk-proj-x",
+        "gemini": "g-key-x",
+        "deepseek": "sk-ds-x",
+        "xai": "xai-x",
+        "openrouter": "sk-or-x",
+    }
+    for provider, key in six.items():
+        monkeypatch.setenv(f"HEATER_AI_ADMIN_KEY_{provider.upper()}", key)
+    monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: None)
+    assert keys.list_admin_shared_providers() == sorted(six)
+    for provider, key in six.items():
+        assert keys.get_admin_shared_key(provider) == key
+
+
+def test_per_provider_and_single_pair_coexist(monkeypatch):
+    monkeypatch.setenv("HEATER_AI_ADMIN_PROVIDER", "anthropic")
+    monkeypatch.setenv("HEATER_AI_ADMIN_KEY", "sk-ant-single")
+    monkeypatch.setenv("HEATER_AI_ADMIN_KEY_OPENAI", "sk-proj-x")
+    monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: None)
+    assert keys.list_admin_shared_providers() == ["anthropic", "openai"]
+    assert keys.get_admin_shared_key("anthropic") == "sk-ant-single"
+    assert keys.get_admin_shared_key("openai") == "sk-proj-x"
+
+
+def test_db_key_wins_over_per_provider_env(monkeypatch):
+    import json
+
+    monkeypatch.setenv("HEATER_AI_ADMIN_KEY_DEEPSEEK", "sk-env")
+    monkeypatch.setattr(keys, "_decrypt", lambda ct: "sk-db" if ct == "CT" else None)
+    monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: json.dumps({"deepseek": "CT"}))
+    assert keys.get_admin_shared_key("deepseek") == "sk-db"

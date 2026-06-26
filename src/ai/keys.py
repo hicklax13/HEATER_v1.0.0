@@ -26,15 +26,20 @@ _SHARED_KEY_SETTING = "ai_shared_key"  # JSON {provider: ciphertext}
 # Dormant when unset → byte-identical to the DB/app_settings-only behavior.
 _ADMIN_PROVIDER_ENV = "HEATER_AI_ADMIN_PROVIDER"
 _ADMIN_KEY_ENV = "HEATER_AI_ADMIN_KEY"
+# Per-provider managed keys: HEATER_AI_ADMIN_KEY_<PROVIDER_UPPER> (e.g.
+# _ANTHROPIC / _OPENAI / _GEMINI / _DEEPSEEK / _XAI / _OPENROUTER). This enables
+# ALL providers at once; <PROVIDER> is the litellm prefix provider_of(model)
+# returns. (The single HEATER_AI_ADMIN_PROVIDER/KEY pair above still works.)
+_ADMIN_KEY_ENV_PREFIX = "HEATER_AI_ADMIN_KEY_"
 
 _half_config_warned = False
 
 
 def _env_admin_provider() -> str | None:
-    """The env-configured managed provider (lowercased), or None unless BOTH the
-    provider name and the key env vars are set. Warns ONCE if exactly one of the
-    pair is set — the most likely operator typo, which would otherwise leave the
-    managed key silently inert with no breadcrumb as to why."""
+    """The single-pair env-configured managed provider (lowercased), or None unless
+    BOTH HEATER_AI_ADMIN_PROVIDER and HEATER_AI_ADMIN_KEY are set. Warns ONCE if
+    exactly one is set — the most likely operator typo, which would otherwise leave
+    the managed key silently inert with no breadcrumb as to why."""
     global _half_config_warned
     provider = (os.environ.get(_ADMIN_PROVIDER_ENV) or "").strip().lower()
     key = (os.environ.get(_ADMIN_KEY_ENV) or "").strip()
@@ -48,9 +53,35 @@ def _env_admin_provider() -> str | None:
     return provider if (provider and key) else None
 
 
+def _per_provider_env_key(provider: str) -> str | None:
+    """The managed key for ``provider`` from HEATER_AI_ADMIN_KEY_<PROVIDER>, or None."""
+    return (os.environ.get(_ADMIN_KEY_ENV_PREFIX + provider.strip().upper()) or "").strip() or None
+
+
+def _env_admin_providers() -> set[str]:
+    """Every provider with a managed key set via env — the single pair plus each
+    per-provider HEATER_AI_ADMIN_KEY_<PROVIDER> var (lowercased)."""
+    providers: set[str] = set()
+    single = _env_admin_provider()
+    if single:
+        providers.add(single)
+    for name, value in os.environ.items():
+        if name.startswith(_ADMIN_KEY_ENV_PREFIX) and (value or "").strip():
+            provider = name[len(_ADMIN_KEY_ENV_PREFIX) :].strip().lower()
+            if provider:
+                providers.add(provider)
+    return providers
+
+
 def _env_admin_shared_key(provider: str) -> str | None:
-    """The env-configured managed key for ``provider``, or None."""
-    if _env_admin_provider() == provider.strip().lower():
+    """The env-configured managed key for ``provider`` — a per-provider
+    HEATER_AI_ADMIN_KEY_<PROVIDER> var first, then the single
+    HEATER_AI_ADMIN_PROVIDER/HEATER_AI_ADMIN_KEY pair — or None."""
+    p = provider.strip().lower()
+    per = _per_provider_env_key(p)
+    if per:
+        return per
+    if _env_admin_provider() == p:
         return (os.environ.get(_ADMIN_KEY_ENV) or "").strip() or None
     return None
 
@@ -211,9 +242,7 @@ def list_admin_shared_providers() -> list[str]:
         if isinstance(data, dict):
             # only surface providers whose stored ciphertext is non-empty
             providers.update(p for p, ct in data.items() if ct)
-    env_provider = _env_admin_provider()
-    if env_provider:
-        providers.add(env_provider)
+    providers |= _env_admin_providers()
     return sorted(providers)
 
 
