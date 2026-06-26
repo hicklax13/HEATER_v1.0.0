@@ -187,7 +187,11 @@ class BillingService:
             try:
                 self._events.record(
                     event_id,
-                    event_created=event_created,
+                    # Only status-bearing subscription events advance the ordering
+                    # watermark; the link-only checkout.session.completed records with
+                    # created=None so it can't stale-block a later subscription event
+                    # that legitimately carries an earlier event.created.
+                    event_created=event_created if etype in _SUB_EVENTS else None,
                     customer_id=obj.get("customer"),
                     subscription_id=obj.get("id") if etype in _SUB_EVENTS else None,
                 )

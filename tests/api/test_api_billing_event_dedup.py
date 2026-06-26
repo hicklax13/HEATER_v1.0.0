@@ -115,6 +115,30 @@ def test_older_event_created_does_not_overwrite_newer_state(monkeypatch):
     assert events.was_processed("evt_old") is True
 
 
+def test_checkout_completed_does_not_stale_block_later_subscription_event(monkeypatch):
+    """A link-only checkout.session.completed with a HIGH created must NOT advance the
+    ordering watermark — otherwise a later subscription event carrying an earlier
+    event.created would be wrongly judged stale and dropped (it records created=None)."""
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
+    sub = InMemorySubscriptionStore()
+    events = InMemoryProcessedEventStore()
+
+    # 1) checkout.session.completed at created=5000 (link-only, no subscription status).
+    checkout = {
+        "id": "evt_checkout",
+        "created": 5000,
+        "type": "checkout.session.completed",
+        "data": {"object": {"customer": "cus_user_abc", "client_reference_id": "user_abc"}},
+    }
+    _svc(_FakeGateway(event=checkout), sub_store=sub, events=events).handle_webhook(b"{}", "sig")
+
+    # 2) a subscription.updated at created=2000 (EARLIER than the checkout) must STILL apply.
+    sub_evt = _sub_event("customer.subscription.updated", event_id="evt_sub", created=2000, status="active")
+    resp = _svc(_FakeGateway(event=sub_evt), sub_store=sub, events=events).handle_webhook(b"{}", "sig")
+    assert resp.handled is True  # not stale-blocked by the checkout's higher created
+    assert sub.get("user_abc").status == "active"
+
+
 # --- 3. a normal new event applies correctly -------------------------------
 def test_normal_new_event_applies(monkeypatch):
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_x")
