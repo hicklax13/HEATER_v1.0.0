@@ -216,10 +216,17 @@
             "type": "number"
           },
           "win_prob": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Win Prob",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Prob"
           },
           "you": {
             "title": "You",
@@ -230,8 +237,7 @@
           "cat",
           "you",
           "opp",
-          "edge",
-          "win_prob"
+          "edge"
         ],
         "title": "CategoryLine",
         "type": "object"
@@ -2225,6 +2231,17 @@
             "minimum": 0.0,
             "title": "Loss Prob",
             "type": "number"
+          },
+          "opp_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opp Name"
           },
           "opponent": {
             "title": "Opponent",
