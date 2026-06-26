@@ -5,20 +5,49 @@ import { Zap, ArrowRight } from "lucide-react";
 import type { Pickup } from "@/lib/types";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 
+/** Canonical category-key → display label (the 12 FourzynBurn H2H cats). */
+const CAT_LABELS: Record<string, string> = {
+  R: "Runs",
+  HR: "Home Runs",
+  RBI: "RBI",
+  SB: "Stolen Bases",
+  AVG: "Batting Average",
+  OBP: "On-Base %",
+  W: "Wins",
+  L: "Losses",
+  SV: "Saves",
+  K: "Strikeouts",
+  ERA: "ERA",
+  WHIP: "WHIP",
+};
+
+/** Counting gaps round to whole numbers; rate gaps keep 3 decimals. */
+function fmtBehind(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  return Math.abs(n) >= 1 ? String(Math.round(n)) : n.toFixed(3);
+}
+
 /**
  * The single primary CTA of the view (the one strong orange). Heat left-rail
- * ties it to the SB row in the Category Outlook; hovering pulses that row.
+ * ties it to the weakest-category row in the Category Outlook; hovering pulses
+ * that row. The category + pickups are driven by the API (NOT hardcoded).
  */
 export function LeverCard({
+  categoryKey,
+  headline,
   behindBy,
   pickups,
   onHoverChange,
 }: {
-  headline: string;
+  categoryKey?: string;
+  headline?: string;
   behindBy: number;
   pickups: Pickup[];
   onHoverChange?: (v: boolean) => void;
 }) {
+  const key = (categoryKey || "").toUpperCase();
+  const label = CAT_LABELS[key] || categoryKey || headline || "your weakest category";
+  const n = pickups.length;
   return (
     <section
       aria-labelledby="lever-h"
@@ -35,27 +64,33 @@ export function LeverCard({
           This week&apos;s lever
         </span>
         <span className="rounded bg-canvas px-2 py-0.5 text-[11px] font-medium text-ink-2 ring-1 ring-line">
-          Stolen bases
+          {label}
         </span>
       </div>
 
       <p className="mt-3 text-[18px] leading-relaxed text-ink">
         You&apos;re{" "}
-        <span className="font-semibold text-ember">{behindBy} stolen bases behind</span> your
-        opponent — your single biggest gap. Three free agents can close most of it before Sunday.
+        <span className="font-semibold text-ember">
+          {fmtBehind(behindBy)} behind in {label}
+        </span>{" "}
+        vs your opponent — your single biggest gap.
+        {n > 0
+          ? ` ${n} free ${n === 1 ? "agent" : "agents"} can help close it before Sunday.`
+          : ""}
       </p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4">
-        <button className="group inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
-          See The 3 Pickups
-          <ArrowRight
-            className="size-4 transition-transform duration-[var(--dur-1)] group-hover:translate-x-1 motion-reduce:transform-none"
-            aria-hidden
-          />
-        </button>
+      {n > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <button className="group inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
+            See The {n} Pickup{n === 1 ? "" : "s"}
+            <ArrowRight
+              className="size-4 transition-transform duration-[var(--dur-1)] group-hover:translate-x-1 motion-reduce:transform-none"
+              aria-hidden
+            />
+          </button>
 
-        <div className="flex items-center">
-          {pickups.map((p, i) => (
+          <div className="flex items-center">
+            {pickups.map((p, i) => (
             <Tooltip.Root key={`${p.name}-${i}`}>
               <Tooltip.Trigger asChild>
                 <button
@@ -86,8 +121,9 @@ export function LeverCard({
               </Tooltip.Portal>
             </Tooltip.Root>
           ))}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }

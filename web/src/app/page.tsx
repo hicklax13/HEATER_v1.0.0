@@ -110,6 +110,7 @@ function Loaded({
       {data.lever && (
         <motion.div variants={item}>
           <LeverCard
+            categoryKey={data.lever.categoryKey}
             headline={data.lever.headline}
             behindBy={data.lever.behindBy}
             pickups={data.lever.pickups}
