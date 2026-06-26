@@ -19,6 +19,29 @@ logger = logging.getLogger(__name__)
 
 _SHARED_KEY_SETTING = "ai_shared_key"  # JSON {provider: ciphertext}
 
+# Operator-provided managed (admin shared) key via env. App B (the FastAPI API)
+# has no Streamlit admin console to call set_admin_shared_key, and set_setting
+# writes are MULTI_USER-gated, so two env vars enable ONE managed provider whose
+# key is read on demand (no DB write, no Fernet — env IS the secret store).
+# Dormant when unset → byte-identical to the DB/app_settings-only behavior.
+_ADMIN_PROVIDER_ENV = "HEATER_AI_ADMIN_PROVIDER"
+_ADMIN_KEY_ENV = "HEATER_AI_ADMIN_KEY"
+
+
+def _env_admin_provider() -> str | None:
+    """The env-configured managed provider (lowercased), or None unless BOTH the
+    provider name and the key env vars are set."""
+    provider = (os.environ.get(_ADMIN_PROVIDER_ENV) or "").strip().lower()
+    key = (os.environ.get(_ADMIN_KEY_ENV) or "").strip()
+    return provider if (provider and key) else None
+
+
+def _env_admin_shared_key(provider: str) -> str | None:
+    """The env-configured managed key for ``provider``, or None."""
+    if _env_admin_provider() == provider.strip().lower():
+        return (os.environ.get(_ADMIN_KEY_ENV) or "").strip() or None
+    return None
+
 
 def _fernet() -> Fernet:
     raw = (os.environ.get("HEATER_AI_KEY") or os.environ.get("HEATER_RELAY_KEY") or "").strip()
@@ -136,21 +159,21 @@ def set_admin_shared_key(provider: str, api_key: str, admin_id: int) -> None:
 def get_admin_shared_key(provider: str) -> str | None:
     import json
 
+    # Explicitly-configured DB (app_settings) key wins; env is a fallback only.
     raw = get_setting(_SHARED_KEY_SETTING)
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
-    ct = data.get(provider)
-    if not ct:
-        return None
-    try:
-        return _decrypt(ct)
-    except Exception as exc:
-        logger.warning("keys.get_admin_shared_key: decrypt failed for provider=%s: %s", provider, exc)
-        return None
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            data = None
+        ct = data.get(provider) if isinstance(data, dict) else None
+        if ct:
+            try:
+                return _decrypt(ct)
+            except Exception as exc:
+                logger.warning("keys.get_admin_shared_key: decrypt failed for provider=%s: %s", provider, exc)
+                # fall through to the env-provided managed key
+    return _env_admin_shared_key(provider)
 
 
 def list_admin_shared_providers() -> list[str]:
@@ -161,17 +184,20 @@ def list_admin_shared_providers() -> list[str]:
     """
     import json
 
+    providers: set[str] = set()
     raw = get_setting(_SHARED_KEY_SETTING)
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return []
-    if not isinstance(data, dict):
-        return []
-    # only surface providers whose stored ciphertext is non-empty
-    return sorted(p for p, ct in data.items() if ct)
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, dict):
+            # only surface providers whose stored ciphertext is non-empty
+            providers.update(p for p, ct in data.items() if ct)
+    env_provider = _env_admin_provider()
+    if env_provider:
+        providers.add(env_provider)
+    return sorted(providers)
 
 
 def _probe_model_for_provider(provider: str) -> str | None:
