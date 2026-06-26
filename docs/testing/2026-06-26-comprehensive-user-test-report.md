@@ -13,20 +13,20 @@
 
 ## Executive summary & beta-readiness verdict
 
-**Verdict: NOT-quite-ready for the 12-friend beta — 2 HIGH bugs + 1 live-data gap should be fixed first; everything else is polish.** The foundation is genuinely strong: security is fail-closed (no VULN found), the auth/unlinked/error states are correctly wired (no mock-as-real leaks), records/standings/matchup data is correct for assigned users, and the documented `Bugs_June26` / `Outstanding_June26` HIGH+MED fixes are all genuinely shipped (verified behaviorally, not just by code-read). Most pages render real data on live.
+**Verdict: close to beta-ready — both HIGH bugs are now FIXED + merged this session; remaining launch items are the live projection gap + onboarding polish.** The foundation is genuinely strong: security is fail-closed (no VULN found), the auth/unlinked/error states are correctly wired (no mock-as-real leaks), records/standings/matchup data is correct for assigned users, and the documented `Bugs_June26` / `Outstanding_June26` HIGH+MED fixes are all genuinely shipped (verified behaviorally, not just by code-read). Most pages render real data on live.
 
-**But the two flagship in-season surfaces have real defects:**
+**The two flagship in-season defects — both FIXED this session:**
 
-1. **🔴 HIGH — Lineup Optimizer is non-functional (empty lineup in every environment).** The core "daily action" page returns 0 starters + "Lineup unavailable."
-2. **🔴 HIGH — The Team page's "lever" gives wrong-category advice to every user** (always literally "Stolen bases," ignoring the real weakest category).
+1. **🔴→✅ HIGH — Lineup Optimizer was non-functional (empty lineup in every environment).** Fixed (`b452155`): now fetches the enriched team roster → real lineups (18 standard / 14 daily, verified end-to-end).
+2. **🔴→✅ HIGH — The Team page's "lever" gave wrong-category advice** (always "Stolen bases"). Fixed + deployed + live-verified (`9b55124`): now shows the real weakest category.
 
-**Plus the launch-relevant mediums:**
+**The launch-relevant mediums (still open):**
 - **🟠 Live-only: FA "value" and optimizer projections render 0** for every player on production (the analytical differentiator shows 0) — a live data-pipeline gap, not a code bug.
 - **🟠 The unlinked onboarding experience is broken** — every friend hits it *before* you assign them, and it contradicts its own message.
 - **🟠 Bubba shows "No models — add a key" on live** (no managed AI configured) — the assistant doesn't work out-of-box.
 - **🟠 Refresh / deeplink / bookmark of several core pages bounces to "/".**
 
-A reasonable path: fix the lever (small), fix or scope-down the optimizer, investigate the live projection gap, decide on Bubba's managed key, smooth the unlinked onboarding — then invite the 12.
+A reasonable path: ~~fix the lever~~ (done), ~~fix the optimizer~~ (done) — then investigate the live projection gap (M-1), decide on Bubba's managed key (M-5), and smooth the unlinked onboarding (M-3) before inviting the 12.
 
 ---
 
@@ -40,7 +40,7 @@ A reasonable path: fix the lever (small), fix or scope-down the optimizer, inves
 - **Evidence (live, authed):** `optimize {team_name:"🏆 Team Hickey", mode:"standard"}` → `{slots:0, bench:316, summary:"Lineup unavailable…", benchSample:[Hunter Goodman/COL, Kazuma Okamoto/TOR, Ketel Marte/AZ]}` (5.8s daily / 2.7s standard). **Reproduced locally** with the correct emoji team name → identical `slots:0, bench:317`.
 - **Root cause:** `api/services/lineup_service.py:50` (`_optimize_standard`) and `:92` (`_optimize_daily`) do `roster = yds.get_rosters()` — the **entire 12-team league (316 players), with no projection columns** — and pass it straight to `LineupOptimizerPipeline(roster, …)`. The accepted `team_name` param is **never used to filter** the roster. Worse, even a roster *filtered to Team Hickey's 26 players* still yields empty assignments (verified in-process: `pipeline.optimize()` → `assignments:[]`, status `"Optimal"`) — because the bare `league_rosters` rows carry **no projections**, so the LP objective is 0 and it starts nobody. The Streamlit optimizer (`pages/2_Line-up_Optimizer.py`) works because it enriches the roster + forwards `confirmed_lineups`/`recent_form`/`team_strength`; the API path replicates none of that. The "no live data" summary is a **misleading default** (set unconditionally at line 40, only overridden when slots exist) — it is NOT actually about live data.
 - **Severity:** HIGH — the flagship daily-action page has effectively never produced a real lineup in the new product. Masked until now because local tests used an empty Yahoo roster.
-- **Fix:** in `lineup_service`, (1) filter `get_rosters()` to the viewer's team (reuse `tenancy.normalize_team_name` reconciliation like `team_service._roster`), and (2) enrich the roster with the pool's projections + pass the game-day inputs, matching `pages/2_Line-up_Optimizer.py`'s pipeline setup. Non-trivial integration work → **spawned as a fix task.**
+- **Fix — DONE (master `b452155`):** both `_optimize_standard` and `_optimize_daily` now fetch the user's ENRICHED, team-filtered roster via `yds.get_team_roster(team_name)` (the players/season_stats/projections JOIN in `league_manager.get_team_roster`) — the same roster the working Streamlit optimizer uses — instead of the bare all-teams `get_rosters()`. Also fixed a placeholder-name issue exposed once the lineup populated (the standard LP labels its vars "P0"/"P1"; `_to_slots` now resolves the real name from the pool by player_id for those). **Verified end-to-end against the real DB: standard → 18 starters (real names + mlb_ids), daily → 14 starters; 3 new DB-free regression tests; full api suite 590 green.**
 
 #### H-2 · Team-page "lever" hardcodes "Stolen bases" → wrong-category advice to every user
 - **Surface:** `/` (Team dashboard), the single primary CTA.
@@ -140,7 +140,7 @@ Legend: ✅ pass · 🔴 fail/bug · 🟠 partial-issue · ⚪ not covered this 
 | Surface | Render | Data correct | Interactions | States | A11y | Perf/console | Notes |
 |---|---|---|---|---|---|---|---|
 | Team `/` | ✅ | 🔴 lever; ✅ record | ✅ | ✅ (unlinked/error/loading) | 🟠 | 🟠 17-59s me/team | H-2, L-1, L-2, M-7 |
-| Optimizer `/optimizer` | 🔴 empty | 🔴 | ⚪ | ✅ empty-state shown | ⚪ | 🟠 3-6s | **H-1** |
+| Optimizer `/optimizer` | ✅ fixed | ✅ fixed | ⚪ | ✅ | ⚪ | 🟠 3-6s | **H-1 FIXED** (b452155) |
 | Matchup `/matchup` | ✅ | ✅ | ✅ date tabs | ✅ | ✅ ▲ cues | ✅ | strong |
 | Standings `/standings` | ✅ | ✅ live (🟠 local ghost) | ✅ | ✅ | 🟡 tiny text | ✅ | L-3, L-5 |
 | Trades — Analyzer/Build | 🟠 | ⚪ (A3 pending) | ⚪ | ✅ | ⚪ | ⚪ | M-8 |
@@ -178,7 +178,7 @@ Legend: ✅ pass · 🔴 fail/bug · 🟠 partial-issue · ⚪ not covered this 
 | FA stats (YTD) | Yahoo/StatsAPI | Trevor Rogers K:54 ERA 5.30 | ✅ |
 | **FA "value"** | marginal SGP | **live 0 (wrong), local 71-100 (right)** | 🔴 **live gap (M-1)** |
 | **Lever weakest category** | API `category_key:"K"` | **UI "Stolen bases" (wrong)** | 🔴 **H-2** |
-| **Optimizer lineup** | LP over the roster | **0 starters (wrong)** | 🔴 **H-1** |
+| **Optimizer lineup** | LP over the roster | 18 standard / 14 daily (fixed) | ✅ **H-1 fixed** (b452155) |
 | playoff projected record | sim | string ≠ structured by 1 | 🟠 M-6 |
 | Team count in subline | 12 | live "of 12" ✅ / local "of 13" (ghost) | ✅ live / 🟠 local L-3 |
 | News chip | recent news | 930/1490 (all rows) | 🟡 L-1 |
@@ -195,7 +195,7 @@ Legend: ✅ pass · 🔴 fail/bug · 🟠 partial-issue · ⚪ not covered this 
 
 ---
 
-## Fixes applied / spawned this session
-- **H-2 (LeverCard)** — small, low-risk, verifiable → **fixed in-session** (use the real category + pickup count; see commit).
-- **H-1 (Optimizer)** — non-trivial integration → **spawned as a background fix task** with full repro + root cause.
-- Live **M-1** (projection gap) + **M-3** (unlinked onboarding) + **M-2** (refresh-bounce) are deployment/frontend investigations flagged for follow-up.
+## Fixes applied this session (both merged to master)
+- **H-2 (LeverCard)** — **FIXED + deployed + live-verified** (`9b55124`): renders the real weakest category + pickup count from the API; the live lever now reads "Strikeouts", not "Stolen bases".
+- **H-1 (Optimizer)** — **FIXED + merged** (`b452155`): `lineup_service` now uses the enriched `get_team_roster` (both modes) + a placeholder-name fix; verified 18 standard / 14 daily real-named starters end-to-end; 3 new tests; full api suite 590 green. (Deploys to Railway App B from master.)
+- Still open (flagged for follow-up): live **M-1** (App B projection gap → FA value=0), **M-3** (unlinked onboarding), **M-2** (refresh/deeplink bounce), **M-4** (route title on hard-load), **M-5** (Bubba no managed key), plus the pre-public Clerk-prod-keys + Stripe-dedup items.
