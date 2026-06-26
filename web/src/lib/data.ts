@@ -120,15 +120,27 @@ export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData | null> {
   );
 }
 
+/** Cached so the chip's effect (double-invoked under React StrictMode, and remounted
+ *  by the route crossfade) shares ONE request instead of hitting the ~2.4s playoff
+ *  sim twice on a single Team-page visit (L-6). Held for the module lifetime — odds
+ *  are stable within a visit; a full reload re-evaluates the module and refetches. */
+let _yourPlayoffOdds: Promise<number | undefined> | null = null;
+
 /** Your forward playoff odds (0–100) for the Team header chip. Self-fetched so it
  *  doesn't block the dashboard on the ~2.4s sim. Returns undefined off-live or on
  *  error (the chip then keeps its mock fallback). */
-export async function fetchYourPlayoffOdds(): Promise<number | undefined> {
-  if (process.env.NEXT_PUBLIC_HEATER_LIVE !== "1") return undefined;
-  try {
-    const odds = await apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: getViewerTeam() });
-    return odds.you ? Math.round(odds.you.playoff_odds) : undefined;
-  } catch {
-    return undefined;
+export function fetchYourPlayoffOdds(): Promise<number | undefined> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE !== "1") return Promise.resolve(undefined);
+  if (!_yourPlayoffOdds) {
+    _yourPlayoffOdds = (async () => {
+      try {
+        const odds = await apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: getViewerTeam() });
+        return odds.you ? Math.round(odds.you.playoff_odds) : undefined;
+      } catch {
+        _yourPlayoffOdds = null; // let a later mount retry after a transient failure
+        return undefined;
+      }
+    })();
   }
+  return _yourPlayoffOdds;
 }

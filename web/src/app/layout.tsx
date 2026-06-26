@@ -3,7 +3,6 @@ import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
 import { TopBar } from "@/components/chrome/TopBar";
-import { DocumentTitle } from "@/components/chrome/DocumentTitle";
 import { Bubba } from "@/components/bubba/Bubba";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { SubscriptionProvider } from "@/lib/use-subscription";
@@ -22,7 +21,11 @@ const inter = Inter({
   display: "swap",
 });
 export const metadata: Metadata = {
-  title: "HEATER — My Team",
+  // `default` titles the root route ("/" = My Team); `template` wraps each route
+  // segment's own metadata title (e.g. "Standings" → "HEATER — Standings") so the
+  // correct title is in the SSR <title> on a hard load / shared-link, which a
+  // client document.title effect can't win against (Next owns <title>).
+  title: { default: "HEATER — My Team", template: "HEATER — %s" },
   description: "The analyst's edge for fantasy baseball.",
   icons: {
     icon: "/brand/heater-icon-32.png",
@@ -42,7 +45,6 @@ export default function RootLayout({
         <AuthProvider>
           <SubscriptionProvider>
             <Providers>
-              <DocumentTitle />
               {/* Skip-to-content link: visually hidden until focused (sr-only + focus:not-sr-only). */}
               <a
                 href="#main-content"

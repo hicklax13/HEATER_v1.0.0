@@ -9,20 +9,43 @@
  *  402 (paywall) / 401 (login). */
 
 import { ApiError } from "./errors";
+import { authEnabled } from "@/lib/auth-config";
 
 declare global {
   interface Window {
-    Clerk?: { session?: { getToken?: () => Promise<string | null> } };
+    Clerk?: { loaded?: boolean; session?: { getToken?: () => Promise<string | null> } | null };
+  }
+}
+
+const CLERK_READY_TIMEOUT_MS = 5000;
+const CLERK_POLL_MS = 50;
+
+/** Resolve once Clerk has finished loading. Clerk's script attaches `window.Clerk`
+ *  ASYNCHRONOUSLY after the page loads, so on a hard load / refresh the first API
+ *  call can fire before the session exists → no token → a spurious 401 that the
+ *  page handler turns into a /sign-in redirect (which, for an already-signed-in
+ *  user, bounces home). Waiting for `window.Clerk.loaded` lets us attach the real
+ *  token on hard loads. No-op (returns immediately) when auth is dormant — there
+ *  is no Clerk script to wait for, so the loop would otherwise stall every call. */
+async function clerkReady(): Promise<void> {
+  if (!authEnabled || typeof window === "undefined") return;
+  const start = Date.now();
+  while (Date.now() - start < CLERK_READY_TIMEOUT_MS) {
+    if (window.Clerk?.loaded) return;
+    await new Promise((r) => setTimeout(r, CLERK_POLL_MS));
   }
 }
 
 /** Bearer token from the active Clerk session, or null (dormant / signed out / SSR).
- *  Call getToken AS A METHOD on the session — destructuring it loses the `this`
+ *  Waits for Clerk to finish loading first (hard-load race — see clerkReady), then
+ *  calls getToken AS A METHOD on the session — destructuring it loses the `this`
  *  receiver Clerk needs and would silently yield no token (→ spurious 401s). */
 export async function authToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
+  if (!authEnabled) return null; // dormant: byte-identical to today (no Clerk script)
+  await clerkReady();
   const session = window.Clerk?.session;
-  if (!session?.getToken) return null;
+  if (!session?.getToken) return null; // Clerk loaded but genuinely signed out
   try {
     return await session.getToken();
   } catch {

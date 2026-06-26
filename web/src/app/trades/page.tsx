@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty, PageLocked, PageNotLinked } from "@/components/ui/PageStates";
 import { getViewerTeam } from "@/lib/viewer-team";
+import { useCurrentWeek } from "@/lib/week";
 
 type Tab = "finder" | "compare" | "build";
 
@@ -61,11 +62,12 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 function PageHead({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+  const week = useCurrentWeek();
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">
-          Trade Workbench · Week 13
+          Trade Workbench{week ? ` · Week ${week}` : ""}
         </div>
         <h1 className="font-display text-3xl font-extrabold text-navy">Trades</h1>
       </div>
