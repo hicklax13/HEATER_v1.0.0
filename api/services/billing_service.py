@@ -21,11 +21,16 @@ from api.contracts.billing import (
     WebhookResponse,
 )
 from api.gateways.stripe_gateway import BillingSignatureError, StripeGateway
+from api.stores.processed_event_store import ProcessedEventStore
 from api.stores.subscription_store import Subscription, SubscriptionStore
 
 logger = logging.getLogger(__name__)
 
 _SUB_EVENTS = {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}
+# Event types whose processing we ledger (for dedup). The subscription events
+# are also ordering-guarded; checkout.session.completed is link-only but still
+# deduped so a redelivery is a no-op.
+_PROCESSED_EVENT_TYPES = _SUB_EVENTS | {"checkout.session.completed"}
 
 
 def tier_for(status: str) -> str:
@@ -48,9 +53,18 @@ def _period_end(obj) -> int | None:
 
 
 class BillingService:
-    def __init__(self, gateway: StripeGateway, store: SubscriptionStore) -> None:
+    def __init__(
+        self,
+        gateway: StripeGateway,
+        store: SubscriptionStore,
+        events: ProcessedEventStore | None = None,
+    ) -> None:
         self._gateway = gateway
         self._store = store
+        # Optional processed-event ledger for webhook idempotency + ordering.
+        # None (the legacy 2-arg signature) => dedup/ordering not enforced =
+        # byte-for-byte today's behavior. DI wires the real store in prod.
+        self._events = events
 
     # --- config (read at call time, like get_auth_verifier) -----------------
     @staticmethod
@@ -152,19 +166,59 @@ class BillingService:
             logger.warning("Stripe webhook signature verification failed: %s", exc)
             raise HTTPException(status_code=400, detail="Invalid webhook signature.")
         etype = event.get("type")
+        event_id = event.get("id")
+        event_created = event.get("created")
         obj = ((event.get("data") or {}).get("object")) or {}
-        handled = self._apply_event(etype, obj)
+
+        # Idempotency: Stripe redelivers at-least-once. If we've already processed
+        # this event.id, it's a no-op (handled=False — no NEW state written). The
+        # event store is optional (legacy 2-arg construction) → skip the guard.
+        if self._events is not None and event_id and self._events.was_processed(event_id):
+            logger.info("Stripe webhook duplicate event %s ignored (already processed).", event_id)
+            return WebhookResponse(ok=True, event_type=etype, handled=False)
+
+        handled = self._apply_event(etype, obj, event_created=event_created)
+
+        # Record the event id AFTER applying so a redelivery (or a stale reorder)
+        # of the same id is a no-op. Recorded for every event we recognized — incl.
+        # ones we deliberately did not write (stale/unattributable) — so they are
+        # not reprocessed.
+        if self._events is not None and event_id and etype in _PROCESSED_EVENT_TYPES:
+            try:
+                self._events.record(
+                    event_id,
+                    event_created=event_created,
+                    customer_id=obj.get("customer"),
+                    subscription_id=obj.get("id") if etype in _SUB_EVENTS else None,
+                )
+            except Exception as exc:
+                # Recording is hardening, not correctness-critical for THIS delivery —
+                # never let a ledger write turn a handled event into a 500.
+                logger.warning("Stripe webhook event-id record failed for %s: %s", event_id, exc)
+
         return WebhookResponse(ok=True, event_type=etype, handled=handled)
 
-    def _apply_event(self, etype, obj) -> bool:
+    def _apply_event(self, etype, obj, *, event_created=None) -> bool:
         # Returns whether subscription state was actually written. An event we can't
         # attribute to a user returns False so handle_webhook reports handled=False
         # (honest — not a false success that hides a dropped event).
         if etype in _SUB_EVENTS:
+            customer_id = obj.get("customer")
+            # Ordering guard: Stripe can deliver out of order. Do not let an OLDER
+            # event.created overwrite subscription state a NEWER event already
+            # applied for the same customer.
+            if self._is_stale(customer_id, event_created):
+                logger.info(
+                    "Stripe webhook stale subscription event (created=%s) for customer=%s ignored — "
+                    "newer state already applied.",
+                    event_created,
+                    customer_id,
+                )
+                return False
             status = "canceled" if etype.endswith("deleted") else (obj.get("status") or "none")
             return self._record(
                 clerk=(obj.get("metadata") or {}).get("clerk_user_id"),
-                customer_id=obj.get("customer"),
+                customer_id=customer_id,
                 status=status,
                 period_end=_period_end(obj),
             )
@@ -177,6 +231,16 @@ class BillingService:
                 customer_id=obj.get("customer"),
             )
         return False
+
+    def _is_stale(self, customer_id, event_created) -> bool:
+        # True when a NEWER subscription event has already been applied for this
+        # customer (so the incoming OLDER event must not overwrite state). Needs
+        # the event store + both timestamps; missing any → not stale (today's
+        # behavior, no false skips).
+        if self._events is None or not customer_id or event_created is None:
+            return False
+        last = self._events.last_applied_created(customer_id)
+        return last is not None and event_created < last
 
     def _resolve_clerk(self, clerk, customer_id):
         if not clerk and customer_id:
