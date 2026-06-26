@@ -214,3 +214,30 @@ Legend: ✅ pass · 🔴 fail/bug · 🟠 partial-issue · ⚪ not covered this 
 - **M-4** route `<title>` on hard-load (Next 16 `metadata`-vs-client-`document.title` tension; cosmetic) · **L-6** Team-page playoff double-fetch · **L-8** Trades week label — minor, computed-value traces.
 
 **Recommend skipping (not bugs / cosmetic):** L-5 tiny-text (Codex-aspirational), L-7 team_id=0 logo 404 (handled), L-9 local freshness artifact, L-10 UPGRADE/PRO badge.
+
+---
+
+## Remediation — Session 2 (2026-06-26, cont.): the open MEDIUM/LOW backlog SHIPPED + the live projection gap FIXED
+
+All remaining open items above are now implemented, reviewed, merged to `master`, and **deployed** (origin/master `d84d159`; Railway App B + Vercel auto-deployed from the push). code-reviewer found no issues; silent-failure-hunter's 3 findings were applied.
+
+**★ M-1 (live FA value=0) — FIXED + LIVE-VERIFIED.** Root cause confirmed: FanGraphs 403s from Railway's datacenter IP **and** from a residential IP (tested this session), so the assumed "mini-PC FanGraphs relay" would only ship frozen/stale data + a permanent mini-PC dependency. Owner chose the cleaner path: a **Marcel projection fallback** that computes projections locally from MLB `season_stats` (pure compute — works on Railway). `_bootstrap_projections` runs Marcel when the FanGraphs fetch leaves `<1000` non-blended rows, then re-blends; the FanGraphs-success path is unchanged. **Live proof (App B logs, 2026-06-26 14:30Z):** every FanGraphs source 403s → `src.marcel_bootstrap: Marcel fallback: wrote 2557 projection rows` → `projections: Projections via Marcel fallback` → subsequent boots `Fresh`. Local end-to-end on a real-data DB copy: wiped projections → Marcel → blend → pool projections non-zero (524 hr>0, 1857 k>0, 4281 avg>0, 5251 era>0), sample hitter SGP **5.419**. Commits `b70a061` (+ merge `d84d159`); new `src/marcel_bootstrap.py`; 6 DB-free tests. *(Design notes: Marcel history includes the in-progress season — correct for an in-season tool, mirroring FanGraphs ROS; age defaults to 28, deriving from `birth_date` is a documented quality follow-up.)*
+
+**M-2 / M-3 (hard-load bounce + unlinked onboarding) — FIXED (code), deployed.** Real cause: `web/src/lib/api/client.ts::authToken()` read `window.Clerk.session` synchronously, but Clerk attaches it **asynchronously** on a hard load → the first API call fired with no token → 401 → `usePageData` redirected to `/sign-in` → (already signed in) bounced home. Fix: `authToken()` now awaits `window.Clerk.loaded` (5s budget) before deciding there's no token; the dormant (Clerk-off) path returns immediately (byte-identical). This also resolves M-3 — the league-wide routers (standings/closers/players/databank/research) are `require_login`-only (200 for an authed-but-unlinked viewer), so with the bounce gone those pages render and the unlinked card's "League-wide views work in the meantime" promise holds. Commit `b7d4eb5`. *Behavioral confirmation on live needs a signed-in session (Connor's Chrome); the fix is reviewed-correct and the deploy is confirmed live via M-4.*
+
+**M-4 (route titles) — FIXED + LIVE-VERIFIED.** Replaced the client `DocumentTitle` effect (which loses to Next's resolved metadata on hard load) with per-route **server segment `layout.tsx` metadata** + a root `title.template`. **Live proof:** `https://heater-v1-0-1.vercel.app/standings` → `<title>HEATER — Standings</title>`, `/trades` → "…Trades", `/players` → "…Players" (correct in the SSR HTML for crawlers/shared-links); client-nav titles verified too. Commit `b7d4eb5`.
+
+**L-6 (Team-page playoff-odds double-fetch) — FIXED.** `fetchYourPlayoffOdds` caches its promise so the chip's effect (StrictMode double-invoke + route-crossfade remount) shares one request. Commit `b7d4eb5`.
+
+**L-8 (Trades week label) — FIXED + verified.** New `useCurrentWeek()` sources the eyebrow week from the live `/api/matchup` (cached, one request) instead of a hardcoded "Week 13"; local-verified → "Trade Workbench · Week 14". Commit `b7d4eb5`.
+
+**M-5 (Bubba "No models") — backend SHIPPED, awaits owner key.** Owner chose a **managed key**. App B has no Streamlit admin console and `set_setting` is MULTI_USER-gated, so an env fallback now surfaces one managed provider from `HEATER_AI_ADMIN_PROVIDER` + `HEATER_AI_ADMIN_KEY`, read on demand by `get_admin_shared_key` / `list_admin_shared_providers` (the path the API chat service already consumes). Additive + dormant (unset → byte-identical); warns once on a half-config typo. Commits `782af2e` + `74b57d3`; 7 tests. **Owner step:** provide a provider key → set the two env vars on App B + redeploy → Bubba works out-of-box.
+
+**Stripe webhook event-id dedup — SHIPPED (pre-billing hardening, dormant).** New `ProcessedEventStore` + idempotent/ordered webhook processing; the link-only `checkout.session.completed` no longer advances the ordering watermark (silent-failure-hunter finding). Commits `a4dd99b`/`bcdc6b3` + `8c20be7`; 11 tests. No effect on the friends-beta (Stripe unset).
+
+**Secret scan (owner-requested):** the repo (working tree + full git history) + GitHub (secret-scanning alerts `[]`, Actions secrets) are **clean** — no AI provider keys for OpenAI/Gemini/xAI/Anthropic/DeepSeek/OpenRouter. `.env` holds only the Fernet `HEATER_AI_KEY` (an encryption key, not a provider key). The local `draft_tool.db` (gitignored → not in the repo/GitHub) has a few *encrypted, undecryptable* keys (orphaned by a Fernet-key rotation) — unusable. So M-5 needs a fresh key.
+
+### Still owner-gated (need Connor)
+- **M-5 AI key** — provide `provider=… key=…`; the env-set + redeploy is then mechanical.
+- **Clerk dev→prod** — a Clerk *production* instance requires a **custom domain** (DNS CNAMEs); a `*.vercel.app` subdomain can't host those. Decision: acquire a domain now, or keep the dev instance for the 12-friend beta (works fine) and do prod at public launch. **M-2/M-3 do NOT depend on this.**
+- **M-2 behavioral live-verify** — needs a signed-in session (Connor's Chrome).
