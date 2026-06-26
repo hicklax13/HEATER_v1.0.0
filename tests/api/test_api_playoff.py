@@ -69,6 +69,23 @@ def test_to_rows_sorts_ranks_and_marks_user():
     assert user.projected_record == "14-10-2" and user.current_wins == 7
 
 
+def test_to_rows_record_string_matches_wlt_object_on_half_boundary():
+    """M-6: `projected_record` string must agree exactly with the structured
+    `projected_record_wlt`. The sim returns FRACTIONAL W/L/T; the old code used
+    `f"{w:.0f}"` (round-half-even) for the string but `int(w)` (truncate) for the
+    object → off-by-1 on the .5 boundary. Both must derive from the SAME rounded ints."""
+    sim = {
+        "playoff_probability": {"Rembow": 0.9},
+        # 18.5 / 4.5 / 1.5 — every component sits ON the .5 boundary where
+        # round-half-even and truncate diverge ("18-4-2" string vs {18,4,1} object).
+        "projected_records": {"Rembow": {"W": 18.5, "L": 4.5, "T": 1.5}},
+    }
+    rows = _svc()._to_rows(sim, current_wins={}, team_name="X")
+    r = rows[0]
+    wlt = r.projected_record_wlt
+    assert r.projected_record == f"{wlt.wins}-{wlt.losses}-{wlt.ties}"
+
+
 def test_team_weekly_totals_divides_counting_by_26(monkeypatch):
     monkeypatch.setattr(
         "src.database.load_league_rosters",

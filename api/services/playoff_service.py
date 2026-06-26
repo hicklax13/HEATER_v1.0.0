@@ -187,14 +187,19 @@ class PlayoffService:
                 w, lo, t = float(rec.get("W", 0)), float(rec.get("L", 0)), float(rec.get("T", 0))
             except (TypeError, ValueError):
                 w, lo, t = 0.0, 0.0, 0.0
+            # M-6: the human string and the structured object MUST agree. Round each
+            # component to a single int ONCE and build both from it (the old code used
+            # `f"{w:.0f}"` round-half-even for the string but `int(w)` truncate for the
+            # object → off-by-1 on a .5 boundary for ~11/12 teams).
+            wi, loi, ti = round(w), round(lo), round(t)
             rank = i + 1
             rows.append(
                 PlayoffTeam(
                     team=str(team),
                     playoff_odds=_odds(prob),
                     projected_wins=round(w, 1),
-                    projected_record=f"{w:.0f}-{lo:.0f}-{t:.0f}",
-                    projected_record_wlt=Record(wins=int(w), losses=int(lo), ties=int(t)),
+                    projected_record=f"{wi}-{loi}-{ti}",
+                    projected_record_wlt=Record(wins=wi, losses=loi, ties=ti),
                     current_wins=int(current_wins.get(str(team), 0)),
                     rank=rank,
                     in_cut=rank <= _PLAYOFF_SPOTS,

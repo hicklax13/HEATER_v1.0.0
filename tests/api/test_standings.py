@@ -113,6 +113,39 @@ def test_build_teams_records_overall_rank_drives_sort():
     assert [t.rank for t in teams] == [1, 2, 3]
 
 
+def test_build_teams_filters_ghost_team_absent_from_records():
+    """L-3 (Bug-D class): a renamed/abandoned team present in league_standings but
+    ABSENT from league_records (e.g. "Twigs") must NOT leak as an extra team. When
+    records_df is non-empty, only teams present in it are emitted."""
+    rows = _STANDINGS_ROWS + [
+        # ghost team — has standings rows but no record
+        {"team_name": "Twigs", "category": "HR", "total": 50.0, "rank": 4},
+        {"team_name": "Twigs", "category": "ERA", "total": 4.50, "rank": 4},
+    ]
+    records = pd.DataFrame(
+        [
+            {"team_name": "Team A", "wins": 8, "losses": 4, "ties": 0, "rank": 1},
+            {"team_name": "Team B", "wins": 7, "losses": 5, "ties": 0, "rank": 2},
+            {"team_name": "Team C", "wins": 3, "losses": 9, "ties": 0, "rank": 3},
+        ]
+    )
+    teams = StandingsService._build_teams(_standings_frame(rows), records)
+    names = {t.team_name for t in teams}
+    assert "Twigs" not in names  # ghost filtered
+    assert names == {"Team A", "Team B", "Team C"}  # exactly the 3 real teams
+
+
+def test_build_teams_unfiltered_when_records_empty():
+    """Cold-start: with NO records (empty frame) every standings team is kept
+    (records-empty fallback path is the older local-DB shape; must not be filtered)."""
+    rows = _STANDINGS_ROWS + [
+        {"team_name": "Twigs", "category": "HR", "total": 50.0, "rank": 4},
+    ]
+    teams = StandingsService._build_teams(_standings_frame(rows), pd.DataFrame())
+    names = {t.team_name for t in teams}
+    assert names == {"Team A", "Team B", "Team C", "Twigs"}  # not filtered when records empty
+
+
 def test_standings_contract_shape():
     resp = StandingsResponse(
         teams=[

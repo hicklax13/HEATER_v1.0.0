@@ -57,3 +57,22 @@ def test_get_trade_finder_returns_contract():
     assert body["suggestions"][0]["partner_team"] == "Rival Team"
     assert body["suggestions"][0]["giving"][0]["name"] == "Give Guy"
     assert body["suggestions"][0]["net_sgp"] == 0.8
+
+
+def test_trade_finder_method_discipline_get_is_supported_post_405():
+    """M-8: the live `POST /api/trade-finder` returned 405. The supported method is
+    **GET** (the router exposes only @router.get), and the frontend correctly calls it
+    with apiGet (`web/src/lib/trades-data.ts`). So the 405 on POST is CORRECT, not a
+    server bug — the page's "No trade ideas yet" empty state is the documented
+    button-gated / roster-relative empty (suggestions are empty until live Yahoo data).
+    This locks the contract: GET → 200, POST → 405."""
+    app = create_app()
+    app.dependency_overrides[get_trade_finder_service] = lambda: _FakeTradeFinderService()
+    client = TestClient(app)
+
+    ok = client.get("/api/trade-finder?team_name=Team+Hickey&limit=5")
+    assert ok.status_code == 200
+    assert "suggestions" in ok.json()  # the trade-finder contract shape
+
+    # POST is not a defined method on this route → 405 Method Not Allowed (expected).
+    assert client.post("/api/trade-finder", json={"team_name": "Team Hickey"}).status_code == 405

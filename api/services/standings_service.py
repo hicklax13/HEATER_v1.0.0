@@ -128,9 +128,17 @@ class StandingsService:
             return int(v) if v is not None else None
 
         # ── 3. Assemble one TeamStanding per team ─────────────────────────
+        # L-3 (Bug-D class): when records are present they are the authoritative
+        # team list — a renamed/abandoned team that lingers in `league_standings`
+        # but has no record (e.g. "Twigs") must NOT leak as an extra team (a 13th
+        # team in a 12-team league). With NO records (cold-start / older local data
+        # where W-L-T rides the WINS/LOSSES/TIES category rows) keep every team.
+        valid_teams = set(rec_by_team) if rec_by_team else None
         result: list[TeamStanding] = []
         for team_name in standings_df["team_name"].dropna().unique():
             tname = str(team_name)
+            if valid_teams is not None and tname not in valid_teams:
+                continue  # ghost / stale team absent from records → skip
             rec = rec_by_team.get(tname)
             std = std_wlt.get(tname, {})
 
