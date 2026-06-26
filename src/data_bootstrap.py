@@ -487,8 +487,21 @@ def _bootstrap_minor_league_rosters(progress: BootstrapProgress) -> str:
         return f"Error: {e}"
 
 
+# Below this many non-blended projection rows, treat the FanGraphs fetch as
+# failed/insufficient (the Railway 403 condition) and fall back to Marcel —
+# pure local compute over season_stats. Matches the FanGraphs expected_min.
+_PROJECTIONS_FALLBACK_THRESHOLD = 1000
+
+
 def _bootstrap_projections(progress: BootstrapProgress) -> str:
-    """Fetch projections from FanGraphs."""
+    """Fetch projections from FanGraphs, falling back to local Marcel.
+
+    FanGraphs 403s from Railway's datacenter IP, so the live projections table
+    can stay empty. When the FanGraphs attempt leaves fewer than
+    ``_PROJECTIONS_FALLBACK_THRESHOLD`` non-blended rows, compute Marcel
+    projections from ``season_stats`` (no network) and re-blend so the player
+    pool gets non-zero projection stats.
+    """
     from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
     progress.phase = "Projections"
@@ -496,24 +509,48 @@ def _bootstrap_projections(progress: BootstrapProgress) -> str:
     try:
         from src.data_pipeline import refresh_if_stale
 
-        success = refresh_if_stale(force=True)
-        if success:
-            # INFRA-F6: verify row count after refresh — a True return with 0
-            # rows would otherwise silently log 'success'.
-            conn = get_connection()
-            try:
-                row = conn.execute("SELECT COUNT(*) FROM projections").fetchone()
-                count = int(row[0]) if row else 0
-            finally:
-                conn.close()
+        success = False
+        try:
+            success = refresh_if_stale(force=True)
+        except Exception:
+            # FanGraphs fetch raised (403/network) — fall through to the
+            # row-count gate below, which will trigger the Marcel fallback.
+            logger.warning("FanGraphs projection fetch failed; will try Marcel fallback.", exc_info=True)
+
+        # INFRA-F6: verify row count after refresh — a True return with 0
+        # rows would otherwise silently log 'success'.
+        conn = get_connection()
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()
+            count = int(row[0]) if row else 0
+        finally:
+            conn.close()
+
+        if count >= _PROJECTIONS_FALLBACK_THRESHOLD:
             status = update_refresh_log_auto(
                 "projections",
                 count,
-                expected_min=1000,
+                expected_min=_PROJECTIONS_FALLBACK_THRESHOLD,
                 message=f"{count} projection rows in db",
             )
             return f"Projections refreshed ({count} rows, {status})"
-        return "No projection data returned"
+
+        # FanGraphs failed or returned too few rows → Marcel fallback.
+        progress.detail = "FanGraphs unavailable — computing Marcel projections..."
+        from src.database import create_blended_projections
+        from src.marcel_bootstrap import generate_marcel_projections
+
+        marcel_count = generate_marcel_projections()
+        if marcel_count > 0:
+            create_blended_projections()
+        status = update_refresh_log_auto(
+            "projections",
+            marcel_count,
+            expected_min=1,
+            message=f"marcel fallback: {marcel_count} rows (FanGraphs had {count})",
+            tier="fallback",
+        )
+        return f"Projections via Marcel fallback ({marcel_count} rows, {status})"
     except Exception as e:
         update_refresh_log("projections", "error", message=str(e)[:200])
         return f"Error: {e}"
