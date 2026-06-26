@@ -8,7 +8,8 @@ This guard distinguishes:
     → must be updated to HEATER_v1.0.1
   - GITHUB URLs (github.com/hicklax13/HEATER_v1.0.0 or hicklax13/HEATER_v1.0.0)
     → must NOT be touched (repo name unchanged)
-  - CLAUDE.md OneDrive incompatibility WARNING block
+  - CLAUDE.md (and its AGENTS.md / GEMINI.md agent-instruction mirrors)
+    OneDrive incompatibility WARNING block
     → intentional historical reference (documents what NOT to do)
   - Documentation in docs/archive/, docs/superpowers/plans/, docs/superpowers/specs/
     → session artifacts / historical docs (intentional context)
@@ -103,13 +104,17 @@ def test_no_stale_local_folder_path():
         if "HEATER_v1.0.0" not in text:
             continue
         lines = text.splitlines()
-        is_claude_md = f.name == "CLAUDE.md"
+        # CLAUDE.md and its agent-instruction mirrors (AGENTS.md for Codex,
+        # GEMINI.md for Gemini CLI) all carry the same intentional OneDrive
+        # historical-relocation reference, so the warning-block exemption
+        # applies to all of them.
+        allows_onedrive_block = f.name in {"CLAUDE.md", "AGENTS.md", "GEMINI.md"}
         for lineno, line in enumerate(lines, start=1):
             if "HEATER_v1.0.0" not in line:
                 continue
             if _is_allowed_line(line):
                 continue
-            if is_claude_md and _is_in_onedrive_warn_block(lines, lineno):
+            if allows_onedrive_block and _is_in_onedrive_warn_block(lines, lineno):
                 continue
             offenders.append(f"{f.relative_to(root)}:{lineno}: {line.strip()[:140]}")
 
