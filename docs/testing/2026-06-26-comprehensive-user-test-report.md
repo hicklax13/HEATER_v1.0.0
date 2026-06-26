@@ -195,7 +195,22 @@ Legend: ✅ pass · 🔴 fail/bug · 🟠 partial-issue · ⚪ not covered this 
 
 ---
 
-## Fixes applied this session (both merged to master)
-- **H-2 (LeverCard)** — **FIXED + deployed + live-verified** (`9b55124`): renders the real weakest category + pickup count from the API; the live lever now reads "Strikeouts", not "Stolen bases".
-- **H-1 (Optimizer)** — **FIXED + merged** (`b452155`): `lineup_service` now uses the enriched `get_team_roster` (both modes) + a placeholder-name fix; verified 18 standard / 14 daily real-named starters end-to-end; 3 new tests; full api suite 590 green. (Deploys to Railway App B from master.)
-- Still open (flagged for follow-up): live **M-1** (App B projection gap → FA value=0), **M-3** (unlinked onboarding), **M-2** (refresh/deeplink bounce), **M-4** (route title on hard-load), **M-5** (Bubba no managed key), plus the pre-public Clerk-prod-keys + Stripe-dedup items.
+## Remediation status (all merged to master this session)
+
+**HIGH — both fixed, deployed, live-verified:**
+- **H-2 (LeverCard)** `9b55124` — real weakest category + pickup count; live lever now reads "Strikeouts".
+- **H-1 (Optimizer)** `b452155` — enriched `get_team_roster` (both modes) + placeholder-name fix; 18 standard / 14 daily real-named starters; **live-verified** (the page renders a real lineup).
+
+**MEDIUM/LOW — fixed (backend clusters A+B, `64eb0a7`+`d667f72`, full api suite 605 green):**
+- **M-6** playoff `projected_record` rounding parity · **L-3** standings ghost-team filter (now correctly 12 teams) · **L-4** record reconciliation (bare "Team Hickey" → 5-7-1, fixes the local/dormant 0-0-0 + the live cold-start edge) · **M-7** `matchup.opp_name` populated · **L-1** news chip = distinct-recent (was 930-1490) · **L-2** dead `win_prob` → `None` not 0.0.
+- **M-8 — NOT a bug** (cleared): trade-finder router is `GET` and the client calls `GET` (200); the earlier "405" was a wrong-method probe; "No trade ideas yet" is the by-design roster-relative empty state. Locked with a test.
+
+**Owner-gated (need owner action):**
+- **M-1** — CONFIRMED via App B logs: every FanGraphs projection source 403s from Railway's IP → live pool has no ROS projections → FA "value"=0. Documented external block. Clean fix = a FanGraphs projection relay from the residential mini-PC (mirror the Yahoo token-relay). Optimizer already works via YTD.
+- **Clerk dev→prod keys** (also the likely cause of M-2/M-3 — see below), **M-5** Bubba managed AI key (or keep BYO-key for the beta), **Stripe webhook event-id dedup** (dormant; low priority).
+
+**Deferred frontend (need a focused session; not blindly patched):**
+- **M-2/M-3** (hard-load/refresh bounce + unlinked onboarding) — **no redirect mechanism found in code** (no middleware, no Clerk-redirect config, `next.config` proxy-only, `usePageData` renders in-place), and local Clerk-off does NOT bounce → most likely the **Clerk dev-instance auth handshake on hard-load**; re-verify after the Clerk dev→prod swap before patching.
+- **M-4** route `<title>` on hard-load (Next 16 `metadata`-vs-client-`document.title` tension; cosmetic) · **L-6** Team-page playoff double-fetch · **L-8** Trades week label — minor, computed-value traces.
+
+**Recommend skipping (not bugs / cosmetic):** L-5 tiny-text (Codex-aspirational), L-7 team_id=0 logo 404 (handled), L-9 local freshness artifact, L-10 UPGRADE/PRO badge.
