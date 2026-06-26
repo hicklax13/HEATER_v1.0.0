@@ -27,12 +27,24 @@ _SHARED_KEY_SETTING = "ai_shared_key"  # JSON {provider: ciphertext}
 _ADMIN_PROVIDER_ENV = "HEATER_AI_ADMIN_PROVIDER"
 _ADMIN_KEY_ENV = "HEATER_AI_ADMIN_KEY"
 
+_half_config_warned = False
+
 
 def _env_admin_provider() -> str | None:
     """The env-configured managed provider (lowercased), or None unless BOTH the
-    provider name and the key env vars are set."""
+    provider name and the key env vars are set. Warns ONCE if exactly one of the
+    pair is set — the most likely operator typo, which would otherwise leave the
+    managed key silently inert with no breadcrumb as to why."""
+    global _half_config_warned
     provider = (os.environ.get(_ADMIN_PROVIDER_ENV) or "").strip().lower()
     key = (os.environ.get(_ADMIN_KEY_ENV) or "").strip()
+    if bool(provider) != bool(key) and not _half_config_warned:
+        logger.warning(
+            "Managed AI key half-configured: set BOTH %s and %s (managed key stays disabled).",
+            _ADMIN_PROVIDER_ENV,
+            _ADMIN_KEY_ENV,
+        )
+        _half_config_warned = True
     return provider if (provider and key) else None
 
 
@@ -171,7 +183,12 @@ def get_admin_shared_key(provider: str) -> str | None:
             try:
                 return _decrypt(ct)
             except Exception as exc:
-                logger.warning("keys.get_admin_shared_key: decrypt failed for provider=%s: %s", provider, exc)
+                logger.warning(
+                    "keys.get_admin_shared_key: DB key decrypt FAILED for provider=%s (%s) — "
+                    "falling back to the env-provided managed key if set; the DB-configured key is NOT in use.",
+                    provider,
+                    exc,
+                )
                 # fall through to the env-provided managed key
     return _env_admin_shared_key(provider)
 

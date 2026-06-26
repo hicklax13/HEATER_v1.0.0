@@ -67,3 +67,20 @@ def test_env_admin_key_requires_both_vars(monkeypatch):
     monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: None)
     assert keys.get_admin_shared_key("deepseek") is None
     assert keys.list_admin_shared_providers() == []
+
+
+def test_half_configured_env_warns_once(monkeypatch, caplog):
+    """The most likely operator typo (one of the two vars set) must leave a
+    breadcrumb — warn ONCE, not silently inert and not on every call (log spam)."""
+    import logging
+
+    monkeypatch.setattr(keys, "_half_config_warned", False)  # reset the once-flag
+    monkeypatch.setenv("HEATER_AI_ADMIN_PROVIDER", "deepseek")
+    monkeypatch.delenv("HEATER_AI_ADMIN_KEY", raising=False)  # forgot the key
+    monkeypatch.setattr(keys, "get_setting", lambda *_a, **_k: None)
+    with caplog.at_level(logging.WARNING, logger="src.ai.keys"):
+        assert keys.get_admin_shared_key("deepseek") is None
+        keys.get_admin_shared_key("deepseek")  # second call must NOT warn again
+        keys.list_admin_shared_providers()
+    half = [r for r in caplog.records if "half-configured" in r.getMessage()]
+    assert len(half) == 1
