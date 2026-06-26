@@ -33,6 +33,7 @@ from api.services.trade_finder_service import TradeFinderService
 from api.services.trade_service import TradeService
 from api.stores.league_store import LeagueStore, SqliteLeagueStore
 from api.stores.membership_store import MembershipStore, SqliteMembershipStore
+from api.stores.processed_event_store import ProcessedEventStore, SqliteProcessedEventStore
 from api.stores.subscription_store import SqliteSubscriptionStore, SubscriptionStore
 from api.stores.user_store import SqliteUserStore, UserStore
 
@@ -146,8 +147,13 @@ def get_subscription_store() -> SubscriptionStore:
     return SqliteSubscriptionStore()
 
 
+def get_processed_event_store() -> ProcessedEventStore:
+    return SqliteProcessedEventStore()
+
+
 def get_billing_service(
     gateway: StripeGateway = Depends(get_stripe_gateway),
     store: SubscriptionStore = Depends(get_subscription_store),
+    events: ProcessedEventStore = Depends(get_processed_event_store),
 ) -> BillingService:
-    return BillingService(gateway, store)
+    return BillingService(gateway, store, events)
