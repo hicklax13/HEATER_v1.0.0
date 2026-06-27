@@ -489,6 +489,7 @@ class LineupService:
 
         if not isinstance(lineup, dict):
             return [], []
+        current = LineupService._current_slots(roster)
         assignments = lineup.get("assignments") or []
         starters: list[LineupSlot] = []
         starter_ids: set[int] = set()
@@ -510,6 +511,7 @@ class LineupService:
                     action="START",
                     projected=0.0,  # per-player value is daily-mode (DCV) → slice 2
                     status="start",
+                    current_slot=current.get(pid, ""),
                 )
             )
 
@@ -532,6 +534,7 @@ class LineupService:
                         action="SIT",
                         projected=0.0,
                         status="bench",
+                        current_slot=current.get(pid, ""),
                     )
                 )
         return starters, bench

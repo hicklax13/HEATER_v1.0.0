@@ -451,6 +451,24 @@ def test_fa_suggestion_contract_shape():
     assert d["urgency_categories"] == ["HR", "SB"]
 
 
+# ── WS1: _to_slots populates current_slot for ALL scopes (standard, not just daily) ──
+
+
+def test_to_slots_populates_current_slot_from_roster():
+    lineup = _lineup([{"slot": "OF", "player_name": "Judge", "player_id": 1}])
+    roster = pd.DataFrame(
+        {
+            "player_id": [1, 2],
+            "name": ["Judge", "Benchy"],
+            "positions": ["OF", "2B"],
+            "selected_position": ["BN", "BN"],  # Judge currently benched; LP wants him in OF
+        }
+    )
+    starters, bench = LineupService._to_slots(lineup, pool=None, roster=roster)
+    assert starters[0].player.id == 1 and starters[0].current_slot == "BN"  # diffable swap (BN → OF)
+    assert bench[0].player.id == 2 and bench[0].current_slot == "BN"
+
+
 def test_lineup_response_fa_suggestions_defaults_empty():
     resp = LineupOptimizeResponse(team_name="T", date="2027-04-05", slots=[])
     assert resp.model_dump()["fa_suggestions"] == []
