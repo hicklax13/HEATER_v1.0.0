@@ -75,6 +75,11 @@ def _resolve_urgency(ctx) -> dict[str, float]:
     (ctx.urgency_weights['urgency']); recompute from ctx.live_matchup as a
     fallback. Finite-coerced; {} on any failure (never raises)."""
     try:
+        # No live matchup → the builder still returns a neutral all-0.5 dict that
+        # is indistinguishable from a real all-tied week. The contract documents
+        # urgency={} as "no live matchup", so signal absence rather than mislead.
+        if not getattr(ctx, "live_matchup", None):
+            return {}
         uw = getattr(ctx, "urgency_weights", None) or {}
         urgency = uw.get("urgency") if isinstance(uw, dict) else None
         if not urgency:
