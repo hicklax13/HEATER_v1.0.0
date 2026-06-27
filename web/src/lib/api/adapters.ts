@@ -176,6 +176,7 @@ export function apiStreamingToData(api: ApiStreamingResponse): StreamingData {
       posGroup: p.pos_group as ProbableStarter["posGroup"],
       startLikelihood: p.start_likelihood as ProbableStarter["startLikelihood"],
     })),
+    urgency: api.urgency ?? {},
   };
 }
 

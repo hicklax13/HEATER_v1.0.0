@@ -85,6 +85,7 @@ export interface StreamingData {
   topPick: StreamCandidate | null;
   board: StreamCandidate[];
   probables: ProbableStarter[];
+  urgency: Record<string, number>; // this-week per-category need (0-1); {} when no live matchup
 }
 
 /** Format the canonical `YYYY-MM-DD` streaming date for human display
@@ -202,6 +203,7 @@ export const STREAMING: StreamingData = {
     { player: pr("Zack Wheeler", "SP", "PHI", 143, 554430), team: "PHI", opponent: "NYM", isHome: false, posGroup: "SP", startLikelihood: "confirmed" },
     { player: pr("Spencer Strider", "SP", "ATL", 144, 675911), team: "ATL", opponent: "WSH", isHome: true, posGroup: "SP", startLikelihood: "likely" },
   ],
+  urgency: {},
 };
 STREAMING.topPick = STREAMING.board[0];
 
@@ -228,10 +230,10 @@ export function factorsFor(c: StreamCandidate): FactorDetail[] {
 /** Live: GET /api/streaming → adapt; live errors propagate (HIGH-3) so usePageData
  *  reaches error/locked/unlinked. Mock (off-live, or live with an empty board):
  *  the in-memory STREAMING after a simulated delay. */
-export async function fetchStreaming(delayMs = 600): Promise<StreamingData | null> {
+export async function fetchStreaming(date?: string, delayMs = 600): Promise<StreamingData | null> {
   return liveOrMock(
     async () => {
-      const api = await apiGet<ApiStreamingResponse>("/streaming");
+      const api = await apiGet<ApiStreamingResponse>("/streaming", date ? { date } : undefined);
       return (api.candidates?.length ?? 0) > 0 ? apiStreamingToData(api) : null;
     },
     () => new Promise<StreamingData>((resolve) => setTimeout(() => resolve(STREAMING), delayMs)),
