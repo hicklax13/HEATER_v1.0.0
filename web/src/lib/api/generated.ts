@@ -3062,6 +3062,8 @@ export interface components {
         };
         /** TradeFinderResponse */
         TradeFinderResponse: {
+            /** Reason */
+            reason?: ("ok" | "team_not_resolved" | "no_pool" | "no_league_data" | "no_totals" | "error") | null;
             /**
              * Suggestions
              * @default []
