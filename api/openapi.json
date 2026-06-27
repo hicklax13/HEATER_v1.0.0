@@ -3711,6 +3711,229 @@
         "title": "StandingsResponse",
         "type": "object"
       },
+      "StartSitCandidate": {
+        "properties": {
+          "category_impact": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Category Impact",
+            "type": "array"
+          },
+          "eligible_slots": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eligible Slots",
+            "type": "array"
+          },
+          "matchup": {
+            "default": "",
+            "title": "Matchup",
+            "type": "string"
+          },
+          "playable": {
+            "default": true,
+            "title": "Playable",
+            "type": "boolean"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "projected": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Projected",
+            "type": "array"
+          },
+          "rank": {
+            "default": 0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "start_score": {
+            "default": 0.0,
+            "title": "Start Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "StartSitCandidate",
+        "type": "object"
+      },
+      "StartSitCompareRequest": {
+        "properties": {
+          "player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Player Ids",
+            "type": "array"
+          },
+          "scope": {
+            "default": "today",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          }
+        },
+        "title": "StartSitCompareRequest",
+        "type": "object"
+      },
+      "StartSitCompareResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/StartSitCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "confidence_label": {
+            "default": "Toss-up",
+            "title": "Confidence Label",
+            "type": "string"
+          },
+          "open_slots": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Open Slots",
+            "type": "object"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/StartSitVerdict"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "StartSitCompareResponse",
+        "type": "object"
+      },
+      "StartSitOptimizeRequest": {
+        "properties": {
+          "player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Player Ids",
+            "type": "array"
+          },
+          "scope": {
+            "default": "today",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          }
+        },
+        "title": "StartSitOptimizeRequest",
+        "type": "object"
+      },
+      "StartSitOptimizeResponse": {
+        "properties": {
+          "bench": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Bench",
+            "type": "array"
+          },
+          "daily": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "StartSitOptimizeResponse",
+        "type": "object"
+      },
+      "StartSitVerdict": {
+        "properties": {
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "sit_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sit Ids",
+            "type": "array"
+          },
+          "start_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Start Ids",
+            "type": "array"
+          }
+        },
+        "title": "StartSitVerdict",
+        "type": "object"
+      },
       "StatItem": {
         "description": "A single labeled stat for display, e.g. {label: \"HR\", value: \"18\"}.\n\nShared across pages (free agents, team movers/lever, \u2026). The frontend renders\nlabel + value; counting stats are integer strings, rate stats pre-formatted.",
         "properties": {
@@ -6699,6 +6922,124 @@
         "summary": "Get Standings",
         "tags": [
           "standings"
+        ]
+      }
+    },
+    "/api/start-sit/compare": {
+      "post": {
+        "operationId": "compare_start_sit_api_start_sit_compare_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSitCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartSitCompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare Start Sit",
+        "tags": [
+          "start-sit"
+        ]
+      }
+    },
+    "/api/start-sit/optimize": {
+      "post": {
+        "operationId": "optimize_start_sit_api_start_sit_optimize_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSitOptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartSitOptimizeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Optimize Start Sit",
+        "tags": [
+          "start-sit"
         ]
       }
     },
