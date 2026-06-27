@@ -1278,6 +1278,31 @@ export interface components {
              */
             summary: string;
         };
+        /**
+         * FaSuggestion
+         * @description A 'drop X for available Y' free-agent upgrade, alongside the LP lineup.
+         *
+         *     Composed from recommend_fa_moves(ctx) over the optimize context. The LP still
+         *     optimizes the CURRENT roster; these are the available-pickup layer.
+         */
+        FaSuggestion: {
+            add: components["schemas"]["PlayerRef"];
+            /** Category Impact */
+            category_impact?: components["schemas"]["StatItem"][];
+            drop: components["schemas"]["PlayerRef"];
+            /**
+             * Net Sgp Delta
+             * @default 0
+             */
+            net_sgp_delta: number;
+            /**
+             * Reasoning
+             * @default
+             */
+            reasoning: string;
+            /** Urgency Categories */
+            urgency_categories?: string[];
+        };
         /** FactorDetail */
         FactorDetail: {
             /**
@@ -1693,6 +1718,8 @@ export interface components {
             daily?: components["schemas"]["DailyMeta"] | null;
             /** Date */
             date: string;
+            /** Fa Suggestions */
+            fa_suggestions?: components["schemas"]["FaSuggestion"][];
             /** Impact */
             impact?: components["schemas"]["CatImpact"][];
             /**
@@ -1763,6 +1790,8 @@ export interface components {
              * @default 0
              */
             value: number;
+            /** Value Breakdown */
+            value_breakdown?: components["schemas"]["StatItem"][];
         };
         /** MatchPlayer */
         MatchPlayer: {
