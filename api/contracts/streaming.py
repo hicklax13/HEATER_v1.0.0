@@ -91,3 +91,7 @@ class StreamingResponse(BaseModel):
     top_pick: StreamCandidate | None = None
     budget: BudgetStrip = Field(default_factory=BudgetStrip)
     probables: list[ProbableStarter] = Field(default_factory=list)
+    # Resolved this-week category urgency (CAT -> 0-1), from the live matchup
+    # (compute_urgency_weights). Display + Bubba context only; the engine already
+    # applied these to the scores. {} when no live matchup.
+    urgency: dict[str, float] = Field(default_factory=dict)

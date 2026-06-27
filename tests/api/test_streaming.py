@@ -59,3 +59,13 @@ def test_get_streaming_returns_contract():
     assert "date" in body
     assert body["candidates"][0]["player"]["name"] == "Shohei Ohtani"
     assert body["candidates"][0]["score"] == 91.0
+
+
+def test_streaming_response_urgency_field_defaults_empty():
+    """StreamingResponse carries an additive `urgency` map (per-category 0-1
+    this-week need), defaulting to {} so the field is backward-compatible."""
+    resp = StreamingResponse(date="2026-06-27")
+    assert resp.urgency == {}
+    resp2 = StreamingResponse(date="2026-06-27", urgency={"K": 0.82, "ERA": 0.18})
+    dumped = resp2.model_dump()
+    assert dumped["urgency"] == {"K": 0.82, "ERA": 0.18}
