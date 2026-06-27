@@ -63,14 +63,14 @@ requirements:
     category: api
     phase: 0
     description: Error envelope, correlation-ID, OpenAPI bearer scheme, versioning, idempotency, async-job contract live + enforced.
-    status: planned
+    status: passing
     subsystem: api
-    verify: "tbd in plan 0b"
+    verify: "python -m pytest tests/api/test_request_context.py tests/api/test_error_envelope.py tests/api/test_openapi_security_scheme.py tests/api/test_idempotency_contract.py tests/api/test_job_contract.py -q"
     metric: "contract tests green"
-    evidence: "docs/superpowers/plans/2026-06-..-heater-launch-phase0b-*.md"
+    evidence: "api/errors.py, api/request_context.py, api/idempotency.py, api/contracts/jobs.py, docs/launch/api-versioning-policy.md"
     external_review: none
     blocking_ring: ci
-    last_verified: "n/a"
+    last_verified: "2026-06-26"
     score_contribution: api
   - id: P1-LEGAL-DATA-RIGHTS
     category: data_quality
