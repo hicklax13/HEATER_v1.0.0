@@ -261,3 +261,66 @@ def test_chat_send_request_page_context_defaults_none():
 
     req = ChatSendRequest(message="hi", model="gpt-5")
     assert req.page_context is None
+
+
+def test_build_user_content_folds_page_context():
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content(
+        "why 0.28?",
+        None,
+        None,
+        page_context=PageContext(page="optimizer", data_json='{"slots":[1,2]}'),
+    )
+    assert isinstance(out, str)
+    assert "optimizer" in out
+    assert '{"slots":[1,2]}' in out
+    assert "why 0.28?" in out
+
+
+def test_build_user_content_no_page_context_is_byte_identical():
+    # the existing no-tag, no-image path: bare message string, unchanged
+    assert cs._build_user_content("hi", None, None) == "hi"
+    assert cs._build_user_content("hi", None, None, page_context=None) == "hi"
+
+
+def test_build_user_content_page_context_and_attached_text_coexist():
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content(
+        "good start?",
+        "Trout .312",
+        None,
+        page_context=PageContext(page="players", data_json='{"x":1}'),
+    )
+    assert "Trout .312" in out and '{"x":1}' in out and "good start?" in out
+
+
+def test_send_threads_page_context_into_user_turn(monkeypatch):
+    from api.contracts.chat import PageContext
+
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _chat(**k):
+        captured.update(k)
+        return {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+
+    monkeypatch.setattr(cs.providers, "chat", _chat)
+    ChatService().send(
+        chat_user_id=1_000_000_001,
+        message="why?",
+        model="gpt-5",
+        page_context=PageContext(page="streaming", data_json='{"board":[]}'),
+    )
+    content = captured["messages"][-1]["content"]
+    assert "streaming" in content and '{"board":[]}' in content

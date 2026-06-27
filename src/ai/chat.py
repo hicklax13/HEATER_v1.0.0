@@ -31,9 +31,12 @@ def build_system_prompt(page: str, viewer_team: str | None) -> str:
         "inverse). Present data and analysis; do not give unsolicited personal trade "
         f"opinions — it is the user's team. The viewer's team is '{team}'. The user is "
         f"currently on the '{page}' page.\n\n"
-        "You can call tools to read any app data. Prefer the specific tools; use "
-        "query_data (read-only SELECT) for anything else. Only request_refresh when the "
-        "user explicitly asks for fresh data.\n\n" + schema
+        "The data currently displayed on the page may be attached to the message. "
+        "You can call tools to read any app data — prefer the specific tools; use "
+        "query_data (read-only SELECT) for anything else. To explain HOW a number was "
+        "computed, use explain_metric (stream_score / dcv / trade_grade / start_score) "
+        "and explain_constant / list_constants, and cite the constant value + formula. "
+        "Only request_refresh when the user explicitly asks for fresh data.\n\n" + schema
     )
 
 

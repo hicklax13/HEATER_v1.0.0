@@ -56,6 +56,7 @@ def send(
             attachments=body.attachments,
             cap_usd=cap_usd,
             viewer_team=ctx.effective_team(None),
+            page_context=body.page_context,
         )
     )
 
@@ -81,6 +82,7 @@ def send_stream(
             attachments=body.attachments,
             cap_usd=cap_usd,
             viewer_team=ctx.effective_team(None),
+            page_context=body.page_context,
         ),
         media_type="text/event-stream",
     )
