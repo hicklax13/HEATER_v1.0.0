@@ -11,9 +11,9 @@ Five workstreams on the live React product. Four are wiring/frontend over engine
 
 ## Goals
 
-1. **Optimizer** — render the roster the way Yahoo shows it (grouped by Yahoo slot, batters/pitchers split, decision-colored), mirroring the old Streamlit layout.
+1. **Optimizer** — render the roster the way Yahoo shows it (grouped by Yahoo slot, batters/pitchers split, decision-colored, mirroring the old Streamlit layout) AND let the user optimize over three horizons (**Today / Rest of Week / Rest of Season**), matchup-aware and FA-aware (recommends available pickups), using the current roster + live matchup at optimize time.
 2. **Streaming** — a date picker (today → +7) that re-queries pitcher streams for the chosen day, FA-filtered, weighted by the current week's matchup needs.
-3. **Start/Sit (new page)** — pick a date (today → +7) and up to 6 players (roster or FA); get a ranked start/sit verdict AND an "apply to my open slots" optimizer pass.
+3. **Start/Sit (new page)** — pick a horizon (**Today / Rest of Week / Rest of Season**, same scopes as Optimizer) and up to 6 players (roster or FA); get a ranked start/sit verdict that respects each player's real Yahoo eligible positions and the league's actual roster slots, AND an "apply to my open slots" optimizer pass.
 4. **Trades** — fix the empty Finder (root cause: team-name resolution bug), enrich the Finder cards with engine fields the contract currently drops, verify Compare + Build end-to-end.
 5. **Bubba** — make the assistant automatically aware of every page's rendered data ("see the screen") and able to explain how any number was calculated ("behind the scenes").
 
@@ -32,34 +32,42 @@ Five workstreams on the live React product. Four are wiring/frontend over engine
 | Start/Sit interaction | **Both** — ranked compare verdict + "apply to open slots" LP optimize action |
 | Trades scope | **Fix + verify wiring** — debug empty Finder, enrich contract, verify Compare/Build |
 | Optimizer layout | **Yahoo roster, annotated** — group by current Yahoo slot, batters/pitchers split, decision colors |
-| Matchup weighting | **Yes, weight by it** — this-week category urgency biases Optimizer / Streaming / Start-Sit |
+| Optimize/Start-Sit horizons | **Today / Rest of Week / Rest of Season** — engine-native `scope` values (`today`/`rest_of_week`/`rest_of_season`); same selector on both pages |
+| Optimizer FA-aware | **Yes** — compose `recommend_fa_moves(ctx)` over the optimize context; return a "recommended pickups" layer |
+| Matchup weighting | **Yes, weight by it** — this-week category urgency biases Optimizer / Streaming / Start-Sit (extends standard mode to pass the live matchup) |
 | Bubba perception | **Structured page data** — auto-attach the JSON each page rendered (screenshot stays on-demand) |
 | Bubba explainers | **Both** — inline breakdowns on touched features + on-demand explainer tools |
 
 ## Cross-cutting: matchup-urgency weighting
 
-The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(matchup, config)` already converts the live H2H matchup (which cats you're winning/losing/tied) into per-category 0–1 urgency. The daily lineup path already uses it. WS2 and WS3 must thread the same matchup into `build_optimizer_context` so `ctx.category_weights` reflect this week (today they're neutral for streaming — `streaming_service.py:149` builds context with no matchup). One helper, three consumers, identical semantics. When no live matchup is available, fall back to neutral/standings weights (never raise).
+The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(matchup, config)` already converts the live H2H matchup (which cats you're winning/losing/tied) into per-category 0–1 urgency. The daily lineup path already passes the matchup; the pipeline reads `kwargs["matchup"]` at Stage 10. The work is to thread the same live matchup (`yds.get_matchup()`, 5-min TTL cache — no force-refresh at optimize time per T1.21) into **every** path: WS1 **standard mode** (today only daily passes it), WS2 **streaming** (`streaming_service.py:149` builds context with no matchup → neutral weights), and WS3 **start/sit**. One helper, four consumers, identical semantics. When no live matchup is available, fall back to neutral/standings weights (never raise).
 
 ---
 
-## WS1 — Optimizer: Yahoo-slot layout (frontend-only)
+## WS1 — Optimizer: scope selector + Yahoo-slot layout + FA-aware (frontend + backend)
 
-**Gap:** React renders two flat tables (`Starting Lineup`, `Bench`). Streamlit groups by Yahoo slot, splits batters/pitchers, sorts by (decision, slot order, DCV), and color-codes rows. The API already returns every field needed.
+**Engine confirmed:** `build_optimizer_context(scope=…)` natively supports all three horizons — `scope="today"` (per-game fractions), `"rest_of_week"` (counting stats scaled by games remaining through Sunday via `ctx.remaining_games_this_week`), `"rest_of_season"` (full ROS). FA recs are a one-`ctx` composition (`recommend_fa_moves(ctx)` — the canonical Free Agents page pattern). Matchup urgency already flows when the service passes `yds.get_matchup()` — daily does, **standard does not yet**.
 
-**Change:** `web/src/components/optimizer/LineupTable.tsx` + `web/src/app/optimizer/page.tsx`.
-- Default the roster view to **daily mode** (`mode="daily"`) — the DCV start/sit view the Streamlit screenshot shows. **Keep standard/ROS optimize reachable** (a mode toggle) so the existing weekly-LP capability isn't dropped.
+**Time-period selector (frontend):** **Today · Rest of Week · Rest of Season** → sends `scope ∈ {today, rest_of_week, rest_of_season}`. The service maps `today` → the daily-DCV path; `rest_of_week`/`rest_of_season` → the standard LP at that scope. (`mode` becomes service-internal; the frontend just sends `scope`.)
+
+**Backend (`api/services/lineup_service.py` + `api/contracts/lineup.py`):**
+- Honor all three scopes through one entry point.
+- **Matchup-aware for all scopes:** the standard path now also passes the live matchup (`yds.get_matchup()`, 5-min TTL cache — no force-refresh at optimize time per T1.21; the explicit "Refresh Yahoo Data" button forces fresh) so `compute_urgency_weights` biases week/season optimize, not just today.
+- **FA-aware:** compose `recommend_fa_moves(ctx)` over the same `ctx`; return `fa_suggestions: list[FaSuggestion]` on `LineupOptimizeResponse` — each `{ add: PlayerRef, drop: PlayerRef, net_sgp_delta, category_impact: list[StatItem], reasoning, urgency_categories }`. The LP still optimizes the current roster; FA suggestions are the "drop X for available Y" layer alongside.
+- Ensure **`current_slot` is populated for ALL scopes** (daily already sets it; the standard `_to_slots` must too) so the layout groups correctly.
+
+**Layout (frontend — `web/src/components/optimizer/LineupTable.tsx` + `web/src/app/optimizer/page.tsx`):**
 - Take the **union of `slots` + `bench`**, group each player by **`current_slot`** (their Yahoo slot), order by Yahoo slot order:
   - Batters: `C, 1B, 2B, 3B, SS, OF, OF, OF, Util, Util, BN, IL`
   - Pitchers: `SP, SP, RP, RP, P, P, P, P, BN, IL`
 - Two sections (**Batters** / **Pitchers**), each row colored by decision: Start=green, forced-Start=orange (`forced_start`), Bench=blue, IL=gray.
-- Columns: **Slot · Player · Eligibility · Value (0–100) · Matchup · Decision**.
+- Columns: **Slot · Player · Eligibility · Value · Matchup · Decision**. The **Value** column is scope-appropriate (daily DCV for Today; projected SGP contribution for Week/Season).
 - Flag suggested swaps where `current_slot` ≠ the optimizer's `slot`.
+- New **"Recommended pickups"** panel renders `fa_suggestions` (drop → add, with category impact + reasoning).
 
-**API:** none. `LineupSlot` already carries `slot`, `current_slot`, `action`, `status`, `value`, `matchup`, `forced_start` (`api/contracts/lineup.py:17`).
+**Inline explainer (WS5):** per-row value breakdown + `fa_suggestions[].category_impact` exposed to Bubba/tooltip (see WS5 inline breakdowns).
 
-**Inline explainer (WS5):** each row exposes its DCV value; the per-category DCV contributions are added to the daily slot payload for Bubba/tooltip (see WS5 inline breakdowns).
-
-**Verification:** live API daily mode populates `current_slot`/`value`/`matchup` only with live Yahoo (matchup + schedule); locally degrade gracefully. Verify ordering/coloring against the live API; `pnpm build` + `tsc` gate.
+**Verification:** DB-free service test for scope routing + FA composition + standard-mode matchup pass-through + `current_slot` population; live local smoke across all three scopes; `pnpm build` + `tsc` gate. Live-only Yahoo fields (matchup/schedule/`current_slot`) degrade gracefully where the local DB can't populate them.
 
 ---
 
@@ -89,30 +97,30 @@ The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(mat
 
 **New endpoint A — compare/verdict:**
 `POST /api/start-sit/compare`
-- Request `StartSitCompareRequest{ team_name: str | None, date: str, player_ids: list[int]  # 2..6 }`
+- Request `StartSitCompareRequest{ team_name: str | None, scope: str, player_ids: list[int]  # 2..6 }` where `scope ∈ {today, rest_of_week, rest_of_season}` (same selector as Optimizer).
 - Response `StartSitCompareResponse`:
-  - `date`
-  - `candidates: list[StartSitCandidate]` — `{ player: PlayerRef, start_score: float 0-100, rank: int, projected: list[StatItem], category_impact: list[StatItem], matchup: str, reason: str, playable: bool }`
+  - `scope` (echo)
+  - `candidates: list[StartSitCandidate]` — `{ player: PlayerRef, start_score: float 0-100, rank: int, eligible_slots: list[str], projected: list[StatItem], category_impact: list[StatItem], matchup: str, reason: str, playable: bool }`
   - `verdict: { start_ids: list[int], sit_ids: list[int], reasoning: str }`
-  - `open_slots: dict[str, int]` — open lineup slots by position for that date
+  - `open_slots: dict[str, int]` — open lineup slots by position for the scope, from the user's REAL roster + the league's actual slot config
   - `confidence: float` + `confidence_label: str` ("Clear" / "Lean" / "Toss-up")
-- Logic: build matchup-aware context (cross-cutting urgency); score each selected player via `start_sit_recommendation` + daily DCV for the date; rank by start_score; the verdict marks the top-K as **start** where K = how many of the selected players' positions can fill open lineup slots (a small position→slot assignment bounded by the league's starting slots, given the rest of the roster). The slot feasibility in `/compare` is a clearly-scoped heuristic; `/optimize` is authoritative.
+- Logic: build a matchup-aware context at the chosen `scope` (cross-cutting urgency); score each selected player via `start_sit_recommendation` (scope-scaled projection; daily DCV when `scope=today`); rank by start_score; the verdict marks the top-K as **start** where K = how many of the selected players can fill open lineup slots, assigning each player to **any of its real Yahoo eligible positions** (`eligible_positions`, multi-position) against the league's actual starting slots — C / 1B / 2B / 3B / SS / 3×OF / 2×Util / 2×SP / 2×RP / 4×P (a small position→slot assignment, bounded by the rest of the roster). The slot feasibility in `/compare` is a clearly-scoped heuristic; `/optimize` is the authoritative LP.
 
 **New endpoint B — apply to open slots:**
 `POST /api/start-sit/optimize`
-- Request `StartSitOptimizeRequest{ team_name: str | None, date: str, player_ids: list[int] }`
-- Response reuses lineup contracts: `{ date, slots: list[LineupSlot], bench: list[LineupSlot], summary: str, daily: DailyMeta }`
-- Logic: run the daily LP with the selected candidates added to the eligible pool (FAs included as hypothetical adds), filling the user's open slots optimally for the date. Reuses the `mode="daily"` machinery in `lineup_service`/`pipeline`.
+- Request `StartSitOptimizeRequest{ team_name: str | None, scope: str, player_ids: list[int] }`
+- Response reuses lineup contracts: `{ scope, slots: list[LineupSlot], bench: list[LineupSlot], summary: str, daily: DailyMeta }`
+- Logic: run the LP at the chosen `scope` with the selected candidates added to the eligible pool (FAs included as hypothetical adds), assigning each player to any of its real eligible positions and filling the user's open slots optimally. Reuses the `lineup_service`/`pipeline` machinery (daily DCV path for `today`, standard LP for `rest_of_week`/`rest_of_season`).
 
 **Service seam:** new `api/services/start_sit_service.py` (the ONE place importing `src.start_sit` + daily optimizer for this feature). Thin routers (`api/routers/start_sit.py`), DI provider in `api/deps.py`, fake-service DI tests (`tests/api/test_api_start_sit_*.py`), mount in `api/main.py`, regen `openapi.json`.
 
 **Player selection:** the page composes existing endpoints — `GET /api/players/search?q=` (any roster/FA player), `GET /api/free-agents/pool` (ranked FAs), `GET /api/league/rosters`. No new selection API.
 
-**Frontend:** new route `web/src/app/start-sit/page.tsx` + `web/src/lib/start-sit-data.ts` + components. Nav tab added to `web/src/components/chrome/TopBar.tsx`. UI: date strip · player multi-select (search roster + FAs, max 6, mixed positions) · comparison cards (start_score heat bar, projected line, per-category impact, matchup, reason) · ranked start/sit verdict bounded by open slots · "Apply to open slots" button → calls `/optimize` → shows the filled lineup.
+**Frontend:** new route `web/src/app/start-sit/page.tsx` + `web/src/lib/start-sit-data.ts` + components. Nav tab added to `web/src/components/chrome/TopBar.tsx`. UI: **scope selector** (Today / Rest of Week / Rest of Season, same control as Optimizer) · player multi-select (search roster + FAs, max 6, mixed positions) · comparison cards (start_score heat bar, eligible slots, projected line, per-category impact, matchup, reason) · ranked start/sit verdict bounded by open slots · "Apply to open slots" button → calls `/optimize` → shows the filled lineup.
 
 **Inline explainer (WS5):** `category_impact` + `start_score` components are returned structured so Bubba/tooltips can explain "why start X over Y."
 
-**Verification:** DB-free fake-service tests for both endpoints; live local smoke for a real date + real player ids (search → compare → optimize); `pnpm build` + `tsc`.
+**Verification:** DB-free fake-service tests for both endpoints (incl. eligible-position assignment + scope routing); live local smoke for each scope + real player ids (search → compare → optimize); `pnpm build` + `tsc`.
 
 ---
 
@@ -174,10 +182,10 @@ On the four touched features, ensure the response payloads carry the calculation
 
 | Contract | Change |
 |----------|--------|
-| `api/contracts/start_sit.py` (new) | `StartSitCompareRequest/Response`, `StartSitCandidate`, `StartSitOptimizeRequest`; reuse `LineupSlot`/`DailyMeta`, `StatItem`, `PlayerRef` |
+| `api/contracts/start_sit.py` (new) | `StartSitCompareRequest/Response` (scope-based), `StartSitCandidate` (+`eligible_slots`), `StartSitOptimizeRequest`; reuse `LineupSlot`/`DailyMeta`, `StatItem`, `PlayerRef` |
 | `api/contracts/trade_finder.py` | `TradeSuggestion` += `grade`, `partner_record`, `category_impacts` |
 | `api/contracts/streaming.py` | `StreamingResponse` += optional `urgency: dict[str,float]` (display) |
-| `api/contracts/lineup.py` | `LineupSlot` += optional per-category DCV breakdown (additive) |
+| `api/contracts/lineup.py` | `LineupOptimizeResponse` += `fa_suggestions: list[FaSuggestion]` (new `FaSuggestion` model); `LineupOptimizeRequest.scope ∈ {today, rest_of_week, rest_of_season}` honored end-to-end; `LineupSlot` += optional per-category DCV breakdown (additive) |
 | `api/contracts/chat.py` | `ChatSendRequest` += `page_context: PageContext|None`; new `PageContext{page, data_json}` |
 | `openapi.json` | regenerated ONCE after all backend routes land; TS types regenerated from it |
 
@@ -186,7 +194,8 @@ All additions are backward-compatible (optional fields / new routes). `fastapi==
 ## Execution model
 
 - **One branch**, subagent-driven in a single worktree (shared files make parallel worktrees conflict-prone).
-- **File-ownership split** to parallelize safely: WS1 (optimizer FE), WS2 (streaming FE + streaming_service), WS3 (start_sit_service + routers + start-sit page), WS4 (trade_finder_service + trade contracts/adapter), WS5 (chat_service + tools + BubbaContext). Shared touch-points are serialized:
+- **File-ownership split** to parallelize safely: WS1 (`lineup_service` + `contracts/lineup` + optimizer FE), WS2 (streaming FE + `streaming_service`), WS3 (`start_sit_service` + routers + start-sit page), WS4 (`trade_finder_service` + trade contracts/adapter), WS5 (`chat_service` + `src/ai/tools` + BubbaContext). Shared touch-points are serialized:
+  - **`api/services/lineup_service.py` is shared by WS1 and WS3** (WS3 reuses the daily/standard machinery) → do WS1's backend FIRST, then WS3 builds on the stabilized service (no parallel edits to this file).
   - `api/main.py` (route mounts), `openapi.json`, generated TS types → **one integrator pass at the end** (per the parallel-reconcile lesson: resolve generated files by regenerating, never hand-merge).
   - `web/src/components/chrome/TopBar.tsx` (nav) → WS3 only.
   - `web/src/lib/api/adapters.ts` → WS1/WS2/WS4 append disjoint adapters; integrator reconciles.
