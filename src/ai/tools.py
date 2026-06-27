@@ -61,6 +61,39 @@ def tool_specs(web_search_enabled: bool = False, deep_research_enabled: bool = F
             "refresh); omit to refresh everything. Returns a request_id; the scheduler runs it. Use sparingly.",
             {"source": {"type": "string"}},
         ),
+        _fn(
+            "explain_constant",
+            "Explain ONE registered optimizer constant: its value, plausible bounds, "
+            "research citation, source module, sensitivity tier, and a one-line description. "
+            "Use this to cite how a tunable number (matchup weight, stabilization point, "
+            "platoon split, etc.) was set when explaining 'how' a metric was computed.",
+            {"name": {"type": "string", "description": "The constant's registry key, e.g. 'stream_score_w_matchup'."}},
+            ["name"],
+        ),
+        _fn(
+            "list_constants",
+            "Browse the registered optimizer constants (name + one-line description). "
+            "Optionally filter by 'module' (substring, e.g. 'streaming.py') or 'sensitivity' "
+            "(HIGH/MEDIUM/LOW). Use to discover which constant to explain_constant.",
+            {
+                "module": {"type": "string", "description": "Substring match against the source module."},
+                "sensitivity": {"type": "string", "description": "HIGH, MEDIUM, or LOW."},
+            },
+        ),
+        _fn(
+            "explain_metric",
+            "Explain HOW a HEATER score is computed: returns the formula string, each "
+            "component's registry weight + value, and the input variables. kind is one of "
+            "'stream_score' (pitcher streaming), 'dcv' (daily category value), 'trade_grade', "
+            "'start_score' (start/sit). Pass live numbers in 'params' (e.g. "
+            "{'components': {...}, 'net_sgp': 1.2}) to have them surfaced; omit to get the "
+            "recipe + weights. Cite the constants it returns when answering 'how'.",
+            {
+                "kind": {"type": "string", "description": "stream_score | dcv | trade_grade | start_score"},
+                "params": {"type": "object", "description": "Optional live inputs/components to surface."},
+            },
+            ["kind"],
+        ),
     ]
     if web_search_enabled:
         specs.append(
@@ -132,6 +165,8 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
 
             rid = request_refresh(args.get("source", "all"), requested_by=user_id)
             return json.dumps({"request_id": rid, "status": "pending"})
+        if name == "explain_constant":
+            return _explain_constant(str(args.get("name", "")))
         if name == "web_search":
             from src.ai.search import web_search
 
@@ -211,3 +246,25 @@ def _get_free_agents(limit: int) -> str:
     if df is None or df.empty:
         return json.dumps({"error": "no free agents"})
     return df.head(limit).to_json(orient="records")
+
+
+def _explain_constant(name: str) -> str:
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    key = name.strip()
+    entry = CONSTANTS_REGISTRY.get(key)
+    if entry is None:
+        return json.dumps({"error": f"Unknown constant: {name!r}. Use list_constants to browse."})
+    return json.dumps(
+        {
+            "name": key,
+            "value": entry.value,
+            "lower_bound": entry.lower_bound,
+            "upper_bound": entry.upper_bound,
+            "citation": entry.citation,
+            "module": entry.module,
+            "sensitivity": entry.sensitivity,
+            "description": entry.description,
+        },
+        default=str,
+    )

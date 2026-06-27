@@ -100,3 +100,38 @@ def test_dispatch_web_search_missing_query():
 
     out = dispatch_tool("web_search", {}, user_id=99)
     assert "error" in json.loads(out)
+
+
+def test_explain_constant_in_specs():
+    from src.ai.tools import tool_specs
+
+    names = {t["function"]["name"] for t in tool_specs()}
+    assert "explain_constant" in names
+
+
+def test_dispatch_explain_constant_known():
+    import json
+
+    from src.ai.tools import dispatch_tool
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    name = next(iter(CONSTANTS_REGISTRY))  # any real registered constant
+    out = json.loads(dispatch_tool("explain_constant", {"name": name}, user_id=99))
+    entry = CONSTANTS_REGISTRY[name]
+    assert out["name"] == name
+    assert out["value"] == entry.value
+    assert out["lower_bound"] == entry.lower_bound
+    assert out["upper_bound"] == entry.upper_bound
+    assert out["citation"] == entry.citation
+    assert out["module"] == entry.module
+    assert out["sensitivity"] == entry.sensitivity
+    assert out["description"] == entry.description
+
+
+def test_dispatch_explain_constant_unknown_is_graceful():
+    import json
+
+    from src.ai.tools import dispatch_tool
+
+    out = json.loads(dispatch_tool("explain_constant", {"name": "no_such_constant"}, user_id=99))
+    assert "error" in out and "no_such_constant" in out["error"]
