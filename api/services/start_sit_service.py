@@ -143,7 +143,6 @@ class StartSitService:
         try:
             from src.optimizer.shared_data_layer import build_optimizer_context
             from src.start_sit import start_sit_recommendation
-            from src.validation.dynamic_context import compute_weeks_remaining
             from src.valuation import LeagueConfig
             from src.yahoo_data_service import get_yahoo_data_service
 
@@ -151,13 +150,13 @@ class StartSitService:
             yds = get_yahoo_data_service()
             # Matchup-aware by construction: build_optimizer_context calls
             # yds.get_matchup() and sets ctx.category_weights from compute_urgency_weights.
-            # Pass a COMPUTED weeks_remaining (the canonical src.validation helper the
-            # Streamlit pages use) so late-season projections don't ride the 16 default.
+            # weeks_remaining is intentionally left at the builder default to match every
+            # other api/services/* caller (fa/streaming/schedule/team) — keeps a player's
+            # projected line consistent across pages.
             ctx = build_optimizer_context(
                 scope=scope,
                 yds=yds,
                 config=config,
-                weeks_remaining=compute_weeks_remaining(),
                 user_team_name=req.team_name,
                 level_filter="All",
             )
