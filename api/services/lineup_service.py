@@ -90,7 +90,10 @@ class LineupService:
             slots, bench = self._to_slots(lineup, pool, roster)
             impact = self._impact((lineup or {}).get("projected_stats") if isinstance(lineup, dict) else None)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
-            fa_suggestions = self._compose_fa(team_name, scope, yds, pool)
+            # FA pickups are loaded by the frontend via a SEPARATE request, NOT inline:
+            # _compose_fa runs a second full build_optimizer_context (~15-25s) on top of the
+            # LP, which pushed the optimize response to ~42s — past the Vercel gateway timeout
+            # → "data service didn't respond". Keep optimize lineup-only + fast (under the cap).
             if slots:
                 summary = f"{len(slots)} starters set."
         except Exception as exc:
@@ -152,7 +155,8 @@ class LineupService:
             )
             daily = self._daily_meta(result, slots, roster, pool, resolved_date)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
-            fa_suggestions = self._compose_fa(team_name, "today", yds, pool)
+            # FA pickups loaded separately by the frontend (see _optimize_standard) — keeps the
+            # daily optimize response under the Vercel gateway timeout.
             if slots:
                 summary = f"{len(slots)} starters set for {resolved_date}."
         except Exception as exc:
