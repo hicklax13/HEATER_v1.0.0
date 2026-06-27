@@ -72,6 +72,19 @@ requirements:
     blocking_ring: ci
     last_verified: "2026-06-26"
     score_contribution: api
+  - id: P1-SOURCE-INVENTORY
+    category: data_quality
+    phase: 1
+    description: Data-source inventory + per-source commercial-rights assessment exists (WP 1.1).
+    status: passing
+    subsystem: legal
+    verify: "test -f docs/launch/source_inventory.md"
+    metric: "inventory drafted; per-source commercial verdicts assigned"
+    evidence: "docs/launch/source_inventory.md"
+    external_review: lawyer
+    blocking_ring: limited_public
+    last_verified: "2026-06-26"
+    score_contribution: data_quality
   - id: P1-LEGAL-DATA-RIGHTS
     category: data_quality
     phase: 1
