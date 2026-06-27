@@ -27,6 +27,7 @@ import { ClerkAccountArea } from "./ClerkAccountArea";
 const NAV = [
   { label: "Team", href: "/" },
   { label: "Optimizer", href: "/optimizer" },
+  { label: "Start/Sit", href: "/start-sit" },
   { label: "Streaming", href: "/streaming" },
   { label: "Probables", href: "/probables" },
   { label: "Hitter Matchups", href: "/hitter-matchups" },
