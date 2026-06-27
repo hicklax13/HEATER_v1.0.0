@@ -67,8 +67,22 @@ function buildPageContext(pageId: string, data: unknown): { page: string; data_j
     return undefined; // non-serializable (cycles) — skip rather than throw
   }
   if (!json) return undefined;
-  const data_json = json.length > PAGE_CONTEXT_CAP ? json.slice(0, PAGE_CONTEXT_CAP) + "…[truncated]" : json;
-  return { page: pageId, data_json };
+  // Cap by UTF-8 BYTE size on code-point boundaries. String.length/.slice count UTF-16
+  // units, so accented MLB names (José, Peña) could slip past a "16 KB" char cap, and a
+  // raw slice could emit a lone surrogate the backend rejects. Measure per code point.
+  const enc = new TextEncoder();
+  if (enc.encode(json).length <= PAGE_CONTEXT_CAP) {
+    return { page: pageId, data_json: json };
+  }
+  let out = "";
+  let bytes = 0;
+  for (const ch of json) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > PAGE_CONTEXT_CAP) break;
+    out += ch;
+    bytes += b;
+  }
+  return { page: pageId, data_json: out + "…[truncated]" };
 }
 
 export function Bubba() {
