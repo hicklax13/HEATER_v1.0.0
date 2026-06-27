@@ -806,7 +806,7 @@ export interface components {
             /** Opp */
             opp: number;
             /** Win Prob */
-            win_prob: number;
+            win_prob?: number | null;
             /** You */
             you: number;
         };
@@ -1813,6 +1813,8 @@ export interface components {
         MatchupHero: {
             /** Loss Prob */
             loss_prob: number;
+            /** Opp Name */
+            opp_name?: string | null;
             /** Opponent */
             opponent: string;
             /** Tie Prob */

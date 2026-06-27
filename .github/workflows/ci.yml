@@ -212,3 +212,35 @@ jobs:
           print(f'✅ Database has {count} projections')
           conn.close()
           "
+
+  openapi-ts-sync:
+    # Launch program Phase 0a guard: the committed frontend types must be
+    # regenerable from api/openapi.json with no drift. openapi-typescript is
+    # pinned at 7.13.0 in web/pnpm-lock.yaml (lockfileVersion 9.0 -> pnpm 9).
+    name: OpenAPI → TS sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate API types
+        working-directory: web
+        run: pnpm gen:api
+
+      - name: Fail on OpenAPI/TS drift
+        run: git diff --exit-code web/src/lib/api/generated.ts
