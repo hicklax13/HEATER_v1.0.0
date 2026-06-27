@@ -427,3 +427,35 @@ def test_ip_pace_filters_pitchers_and_merges_pool_ip(monkeypatch):
     assert names == {"Cole", "Holmes"}  # only pitchers
     cole = next(p for p in captured["pitchers"] if p["name"] == "Cole")
     assert cole["ip"] == 180.0 and cole["is_starter"] is True  # pool IP merged; SP flagged
+
+
+# ── WS1: FaSuggestion + fa_suggestions + value_breakdown contract ──
+
+
+def test_fa_suggestion_contract_shape():
+    from api.contracts.common import StatItem
+    from api.contracts.lineup import FaSuggestion
+
+    fs = FaSuggestion(
+        add=PlayerRef(id=10, name="Add Guy", positions="OF"),
+        drop=PlayerRef(id=20, name="Drop Guy", positions="2B"),
+        net_sgp_delta=1.42,
+        category_impact=[StatItem(label="HR", value="+0.30"), StatItem(label="SB", value="+0.10")],
+        reasoning="Upgrades HR + SB you're losing.",
+        urgency_categories=["HR", "SB"],
+    )
+    d = fs.model_dump()
+    assert d["add"]["id"] == 10 and d["drop"]["id"] == 20
+    assert d["net_sgp_delta"] == 1.42
+    assert d["category_impact"][0] == {"label": "HR", "value": "+0.30"}
+    assert d["urgency_categories"] == ["HR", "SB"]
+
+
+def test_lineup_response_fa_suggestions_defaults_empty():
+    resp = LineupOptimizeResponse(team_name="T", date="2027-04-05", slots=[])
+    assert resp.model_dump()["fa_suggestions"] == []
+
+
+def test_lineup_slot_value_breakdown_defaults_empty():
+    slot = LineupSlot(slot="OF", player=PlayerRef(id=1, name="X", positions="OF"), action="START")
+    assert slot.model_dump()["value_breakdown"] == []
