@@ -10,6 +10,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from api.errors import install_error_handlers
 from api.request_context import REQUEST_ID_HEADER, set_request_id
@@ -94,4 +95,24 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(chat_router)
     app.include_router(schedule_router)
+
+    def _custom_openapi() -> dict:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+        components = schema.setdefault("components", {})
+        components.setdefault("securitySchemes", {})["BearerAuth"] = {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": (
+                "Clerk session JWT. Required on write + Pro/admin endpoints; "
+                "harmless on open reads. Per-operation security requirements are "
+                "annotated progressively as each phase hardens its routes."
+            ),
+        }
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = _custom_openapi
     return app

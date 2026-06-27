@@ -4456,6 +4456,14 @@
         "title": "WebhookResponse",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "Clerk session JWT. Required on write + Pro/admin endpoints; harmless on open reads. Per-operation security requirements are annotated progressively as each phase hardens its routes.",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
