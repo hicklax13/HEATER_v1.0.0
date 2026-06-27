@@ -469,6 +469,66 @@ def test_to_slots_populates_current_slot_from_roster():
     assert bench[0].player.id == 2 and bench[0].current_slot == "BN"
 
 
+# ── WS1: scope routing + standard-path live-matchup pass-through ──
+
+
+def test_optimize_scope_today_routes_to_daily_path(monkeypatch):
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["mode"] = kw.get("mode")
+
+        def optimize(self, **kw):
+            captured["matchup"] = kw.get("matchup")
+            return {"daily_dcv": captured.get("dcv"), "daily_lineup": {"starters": [], "bench": []}}
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    resp = LineupService().optimize(team_name="Team Hickey", scope="today")
+    assert captured["mode"] == "daily"  # scope=today → daily-DCV path
+    assert resp.mode == "daily"
+
+
+def test_optimize_scope_week_passes_matchup_to_standard_lp(monkeypatch):
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["mode"] = kw.get("mode")
+
+        def optimize(self, **kw):
+            captured["matchup"] = kw.get("matchup")
+            ids = list(captured_roster["player_id"])
+            return {
+                "lineup": {
+                    "assignments": [{"slot": "OF", "player_name": "x", "player_id": int(i)} for i in ids],
+                    "projected_stats": {"hr": 55},
+                    "status": "Optimal",
+                }
+            }
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+
+    # the seam's _OptYDS.get_matchup returns None; make it return a sentinel so we can assert pass-through
+    class _MatchupYDS(_OptYDS):
+        def get_matchup(self):
+            return {"categories": []}
+
+    captured_roster_holder = {}
+
+    def _yds():
+        y = _MatchupYDS(calls)
+        return y
+
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", _yds)
+    global captured_roster
+    captured_roster = _MatchupYDS(calls).get_team_roster("Team Hickey")
+    resp = LineupService().optimize(team_name="Team Hickey", scope="rest_of_week")
+    assert captured["mode"] == "standard"  # week/season → standard LP
+    assert captured["matchup"] == {"categories": []}  # live matchup threaded into the standard LP
+    assert resp.mode == "standard"
+
+
 def test_lineup_response_fa_suggestions_defaults_empty():
     resp = LineupOptimizeResponse(team_name="T", date="2027-04-05", slots=[])
     assert resp.model_dump()["fa_suggestions"] == []

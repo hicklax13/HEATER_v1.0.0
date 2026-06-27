@@ -39,9 +39,12 @@ class LineupService:
     def optimize(
         self, team_name: str, date=None, scope: str = "rest_of_season", mode: str = "standard"
     ) -> LineupOptimizeResponse:
-        if str(mode or "standard").lower() == "daily":
+        # scope is the driver: today → daily DCV; rest_of_week / rest_of_season → standard LP.
+        # mode is kept as a back-compat override (an explicit mode="daily" still forces daily).
+        sc = str(scope or "rest_of_season").lower()
+        if sc == "today" or str(mode or "standard").lower() == "daily":
             return self._optimize_daily(team_name, date)
-        return self._optimize_standard(team_name, date, scope)
+        return self._optimize_standard(team_name, date, sc)
 
     # ------------------------------------------------------------------ standard (ROS/weekly LP)
     def _optimize_standard(self, team_name: str, date, scope: str) -> LineupOptimizeResponse:
@@ -67,10 +70,17 @@ class LineupService:
             # unavailable". This is the same enriched roster the Streamlit optimizer
             # page uses (pages/2_Line-up_Optimizer.py).
             roster = yds.get_team_roster(team_name)
+            matchup = None
+            try:
+                matchup = yds.get_matchup()
+            except Exception:
+                matchup = None
             pipeline = LineupOptimizerPipeline(roster, mode="standard", config=LeagueConfig())
             # The pipeline method is optimize() (NOT run()); it returns an OptimizerResult
             # dict whose "lineup" is {assignments, bench, projected_stats, status}.
-            result = pipeline.optimize() if hasattr(pipeline, "optimize") else None
+            # Pass the live matchup so week/season optimize is matchup-aware (urgency weights);
+            # the pipeline reads kwargs.get("matchup") and falls back to neutral when None.
+            result = pipeline.optimize(matchup=matchup) if hasattr(pipeline, "optimize") else None
             lineup = (result or {}).get("lineup") if isinstance(result, dict) else None
 
             pool = self._load_pool()
