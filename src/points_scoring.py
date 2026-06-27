@@ -1,0 +1,137 @@
+"""Points-league scoring valuation (Phase 4 slice 1).
+
+Standalone + additive: pure functions over the existing player pool, parallel to
+(and never touching) the category engine (LeagueConfig/SGPCalculator). Given a
+points league's per-stat weights, computes a player's projected points, ranks
+players, and totals a roster. Stats HEATER does not project are flagged
+'uncovered', never silently zeroed.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+
+# Friendly stat name -> pool column, per player type. The SINGLE place to widen
+# coverage later. Verified against load_player_pool() (2026-06-27).
+_HITTER_STAT_COLUMNS: dict[str, str] = {
+    "R": "r",
+    "HR": "hr",
+    "RBI": "rbi",
+    "SB": "sb",
+    "H": "h",
+    "BB": "bb",
+    "HBP": "hbp",
+    "AB": "ab",
+    "SF": "sf",
+    "AVG": "avg",
+    "OBP": "obp",
+}
+_PITCHER_STAT_COLUMNS: dict[str, str] = {
+    "IP": "ip",
+    "K": "k",
+    "W": "w",
+    "L": "l",
+    "SV": "sv",
+    "ER": "er",
+    "H": "h_allowed",
+    "BB": "bb_allowed",
+    "ERA": "era",
+    "WHIP": "whip",
+}
+
+
+@dataclass(frozen=True)
+class PointsScoringConfig:
+    """Per-stat point weights for a points league. Keys are friendly stat names
+    (case-insensitive); values are points per unit of the stat (sign encodes
+    inverse stats, e.g. ER = -2.0)."""
+
+    hitter_weights: dict[str, float]
+    pitcher_weights: dict[str, float]
+    name: str = "custom"
+
+
+@dataclass
+class PointsResult:
+    points: float
+    breakdown: dict[str, float] = field(default_factory=dict)
+    uncovered: set[str] = field(default_factory=set)
+
+
+def _num(value) -> float:
+    """NaN/None/inf-safe numeric coercion -> finite float (0.0 on failure)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(f):
+        return 0.0
+    return f
+
+
+def _get(row, key):
+    """Mapping-or-Series accessor; returns None when the key is absent."""
+    try:
+        return row.get(key)  # dict / pandas Series / Mapping all support .get
+    except AttributeError:
+        return row[key] if key in row else None
+
+
+def _score_half(row, weights: dict, stat_columns: dict[str, str]) -> PointsResult:
+    """Score one weight map against one column map (one player 'half')."""
+    points = 0.0
+    breakdown: dict[str, float] = {}
+    uncovered: set[str] = set()
+    for raw_stat, weight in weights.items():
+        stat = str(raw_stat).strip().upper()
+        col = stat_columns.get(stat)
+        if col is None:
+            uncovered.add(stat)  # HEATER does not project this stat for this type
+            continue
+        contribution = _num(weight) * _num(_get(row, col))
+        breakdown[stat] = contribution
+        points += contribution
+    return PointsResult(points=points, breakdown=breakdown, uncovered=uncovered)
+
+
+def _is_hitter(row) -> bool:
+    return bool(_num(_get(row, "is_hitter")))
+
+
+def _has_pitcher_volume(row) -> bool:
+    return _num(_get(row, "ip")) > 0.0
+
+
+def project_player_points(player_row, config: PointsScoringConfig) -> PointsResult:
+    """Project a single player's points under `config`.
+
+    Hitters use hitter_weights, pitchers use pitcher_weights. A two-way player
+    (is_hitter AND pitcher volume — Ohtani) is scored as BOTH halves summed; its
+    breakdown keys are prefixed BAT:/PIT: to disambiguate same-named stats (a
+    hitter's H vs a pitcher's H allowed)."""
+    is_hit = _is_hitter(player_row)
+    pitches = _has_pitcher_volume(player_row)
+    two_way = is_hit and pitches
+
+    score_hit = is_hit
+    score_pit = two_way or (pitches and not is_hit)
+
+    total = 0.0
+    breakdown: dict[str, float] = {}
+    uncovered: set[str] = set()
+
+    if score_hit:
+        half = _score_half(player_row, config.hitter_weights, _HITTER_STAT_COLUMNS)
+        total += half.points
+        prefix = "BAT:" if two_way else ""
+        breakdown.update({f"{prefix}{k}": v for k, v in half.breakdown.items()})
+        uncovered |= half.uncovered
+    if score_pit:
+        half = _score_half(player_row, config.pitcher_weights, _PITCHER_STAT_COLUMNS)
+        total += half.points
+        prefix = "PIT:" if two_way else ""
+        breakdown.update({f"{prefix}{k}": v for k, v in half.breakdown.items()})
+        uncovered |= half.uncovered
+
+    return PointsResult(points=total, breakdown=breakdown, uncovered=uncovered)
