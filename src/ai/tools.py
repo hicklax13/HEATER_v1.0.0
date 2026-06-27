@@ -169,6 +169,8 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
             return _explain_constant(str(args.get("name", "")))
         if name == "list_constants":
             return _list_constants(args.get("module"), args.get("sensitivity"))
+        if name == "explain_metric":
+            return _explain_metric(str(args.get("kind", "")), args.get("params") or {})
         if name == "web_search":
             from src.ai.search import web_search
 
@@ -292,3 +294,93 @@ def _list_constants(module: str | None, sensitivity: str | None) -> str:
             }
         )
     return json.dumps({"count": len(rows), "constants": rows}, default=str)
+
+
+# Per-metric formula string + the registry weight keys that compose it. The
+# stream_score key list MIRRORS api/services/streaming_service.py::_factors so the
+# explainer and the live board agree. dcv/start_score/trade_grade describe the
+# recipe; the live per-category numbers travel inline on each page's payload.
+_METRIC_SPECS: dict[str, dict] = {
+    "stream_score": {
+        "formula": "stream_score (0-100) = 100 * Σ w_k · factor_k for k in "
+        "{matchup, sgp, form, lineup, env, winprob}, each factor_k in [-1, 1].",
+        "weight_keys": [
+            ("matchup", "Matchup"),
+            ("sgp", "Streaming value"),
+            ("form", "Recent form"),
+            ("lineup", "Lineup exposure"),
+            ("env", "Environment / park"),
+            ("winprob", "Team win probability"),
+        ],
+        "weight_prefix": "stream_score_w_",
+    },
+    "dcv": {
+        "formula": "daily_category_value = base_sgp_per_game · urgency_weight · "
+        "matchup_multiplier · volume_factor; normalized to a 0-100 heat. Locked/IL/"
+        "off-day starts get volume_factor 0.",
+        "module": "daily_optimizer.py",
+    },
+    "trade_grade": {
+        "formula": "grade derives from Phase-1 weighted surplus_sgp = Σ_cat "
+        "(marginal_sgp(receiving) - marginal_sgp(giving)) · category_weight; "
+        "inverse cats (L/ERA/WHIP) sign-flipped. Phase 1 is the grade authority.",
+        "module": "engine",
+    },
+    "start_score": {
+        "formula": "start_score (0-100) = weekly_projection · urgency · matchup_factors, "
+        "risk-adjusted; home/away apply home_advantage/away_discount.",
+        "module": "start_sit.py",
+    },
+}
+
+
+def _explain_metric(kind: str, params: dict) -> str:
+    k = (kind or "").strip().lower()
+    spec = _METRIC_SPECS.get(k)
+    if spec is None:
+        return json.dumps(
+            {"error": f"Unsupported metric kind: {kind!r}. Supported: stream_score, dcv, trade_grade, start_score."}
+        )
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    provided = params.get("components", {}) if isinstance(params.get("components"), dict) else {}
+    components: list[dict] = []
+    if spec.get("weight_keys"):
+        prefix = spec["weight_prefix"]
+        for key, label in spec["weight_keys"]:
+            entry = CONSTANTS_REGISTRY.get(f"{prefix}{key}")
+            components.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "weight": float(entry.value) if entry is not None else 0.0,
+                    "value": provided.get(key),
+                    "detail": entry.description if entry is not None else "",
+                }
+            )
+    else:
+        mod = str(spec.get("module", "")).lower()
+        for key, entry in CONSTANTS_REGISTRY.items():
+            if mod and mod in entry.module.lower():
+                components.append(
+                    {
+                        "key": key,
+                        "label": key,
+                        "weight": float(entry.value),
+                        "value": provided.get(key),
+                        "detail": entry.description,
+                    }
+                )
+    inputs = {kk: vv for kk, vv in params.items() if kk != "components"}
+    return json.dumps(
+        {
+            "kind": k,
+            "formula": spec["formula"],
+            "components": components,
+            "inputs": inputs,
+            "note": "Live per-category values travel inline on the page payload "
+            "(streaming factors[], trade category_impacts, daily DCV slot fields); "
+            "this tool explains the recipe + weights.",
+        },
+        default=str,
+    )
