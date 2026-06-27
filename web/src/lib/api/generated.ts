@@ -3073,15 +3073,27 @@ export interface components {
         /** TradeSuggestion */
         TradeSuggestion: {
             /**
+             * Category Impacts
+             * @default []
+             */
+            category_impacts: components["schemas"]["CategoryImpact"][];
+            /**
              * Giving
              * @default []
              */
             giving: components["schemas"]["PlayerRef"][];
             /**
+             * Grade
+             * @default
+             */
+            grade: string;
+            /**
              * Net Sgp
              * @default 0
              */
             net_sgp: number;
+            /** Partner Record */
+            partner_record?: string | null;
             /** Partner Team */
             partner_team: string;
             /**

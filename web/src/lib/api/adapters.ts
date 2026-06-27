@@ -492,7 +492,8 @@ export function applyPlayoffOdds(data: StandingsData, api: ApiPlayoffOddsRespons
 
 type ApiTradeSuggestion = NonNullable<ApiTradeFinderResponse["suggestions"]>[number];
 
-/** A net-SGP gain → a plain verdict (the contract has no grade/verdict). */
+/** A net-SGP gain → a plain verdict fallback string (the finder contract carries a
+ *  real engine grade, but no human verdict label). */
 function verdictFromSgp(net: number): string {
   if (net >= 1.5) return "You win";
   if (net >= 0.3) return "Favorable";
@@ -506,20 +507,38 @@ function toTradePlayer(p: Parameters<typeof toPlayerRef>[0]): TradePlayer {
   return { ...r, posLabel: r.teamAbbr ? `${r.pos} · ${r.teamAbbr}` : r.pos };
 }
 
-/** Map /api/trade-finder → frontend TradesData. Lean contract (partner + giving/
- *  receiving + net_sgp + rationale): verdict is derived from net_sgp;
- *  grade/impact/playoffDelta/partnerRecord/needs aren't in it → omitted (the card
- *  hides them). */
+/** A signed SGP-delta number → the display-ready CatImpact shape. category_impacts
+ *  are already per-category SGP deltas (uniform scale, inverse cats pre-flipped so
+ *  + always = improvement), so a signed 2-decimal SGP value is the honest display;
+ *  dir drives the chip arrow/color. */
+function fmtCatDelta(delta: number): { delta: string; dir: "up" | "down" } {
+  const dir = delta >= 0 ? "up" : "down";
+  const sign = delta >= 0 ? "+" : "";
+  return { delta: `${sign}${delta.toFixed(2)}`, dir };
+}
+
+/** Map /api/trade-finder → frontend TradesData. The enriched contract carries the
+ *  engine grade, the partner's W-L-T record, and per-category SGP impacts, so the
+ *  card renders all three; verdict stays a net_sgp-derived fallback string.
+ *  playoffDelta remains omitted (deferred — a per-card playoff sim is too slow). */
 export function apiTradeFinderToData(api: ApiTradeFinderResponse): TradesData {
-  const recs = (api.suggestions ?? []).map((s: ApiTradeSuggestion, i) => ({
-    id: i,
-    partner: s.partner_team ?? "",
-    netSgp: s.net_sgp,
-    verdict: verdictFromSgp(s.net_sgp ?? 0),
-    give: (s.giving ?? []).map(toTradePlayer),
-    get: (s.receiving ?? []).map(toTradePlayer),
-    rationale: s.rationale ?? "",
-  }));
+  const recs = (api.suggestions ?? []).map((s: ApiTradeSuggestion, i) => {
+    const impact = (s.category_impacts ?? [])
+      .filter((c) => (c.delta ?? 0) !== 0)
+      .map((c) => ({ cat: c.cat, ...fmtCatDelta(c.delta ?? 0) }));
+    return {
+      id: i,
+      partner: s.partner_team ?? "",
+      partnerRecord: s.partner_record ?? undefined,
+      grade: s.grade || undefined, // real engine grade; falsy → card falls back to netSgp badge
+      netSgp: s.net_sgp,
+      verdict: verdictFromSgp(s.net_sgp ?? 0),
+      give: (s.giving ?? []).map(toTradePlayer),
+      get: (s.receiving ?? []).map(toTradePlayer),
+      impact: impact.length > 0 ? impact : undefined,
+      rationale: s.rationale ?? "",
+    };
+  });
   return { needs: [], recs };
 }
 
