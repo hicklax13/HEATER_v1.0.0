@@ -40,7 +40,7 @@ Five workstreams on the live React product. Four are wiring/frontend over engine
 
 ## Cross-cutting: matchup-urgency weighting
 
-The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(matchup, config)` already converts the live H2H matchup (which cats you're winning/losing/tied) into per-category 0–1 urgency. The daily lineup path already passes the matchup; the pipeline reads `kwargs["matchup"]` at Stage 10. The work is to thread the same live matchup (`yds.get_matchup()`, 5-min TTL cache — no force-refresh at optimize time per T1.21) into **every** path: WS1 **standard mode** (today only daily passes it), WS2 **streaming** (`streaming_service.py:149` builds context with no matchup → neutral weights), and WS3 **start/sit**. One helper, four consumers, identical semantics. When no live matchup is available, fall back to neutral/standings weights (never raise).
+The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(matchup, config)` already converts the live H2H matchup (which cats you're winning/losing/tied) into per-category 0–1 urgency. The daily lineup path already passes the matchup; the pipeline reads `kwargs["matchup"]` at Stage 10. `build_optimizer_context` already resolves the live matchup and sets `ctx.category_weights` from it, so **streaming + any context-driven path inherit matchup weighting for free** (confirmed at plan time). The remaining work is narrow: WS1 confirms the standard LP honors those weights + (for the daily DCV protect/compete/abandon modes) passes the matchup via `kwargs["matchup"]`; WS2 **surfaces** the resolved urgency for display; WS3 **start/sit** scores against the same context. One source of truth (`build_optimizer_context` + `compute_urgency_weights`), identical semantics. When no live matchup is available, the builder falls back to neutral/standings weights (never raises).
 
 ---
 
@@ -79,8 +79,8 @@ The unifying thread. `src/optimizer/category_urgency.compute_urgency_weights(mat
 - Add a 7-day date strip (reuse the Probables-page pattern: `today … today+7` buttons), default today.
 - `fetchStreaming(date)` → `apiGet("/streaming", { date })`. Re-fetch on selection.
 
-**Backend:** `api/services/streaming_service.py`.
-- Build the optimizer context **matchup-aware**: resolve the viewer's live matchup, pass it so `ctx.category_weights` come from `compute_urgency_weights(matchup, config)`. Now `compute_streaming_value` weights the categories you need this week (high-K streamers rise when you need K; lost ERA/WHIP stop being protected). Fall back to neutral weights when no matchup.
+**Backend:** `api/services/streaming_service.py`. *(Plan-time correction: reading the real code shows `build_optimizer_context` ALREADY resolves the live matchup, computes urgency, sets `ctx.category_weights`, and `build_stream_board` consumes them — so the board is **already matchup-weighted**. The earlier "neutral weights" claim was wrong.)*
+- The genuine backend work is to **surface** the resolved `urgency: dict[str,float]` on `StreamingResponse` (additive, for display + Bubba) so the user can see which categories are driving the rankings. Never raise when no matchup.
 - FA filtering already default (`include_rostered=False`). The `budget` strip already surfaces adds-left + cats-in-play.
 
 **API contract:** unchanged shape; `date` param already accepted. Optionally surface the resolved `urgency` map on `StreamingResponse` for display + Bubba (small additive field).
