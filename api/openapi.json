@@ -1224,6 +1224,47 @@
         "title": "DraftSimulatePicksResponse",
         "type": "object"
       },
+      "FaSuggestion": {
+        "description": "A 'drop X for available Y' free-agent upgrade, alongside the LP lineup.\n\nComposed from recommend_fa_moves(ctx) over the optimize context. The LP still\noptimizes the CURRENT roster; these are the available-pickup layer.",
+        "properties": {
+          "add": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "category_impact": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Category Impact",
+            "type": "array"
+          },
+          "drop": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "net_sgp_delta": {
+            "default": 0.0,
+            "title": "Net Sgp Delta",
+            "type": "number"
+          },
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "urgency_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Urgency Categories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "add",
+          "drop"
+        ],
+        "title": "FaSuggestion",
+        "type": "object"
+      },
       "FactorDetail": {
         "properties": {
           "detail": {
@@ -2005,6 +2046,13 @@
             "title": "Date",
             "type": "string"
           },
+          "fa_suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/FaSuggestion"
+            },
+            "title": "Fa Suggestions",
+            "type": "array"
+          },
           "impact": {
             "items": {
               "$ref": "#/components/schemas/CatImpact"
@@ -2126,6 +2174,13 @@
             "default": 0.0,
             "title": "Value",
             "type": "number"
+          },
+          "value_breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Value Breakdown",
+            "type": "array"
           }
         },
         "required": [
