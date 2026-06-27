@@ -1,0 +1,390 @@
+meta:
+  program: HEATER Public Commercial Launch
+  spec: docs/superpowers/specs/2026-06-26-heater-public-commercial-launch-program-design.md
+  updated: "2026-06-26"
+
+requirements:
+  # ---- Phase 0a gates (this plan) ----
+  - id: P0A-OPENAPI-CURRENT
+    category: maintainability
+    phase: 0
+    description: Committed api/openapi.json matches the live FastAPI schema.
+    status: passing
+    subsystem: api
+    verify: "python -m pytest tests/api/test_openapi_contract.py -q"
+    metric: "snapshot test green"
+    evidence: "tests/api/test_openapi_contract.py"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: maintainability
+  - id: P0A-ROUTERS-MOUNTED
+    category: maintainability
+    phase: 0
+    description: Every api/routers/*.py with a router is mounted in api/main.py.
+    status: passing
+    subsystem: api
+    verify: "python -m pytest tests/launch/test_guard_routers_mounted.py -q"
+    metric: "guard green"
+    evidence: "tests/launch/test_guard_routers_mounted.py"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: maintainability
+  - id: P0A-OPENAPI-TS-SYNC
+    category: maintainability
+    phase: 0
+    description: web/src/lib/api/generated.ts is regenerable from api/openapi.json with no drift.
+    status: passing
+    subsystem: web
+    verify: "cd web && pnpm gen:api && git diff --exit-code src/lib/api/generated.ts"
+    metric: "no TS drift in CI"
+    evidence: ".github/workflows/ci.yml (openapi-ts-sync step)"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: maintainability
+  - id: P0A-BASELINE
+    category: maintainability
+    phase: 0
+    description: A reproducible baseline report exists for the audited commit.
+    status: passing
+    subsystem: launch
+    verify: "python -m scripts.launch.freeze_baseline"
+    metric: "report written under docs/launch/baseline/"
+    evidence: "docs/launch/baseline/baseline.md"
+    external_review: none
+    blocking_ring: local
+    last_verified: "2026-06-26"
+    score_contribution: maintainability
+
+  # ---- Per-phase top-level internal gates (planned) ----
+  - id: P0B-API-CONTRACT-FOUNDATION
+    category: api
+    phase: 0
+    description: Error envelope, correlation-ID, OpenAPI bearer scheme, versioning, idempotency, async-job contract live + enforced.
+    status: planned
+    subsystem: api
+    verify: "tbd in plan 0b"
+    metric: "contract tests green"
+    evidence: "docs/superpowers/plans/2026-06-..-heater-launch-phase0b-*.md"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "n/a"
+    score_contribution: api
+  - id: P1-LEGAL-DATA-RIGHTS
+    category: data_quality
+    phase: 1
+    description: Every production source approved/replaced/disabled; policies drafted; privacy export+delete pass.
+    status: planned
+    subsystem: legal
+    verify: "manual + privacy workflow staging tests"
+    metric: "no feature on an unresolved source"
+    evidence: "docs/legal/, docs/launch/source_inventory.md"
+    external_review: lawyer
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: data_quality
+  - id: P2-POSTGRES
+    category: persistence
+    phase: 2
+    description: All production paths use PostgreSQL; no runtime DDL; behavior-equivalent; restore drill passes.
+    status: planned
+    subsystem: backend
+    verify: "alembic upgrade head on PG + parity suite"
+    metric: "parity + restore drill green"
+    evidence: "alembic/, tests/db/"
+    external_review: none
+    blocking_ring: owner_prod
+    last_verified: "n/a"
+    score_contribution: persistence
+  - id: P3-TENANT-ISOLATION
+    category: multi_tenancy
+    phase: 3
+    description: tenant_id/league_id enforced; RLS on; cross-tenant adversarial suite passes; multi-league switch works.
+    status: planned
+    subsystem: backend
+    verify: "tests/tenancy/ adversarial matrix"
+    metric: "zero cross-tenant exposure"
+    evidence: "tests/tenancy/"
+    external_review: pentest
+    blocking_ring: existing_league
+    last_verified: "n/a"
+    score_contribution: multi_tenancy
+  - id: P4-FORMAT-GENERALIZATION
+    category: analytical_value
+    phase: 4
+    description: Engines accept arbitrary league configs; Roto + Points engines correct; no hardcoded format assumptions.
+    status: planned
+    subsystem: engine
+    verify: "per-format validation harness"
+    metric: "correct across format corpus"
+    evidence: "tests/engine/formats/"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: analytical_value
+  - id: P5-CONNECTORS
+    category: integrations
+    phase: 5
+    description: LeagueConnector interface; Yahoo per-user OAuth + write; >=1 guided import; capability flags honored.
+    status: planned
+    subsystem: integrations
+    verify: "recorded-fixture + sandbox connector tests"
+    metric: "connect/reconnect without admin"
+    evidence: "tests/connectors/"
+    external_review: provider_terms
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: integrations
+  - id: P6-DATA-QUALITY
+    category: data_quality
+    phase: 6
+    description: Canonical identity graph; ingestion quality gates; freshness/lineage on every payload; immutable snapshots.
+    status: planned
+    subsystem: data
+    verify: "data-quality gate suite"
+    metric: "identity coverage target; quality blocks publish"
+    evidence: "tests/data_quality/"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: data_quality
+  - id: P7-PREDICTION-VALIDATION
+    category: prediction_accuracy
+    phase: 7
+    description: Point-in-time backtests run the real engines; constants calibrated or labeled heuristic; model cards complete.
+    status: planned
+    subsystem: engine
+    verify: "backtest + calibration reports"
+    metric: "holdout metrics beat baselines with CIs"
+    evidence: "docs/launch/validation/"
+    external_review: statistician
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: prediction_accuracy
+  - id: P8-RECOMMENDATION-TRUST
+    category: recommendation_trust
+    phase: 8
+    description: Immutable recommendation records + evidence cards + abstention + conflict detection + outcome tracking.
+    status: planned
+    subsystem: backend
+    verify: "tests/recommendations/"
+    metric: "100% recs have evidence; replay-equivalent"
+    evidence: "tests/recommendations/"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: recommendation_trust
+  - id: P9-RELIABILITY
+    category: reliability
+    phase: 9
+    description: Redis/Arq workers; async job API; SLOs/alerts; backups/DR drill; load+chaos pass; no unbounded request compute.
+    status: planned
+    subsystem: platform
+    verify: "load/chaos + restore drill"
+    metric: "SLO targets; restore drill green"
+    evidence: "docs/launch/ops/"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: reliability
+  - id: P10-SECURITY
+    category: security
+    phase: 10
+    description: Authz policy engine; rate limits; credential envelope-encryption; API/import/AI hardening; SDLC scans.
+    status: planned
+    subsystem: platform
+    verify: "negative authz tests + SDLC scans"
+    metric: "zero internal Critical/High"
+    evidence: "tests/security/"
+    external_review: pentest
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: security
+  - id: P11-BILLING
+    category: billing
+    phase: 11
+    description: Subscription state machine; webhook dedup/ordering; tiered+metered entitlements; portal; daily reconciliation.
+    status: planned
+    subsystem: backend
+    verify: "Stripe certification + webhook replay"
+    metric: "reconciliation clean; cost limits unbypassable"
+    evidence: "tests/billing/"
+    external_review: stripe_live_cert
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: billing
+  - id: P12-ONBOARDING
+    category: onboarding
+    phase: 12
+    description: Self-service onboarding + recovery states + education + support ops + privacy-safe analytics.
+    status: planned
+    subsystem: frontend
+    verify: "onboarding E2E + recovery-state tests"
+    metric: "unassisted onboarding + activation targets"
+    evidence: "web/tests/onboarding/"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: onboarding
+  - id: P13-FRONTEND-A11Y
+    category: ui_ux
+    phase: 13
+    description: IA/responsive/type/design-system/states; WCAG 2.2 AA internal; CWV good p75; frontend CI suite.
+    status: planned
+    subsystem: frontend
+    verify: "axe + playwright + responsive-overflow + CWV"
+    metric: "zero overflow; internal a11y clean; CWV good"
+    evidence: "web/tests/"
+    external_review: a11y_audit
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: ui_ux
+  - id: P14-AI-SAFETY
+    category: ai
+    phase: 14
+    description: Bubba grounded in canonical services; tenant-scoped read-only tools; prompt-injection red-team; eval system.
+    status: planned
+    subsystem: ai
+    verify: "AI eval set + red-team suite"
+    metric: "eval thresholds met; cost limits unbypassable"
+    evidence: "tests/ai/"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: ai
+  - id: P15-LAUNCH
+    category: onboarding
+    phase: 15
+    description: Public landing + final pricing + all external certs cleared + ring progression to GA + Streamlit retired.
+    status: planned
+    subsystem: gtm
+    verify: "ring criteria + external cert register clear"
+    metric: "purchase works; all certs green"
+    evidence: "docs/launch/evidence_registry.yaml"
+    external_review: all
+    blocking_ring: general_availability
+    last_verified: "n/a"
+    score_contribution: onboarding
+
+  # ---- Deferred external certifications (owner-arranged pre-launch) ----
+  - id: EXT-LEGAL
+    category: security
+    phase: 15
+    description: Lawyer review of ToS/Privacy/AUP + commercial data licenses signed off.
+    status: deferred
+    subsystem: legal
+    verify: "signed external review on file"
+    metric: "policies + licenses approved"
+    evidence: "docs/legal/"
+    external_review: lawyer
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: security
+  - id: EXT-PENTEST
+    category: security
+    phase: 15
+    description: Independent penetration test with zero Critical/High findings.
+    status: deferred
+    subsystem: platform
+    verify: "external pentest report"
+    metric: "zero Critical/High"
+    evidence: "docs/launch/audits/"
+    external_review: pentest
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: security
+  - id: EXT-STATS
+    category: prediction_accuracy
+    phase: 15
+    description: Independent statistical methodology + accuracy-claim sign-off.
+    status: deferred
+    subsystem: engine
+    verify: "external statistician report"
+    metric: "methodology approved"
+    evidence: "docs/launch/validation/"
+    external_review: statistician
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: prediction_accuracy
+  - id: EXT-A11Y
+    category: ui_ux
+    phase: 15
+    description: Independent WCAG 2.2 AA accessibility audit passes.
+    status: deferred
+    subsystem: frontend
+    verify: "external a11y audit report"
+    metric: "zero Critical/High a11y"
+    evidence: "docs/launch/audits/"
+    external_review: a11y_audit
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: ui_ux
+  - id: EXT-STRIPE-LIVE
+    category: billing
+    phase: 15
+    description: Live-mode end-to-end purchase certification (real card).
+    status: deferred
+    subsystem: backend
+    verify: "owner live-mode purchase run"
+    metric: "real purchase + entitlement + refund"
+    evidence: "docs/launch/audits/"
+    external_review: stripe_live_cert
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: billing
+
+  # ---- Guards deferred to their owning phase (concept does not exist yet) ----
+  - id: GUARD-TENANT-SCOPE
+    category: multi_tenancy
+    phase: 3
+    description: Guard fails when a tenant-owned table lacks tenant_id / a league-owned table lacks league_id.
+    status: deferred
+    subsystem: backend
+    verify: "tests/tenancy/test_guard_tenant_scope.py (Phase 3)"
+    metric: "guard active"
+    evidence: "Phase 3 plan"
+    external_review: none
+    blocking_ring: existing_league
+    last_verified: "n/a"
+    score_contribution: multi_tenancy
+  - id: GUARD-RECO-EVIDENCE
+    category: recommendation_trust
+    phase: 8
+    description: Guard fails when a recommendation-producing path lacks evidence metadata.
+    status: deferred
+    subsystem: backend
+    verify: "tests/recommendations/test_guard_evidence.py (Phase 8)"
+    metric: "guard active"
+    evidence: "Phase 8 plan"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "n/a"
+    score_contribution: recommendation_trust
+  - id: GUARD-CALIBRATED-PROVENANCE
+    category: prediction_accuracy
+    phase: 7
+    description: Guard fails when a constant marked calibrated lacks dataset/method/metrics/reviewer provenance.
+    status: deferred
+    subsystem: engine
+    verify: "tests/validation/test_guard_calibrated_provenance.py (Phase 7)"
+    metric: "guard active"
+    evidence: "Phase 7 plan"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: prediction_accuracy
+  - id: GUARD-NO-MOCK-FALLBACK
+    category: ui_ux
+    phase: 13
+    description: Guard fails when a live frontend fetcher converts an error into mock data.
+    status: deferred
+    subsystem: frontend
+    verify: "web/tests/guard-no-mock-fallback (Phase 13)"
+    metric: "guard active"
+    evidence: "Phase 13 plan"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: ui_ux
