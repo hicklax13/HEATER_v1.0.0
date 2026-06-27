@@ -14,6 +14,7 @@ from fastapi.openapi.utils import get_openapi
 
 from api.errors import install_error_handlers
 from api.request_context import REQUEST_ID_HEADER, set_request_id
+from api.security_headers import install_security_headers
 
 # The Next.js frontend calls this API from a different origin, so the browser
 # requires CORS. Default to local Next.js dev origins; override per environment
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
         return response
 
     install_error_handlers(app)
+    install_security_headers(app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
