@@ -301,3 +301,106 @@ class StartSitService:
             else "No open lineup slots for these players (or none are playable today)."
         )
         return StartSitVerdict(start_ids=start_ids, sit_ids=sit_ids, reasoning=reasoning)
+
+    # ----------------------------------------------------------------- optimize (PATH-B)
+    def optimize(self, req) -> StartSitOptimizeResponse:  # noqa: F821 (forward ref via lazy import)
+        """Authoritative LP fill of the user's open slots with the SELECTED candidates.
+
+        PATH-B (self-contained): WS1's LineupService.optimize() has no extra_ids hook,
+        so we compose the pipeline directly — the selected candidates' pool rows are
+        appended to the user's enriched roster (the roster the LP fills), so the LP can
+        slot them into open lineup spots. The mapping reuses LineupService._to_slots /
+        _daily_slots (single source of slot-shape truth). Matchup-aware via yds.get_matchup()
+        (same as the Optimizer's standard/daily paths). Never raises → empty lineup."""
+        from api.contracts.start_sit import StartSitOptimizeResponse
+        from api.services.lineup_service import LineupService
+
+        scope = self._scope(req.scope)
+        pids = [int(p) for p in (req.player_ids or [])]
+        slots: list = []
+        bench: list = []
+        summary = "Lineup unavailable (no live data in this environment)."
+        daily = None
+        try:
+            from src.game_day import get_target_game_date
+            from src.optimizer.pipeline import LineupOptimizerPipeline
+            from src.valuation import LeagueConfig
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            yds = get_yahoo_data_service()
+            resolved_date = str(get_target_game_date())
+            # Same enriched, team-filtered roster the Optimizer LP uses (projections +
+            # positions); a bare league roster zeroes the LP objective.
+            roster = yds.get_team_roster(req.team_name)
+            matchup = None
+            try:
+                matchup = yds.get_matchup()
+            except Exception:
+                matchup = None
+
+            pool = LineupService._load_pool()
+            roster = self._augment_roster_with_candidates(roster, pool, pids)
+            config = LeagueConfig()
+            mode = "daily" if scope == "today" else "standard"
+            pipeline = LineupOptimizerPipeline(roster, mode=mode, config=config)
+
+            if mode == "daily":
+                schedule = LineupService._schedule_today(resolved_date)
+                lsvc = LineupService()
+                inputs = lsvc._daily_inputs(roster, pool, schedule)
+                result = pipeline.optimize(
+                    matchup=matchup,
+                    schedule_today=schedule,
+                    park_factors=inputs["park_factors"],
+                    confirmed_lineups=inputs["confirmed_lineups"],
+                    recent_form=inputs["recent_form"],
+                    team_strength=inputs["team_strength"],
+                )
+                result = result if isinstance(result, dict) else {}
+                slots, bench = lsvc._daily_slots(
+                    result.get("daily_dcv"), result.get("daily_lineup"), roster, pool, schedule
+                )
+                daily = lsvc._daily_meta(result, slots, roster, pool, resolved_date)
+            else:
+                result = pipeline.optimize(matchup=matchup) if hasattr(pipeline, "optimize") else None
+                lineup = (result or {}).get("lineup") if isinstance(result, dict) else None
+                slots, bench = LineupService._to_slots(lineup, pool, roster)
+
+            if slots:
+                summary = f"{len(slots)} starters set."
+        except Exception as exc:
+            logger.warning("StartSitService.optimize failed: %s", exc)
+        return StartSitOptimizeResponse(scope=scope, slots=slots, bench=bench, summary=summary, daily=daily)
+
+    @staticmethod
+    def _augment_roster_with_candidates(roster, pool, pids):
+        """Return the user's roster with the SELECTED candidates' pool rows appended
+        (so the LP can fill open slots with them). Dedupes by player_id (roster row
+        wins for an already-rostered candidate). Missing roster/pool degrade
+        gracefully — a candidate the pool can't supply is simply skipped."""
+        import pandas as pd
+
+        if not isinstance(roster, pd.DataFrame):
+            roster = pd.DataFrame()
+        have = set()
+        if not roster.empty and "player_id" in roster.columns:
+            for v in roster["player_id"].tolist():
+                try:
+                    have.add(int(v))
+                except (TypeError, ValueError):
+                    continue
+        if not isinstance(pool, pd.DataFrame) or pool.empty or "player_id" not in pool.columns:
+            return roster
+        want = [p for p in pids if p not in have]
+        if not want:
+            return roster
+        extra = pool[pool["player_id"].isin(want)].copy()
+        if extra.empty:
+            return roster
+        # Candidate rows enter as benched (no current lineup slot) so the LP decides
+        # whether to start them; a missing column on either frame is fine (concat fills NaN).
+        if "selected_position" not in extra.columns:
+            extra["selected_position"] = "BN"
+        if roster.empty:
+            return extra.reset_index(drop=True)
+        return pd.concat([roster, extra], ignore_index=True)
