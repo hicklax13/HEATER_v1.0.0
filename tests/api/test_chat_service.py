@@ -326,6 +326,16 @@ def test_send_threads_page_context_into_user_turn(monkeypatch):
     assert "streaming" in content and '{"board":[]}' in content
 
 
+def test_build_user_content_empty_data_json_is_byte_identical():
+    """A PageContext with an empty data_json must NOT emit a '[Data...]' block —
+    locks the `if data_json:` guard so an empty page payload stays today's bare
+    message (regression guard)."""
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content("hi", None, None, page_context=PageContext(page="optimizer", data_json=""))
+    assert out == "hi"
+
+
 def test_chat_send_route_passes_page_from_page_context(monkeypatch):
     """The /send route must orient build_system_prompt to the page_context.page,
     not the generic default — so the system prompt says the user is on the
