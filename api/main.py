@@ -11,6 +11,8 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.request_context import REQUEST_ID_HEADER, set_request_id
+
 # The Next.js frontend calls this API from a different origin, so the browser
 # requires CORS. Default to local Next.js dev origins; override per environment
 # with HEATER_API_CORS_ORIGINS (comma-separated — e.g. the deployed Vercel domain).
@@ -34,6 +36,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _correlation_id(request, call_next):
+        rid = set_request_id(request.headers.get(REQUEST_ID_HEADER))
+        response = await call_next(request)
+        response.headers[REQUEST_ID_HEADER] = rid
+        return response
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
