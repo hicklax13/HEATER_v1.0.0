@@ -150,6 +150,19 @@ requirements:
     blocking_ring: existing_league
     last_verified: "n/a"
     score_contribution: multi_tenancy
+  - id: P4-POINTS-ENGINE
+    category: analytical_value
+    phase: 4
+    description: Standalone points-league scoring valuation (config -> player points, ranking, roster totals; uncovered-stat flagging) over existing projected stats.
+    status: passing
+    subsystem: engine
+    verify: "python -m pytest tests/test_points_scoring.py -q"
+    metric: "points = weighted sum; uncovered surfaced; category engine untouched"
+    evidence: "src/points_scoring.py, tests/test_points_scoring.py, docs/superpowers/specs/2026-06-27-heater-points-scoring-engine-design.md"
+    external_review: none
+    blocking_ring: invite_beta
+    last_verified: "2026-06-27"
+    score_contribution: analytical_value
   - id: P4-FORMAT-GENERALIZATION
     category: analytical_value
     phase: 4
