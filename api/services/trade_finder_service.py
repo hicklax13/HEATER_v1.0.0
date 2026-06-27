@@ -60,7 +60,7 @@ class TradeFinderService:
             return TradeFinderResponse(team_name=team_name, suggestions=suggestions)
 
         except Exception as exc:
-            logger.warning("TradeFinderService.get_suggestions failed: %s", exc)
+            logger.warning("TradeFinderService.get_suggestions failed: %s", exc, exc_info=True)
             return TradeFinderResponse(team_name=team_name)
 
     # ── private helpers ──────────────────────────────────────────────────
