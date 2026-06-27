@@ -244,3 +244,25 @@ jobs:
 
       - name: Fail on OpenAPI/TS drift
         run: git diff --exit-code web/src/lib/api/generated.ts
+
+  security-scan:
+    # Launch program Phase 10 slice: static application security testing (SAST)
+    # on the public API surface. Fails on HIGH-severity findings; api/ is clean
+    # at this threshold today. Tighten to medium with #nosec annotations later.
+    # Secret scanning + dependency-CVE triage are documented follow-ups
+    # (docs/launch/security-scanning.md).
+    name: Security Scan (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit==1.9.4
+
+      - name: Bandit SAST (api/, high severity)
+        run: bandit -r api/ --severity-level high

@@ -241,6 +241,45 @@ requirements:
     blocking_ring: ci
     last_verified: "2026-06-26"
     score_contribution: security
+  - id: P10-SAST
+    category: maintainability
+    phase: 10
+    description: Bandit SAST CI gate on api/ (high severity); public API clean today.
+    status: passing
+    subsystem: ci
+    verify: "bandit -r api/ --severity-level high"
+    metric: "0 high-severity findings in api/"
+    evidence: ".github/workflows/ci.yml (security-scan job), docs/launch/security-scanning.md"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: maintainability
+  - id: P10-SECRET-SCAN
+    category: security
+    phase: 10
+    description: Secret scanning — verified no committed secrets (detect-secrets); CI gate (gitleaks) is a follow-up.
+    status: in_progress
+    subsystem: ci
+    verify: "docs/launch/security-scanning.md (gitleaks follow-up)"
+    metric: "zero real secrets in tree (verified); CI gate pending"
+    evidence: "docs/launch/security-scanning.md"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "2026-06-26"
+    score_contribution: security
+  - id: P10-DEP-SCAN
+    category: security
+    phase: 10
+    description: Dependency CVE scan — needs a requirements.txt triage on 3.12 (local 167 = kitchen-sink env noise).
+    status: planned
+    subsystem: ci
+    verify: "pip-audit -r requirements.txt (after triage)"
+    metric: "fixable CVEs fixed; unfixable ignore-listed w/ justification"
+    evidence: "docs/launch/security-scanning.md"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: security
   - id: P9-RELIABILITY
     category: reliability
     phase: 9
