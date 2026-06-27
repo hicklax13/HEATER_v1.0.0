@@ -55,6 +55,7 @@ def send(
             attached_text=body.attached_text,
             attachments=body.attachments,
             cap_usd=cap_usd,
+            page=body.page_context.page if body.page_context else None,
             viewer_team=ctx.effective_team(None),
             page_context=body.page_context,
         )
@@ -81,6 +82,7 @@ def send_stream(
             attached_text=body.attached_text,
             attachments=body.attachments,
             cap_usd=cap_usd,
+            page=body.page_context.page if body.page_context else None,
             viewer_team=ctx.effective_team(None),
             page_context=body.page_context,
         ),

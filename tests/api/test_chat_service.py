@@ -324,3 +324,50 @@ def test_send_threads_page_context_into_user_turn(monkeypatch):
     )
     content = captured["messages"][-1]["content"]
     assert "streaming" in content and '{"board":[]}' in content
+
+
+def test_chat_send_route_passes_page_from_page_context(monkeypatch):
+    """The /send route must orient build_system_prompt to the page_context.page,
+    not the generic default — so the system prompt says the user is on the
+    'streaming' page (regression: the router dropped page=)."""
+    from fastapi.testclient import TestClient
+
+    from api.identity import require_app_user
+    from api.main import create_app
+    from api.stores.user_store import AppUser
+
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _spy_prompt(page, team):
+        captured["page"] = page
+        return "SYS"
+
+    monkeypatch.setattr(cs, "_build_system_prompt", _spy_prompt)
+    monkeypatch.setattr(
+        cs.providers, "chat", lambda **k: {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+    )
+
+    app = create_app()
+    app.dependency_overrides[require_app_user] = lambda: AppUser(
+        id=7, clerk_user_id="u_test", created_at="2026-06-27T00:00:00Z"
+    )
+    client = TestClient(app)
+    resp = client.post(
+        "/api/chat/send",
+        json={
+            "message": "how was this computed?",
+            "model": "gpt-5",
+            "page_context": {"page": "streaming", "data_json": '{"board":[]}'},
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["page"] == "streaming"  # NOT the generic "the app" default
