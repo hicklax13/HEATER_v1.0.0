@@ -135,3 +135,47 @@ def test_dispatch_explain_constant_unknown_is_graceful():
 
     out = json.loads(dispatch_tool("explain_constant", {"name": "no_such_constant"}, user_id=99))
     assert "error" in out and "no_such_constant" in out["error"]
+
+
+def test_list_constants_in_specs():
+    from src.ai.tools import tool_specs
+
+    names = {t["function"]["name"] for t in tool_specs()}
+    assert "list_constants" in names
+
+
+def test_dispatch_list_constants_all():
+    import json
+
+    from src.ai.tools import dispatch_tool
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    out = json.loads(dispatch_tool("list_constants", {}, user_id=99))
+    assert out["count"] == len(CONSTANTS_REGISTRY)
+    returned = {c["name"] for c in out["constants"]}
+    assert returned == set(CONSTANTS_REGISTRY)
+    first = out["constants"][0]
+    assert set(first) == {"name", "description", "module", "sensitivity"}
+
+
+def test_dispatch_list_constants_filtered_by_sensitivity():
+    import json
+
+    from src.ai.tools import dispatch_tool
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    out = json.loads(dispatch_tool("list_constants", {"sensitivity": "high"}, user_id=99))
+    expected = {k for k, v in CONSTANTS_REGISTRY.items() if v.sensitivity.upper() == "HIGH"}
+    assert {c["name"] for c in out["constants"]} == expected
+
+
+def test_dispatch_list_constants_filtered_by_module():
+    import json
+
+    from src.ai.tools import dispatch_tool
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    mod = next(iter(CONSTANTS_REGISTRY.values())).module
+    out = json.loads(dispatch_tool("list_constants", {"module": mod}, user_id=99))
+    expected = {k for k, v in CONSTANTS_REGISTRY.items() if mod.lower() in v.module.lower()}
+    assert {c["name"] for c in out["constants"]} == expected

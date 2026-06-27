@@ -167,6 +167,8 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
             return json.dumps({"request_id": rid, "status": "pending"})
         if name == "explain_constant":
             return _explain_constant(str(args.get("name", "")))
+        if name == "list_constants":
+            return _list_constants(args.get("module"), args.get("sensitivity"))
         if name == "web_search":
             from src.ai.search import web_search
 
@@ -268,3 +270,25 @@ def _explain_constant(name: str) -> str:
         },
         default=str,
     )
+
+
+def _list_constants(module: str | None, sensitivity: str | None) -> str:
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    mod = (module or "").strip().lower()
+    sens = (sensitivity or "").strip().upper()
+    rows = []
+    for key, entry in CONSTANTS_REGISTRY.items():
+        if mod and mod not in entry.module.lower():
+            continue
+        if sens and entry.sensitivity.upper() != sens:
+            continue
+        rows.append(
+            {
+                "name": key,
+                "description": entry.description,
+                "module": entry.module,
+                "sensitivity": entry.sensitivity,
+            }
+        )
+    return json.dumps({"count": len(rows), "constants": rows}, default=str)
