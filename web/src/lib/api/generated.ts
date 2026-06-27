@@ -900,6 +900,7 @@ export interface components {
             message: string;
             /** Model */
             model: string;
+            page_context?: components["schemas"]["PageContext"] | null;
             /** Reasoning Effort */
             reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
             /**
@@ -2083,6 +2084,25 @@ export interface components {
              * @default 0
              */
             value: number;
+        };
+        /**
+         * PageContext
+         * @description Structured snapshot of what the page is currently displaying, attached to
+         *     a chat turn so Bubba can 'see the screen'. `data_json` is a (size-capped,
+         *     possibly truncated) JSON string the frontend serializes from the page's
+         *     loaded data; `page` is the route id (e.g. 'optimizer').
+         */
+        PageContext: {
+            /**
+             * Data Json
+             * @default
+             */
+            data_json: string;
+            /**
+             * Page
+             * @default
+             */
+            page: string;
         };
         /** PitcherScorecard */
         PitcherScorecard: {

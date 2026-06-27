@@ -389,6 +389,16 @@
             "title": "Model",
             "type": "string"
           },
+          "page_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PageContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reasoning_effort": {
             "anyOf": [
               {
@@ -2733,6 +2743,23 @@
           "player"
         ],
         "title": "OverallLeaderRow",
+        "type": "object"
+      },
+      "PageContext": {
+        "description": "Structured snapshot of what the page is currently displaying, attached to\na chat turn so Bubba can 'see the screen'. `data_json` is a (size-capped,\npossibly truncated) JSON string the frontend serializes from the page's\nloaded data; `page` is the route id (e.g. 'optimizer').",
+        "properties": {
+          "data_json": {
+            "default": "",
+            "title": "Data Json",
+            "type": "string"
+          },
+          "page": {
+            "default": "",
+            "title": "Page",
+            "type": "string"
+          }
+        },
+        "title": "PageContext",
         "type": "object"
       },
       "PitcherScorecard": {
