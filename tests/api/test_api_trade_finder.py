@@ -192,3 +192,51 @@ def test_service_unresolvable_name_returns_empty_not_crash(monkeypatch):
     monkeypatch.setattr("src.trade_finder.find_trade_opportunities", lambda **k: [])
     resp = TradeFinderService().get_suggestions(team_name="Nonexistent Team", limit=10)
     assert resp.suggestions == []
+
+
+# ── Task 3: grade (engine) + partner_record (load_league_records) ─────────────
+
+
+def test_build_suggestions_reads_engine_grade_and_partner_record(monkeypatch):
+    """grade comes straight off the engine dict (find_trade_opportunities already
+    sets trade['grade']); partner_record comes from load_league_records, matched
+    emoji-tolerantly to the opponent_team."""
+    svc = TradeFinderService()
+    pool = _fake_pool()
+    raw = [
+        {
+            "giving_ids": [1],
+            "receiving_ids": [4],
+            "opponent_team": "Over the Rembow",
+            "user_sgp_gain": 1.2,
+            "grade": "B+",
+            "rationale": "ok",
+        }
+    ]
+    monkeypatch.setattr(
+        "src.database.load_league_records",
+        lambda: pd.DataFrame(
+            {
+                "team_name": ["Over the Rembow"],
+                "wins": [11],
+                "losses": [1],
+                "ties": [0],
+                "rank": [1],
+            }
+        ),
+    )
+    out = svc._build_suggestions(raw, pool)
+    assert out[0].grade == "B+"
+    assert out[0].partner_record == "11-1-0 · 1st"
+
+
+def test_build_suggestions_missing_grade_and_records_degrade(monkeypatch):
+    """No grade on the dict + no records table → grade '' and partner_record None,
+    never a crash."""
+    monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
+    out = TradeFinderService()._build_suggestions(
+        [{"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Nobody", "user_sgp_gain": 0.4}],
+        _fake_pool(),
+    )
+    assert out[0].grade == ""
+    assert out[0].partner_record is None

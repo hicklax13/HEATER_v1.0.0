@@ -83,6 +83,44 @@ class TradeFinderService:
         return "", []
 
     @staticmethod
+    def _ordinal(n: int) -> str:
+        if 10 <= n % 100 <= 20:
+            suf = "th"
+        else:
+            suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suf}"
+
+    @staticmethod
+    def _partner_records() -> dict[str, str]:
+        """{normalized_team_name: 'W-L-T · Nth'} from load_league_records; {} on any
+        failure (records degrade to None, never crash)."""
+        from api.tenancy import normalize_team_name
+
+        try:
+            from src.database import load_league_records
+
+            df = load_league_records()
+            if df is None or df.empty:
+                return {}
+            out: dict[str, str] = {}
+            for _, r in df.iterrows():
+                name = str(r.get("team_name", "") or "")
+                if not name.strip():
+                    continue
+                w = int(r.get("wins", 0) or 0)
+                loss = int(r.get("losses", 0) or 0)
+                t = int(r.get("ties", 0) or 0)
+                rank = int(r.get("rank", 0) or 0)
+                rec = f"{w}-{loss}-{t}"
+                if rank > 0:
+                    rec = f"{rec} · {TradeFinderService._ordinal(rank)}"
+                out[normalize_team_name(name)] = rec
+            return out
+        except Exception:
+            logger.warning("TradeFinderService._partner_records failed", exc_info=True)
+            return {}
+
+    @staticmethod
     def _build_league_rosters(rosters_df) -> dict[str, list[int]]:
         """Convert rosters DataFrame to {team_name: [player_ids]}."""
         result: dict[str, list[int]] = {}
@@ -106,6 +144,9 @@ class TradeFinderService:
     @staticmethod
     def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
         """Map engine output dicts → TradeSuggestion list."""
+        from api.tenancy import normalize_team_name
+
+        records = TradeFinderService._partner_records()
         suggestions: list[TradeSuggestion] = []
         for opp in raw:
             giving_ids: list[int] = opp.get("giving_ids", [])
@@ -113,6 +154,8 @@ class TradeFinderService:
             partner_team: str = str(opp.get("opponent_team", ""))
             net_sgp: float = float(opp.get("user_sgp_gain", 0.0) or 0.0)
             rationale: str = str(opp.get("rationale", "") or "")
+            grade: str = str(opp.get("grade", "") or "")
+            partner_record = records.get(normalize_team_name(partner_team))
 
             giving = _build_player_refs(giving_ids, pool)
             receiving = _build_player_refs(receiving_ids, pool)
@@ -120,6 +163,8 @@ class TradeFinderService:
             suggestions.append(
                 TradeSuggestion(
                     partner_team=partner_team,
+                    partner_record=partner_record,
+                    grade=grade,
                     giving=giving,
                     receiving=receiving,
                     net_sgp=net_sgp,

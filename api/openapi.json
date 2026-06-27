@@ -4420,10 +4420,26 @@
             "title": "Giving",
             "type": "array"
           },
+          "grade": {
+            "default": "",
+            "title": "Grade",
+            "type": "string"
+          },
           "net_sgp": {
             "default": 0.0,
             "title": "Net Sgp",
             "type": "number"
+          },
+          "partner_record": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partner Record"
           },
           "partner_team": {
             "title": "Partner Team",
