@@ -529,6 +529,42 @@ def test_optimize_scope_week_passes_matchup_to_standard_lp(monkeypatch):
     assert resp.mode == "standard"
 
 
+# ── WS1: FA-move dict → FaSuggestion mapping (DB-free; the engine's real dict keys) ──
+
+
+def test_fa_moves_to_suggestions_maps_engine_dict_keys():
+    moves = [
+        {
+            "add_id": 10,
+            "add_name": "Add Guy",
+            "add_positions": "OF",
+            "drop_id": 20,
+            "drop_name": "Drop Guy",
+            "drop_positions": "2B",
+            "net_sgp_delta": 1.4231,
+            "category_impact": {"HR": 0.3012, "SB": 0.1001, "ERA": -0.02},  # a {cat: float} DICT
+            "reasoning": "Upgrades HR + SB.",
+            "urgency_categories": ["HR", "SB"],
+        }
+    ]
+    out = LineupService._fa_suggestions(moves, pool=None)
+    assert len(out) == 1
+    fs = out[0]
+    assert fs.add.id == 10 and fs.add.name == "Add Guy"
+    assert fs.drop.id == 20 and fs.drop.name == "Drop Guy"
+    assert fs.net_sgp_delta == 1.4231
+    assert fs.urgency_categories == ["HR", "SB"]
+    labels = {si.label: si.value for si in fs.category_impact}
+    assert labels["HR"] == "+0.30" and labels["SB"] == "+0.10" and labels["ERA"] == "-0.02"
+
+
+def test_fa_moves_to_suggestions_handles_empty_and_garbage():
+    assert LineupService._fa_suggestions(None, None) == []
+    assert LineupService._fa_suggestions([], None) == []
+    # a malformed move (missing ids) is skipped, never raises
+    assert LineupService._fa_suggestions([{"reasoning": "x"}], None) == []
+
+
 def test_lineup_response_fa_suggestions_defaults_empty():
     resp = LineupOptimizeResponse(team_name="T", date="2027-04-05", slots=[])
     assert resp.model_dump()["fa_suggestions"] == []

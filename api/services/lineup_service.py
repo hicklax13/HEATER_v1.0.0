@@ -8,9 +8,11 @@ import logging
 import math
 import re
 
+from api.contracts.common import StatItem
 from api.contracts.lineup import (
     CatImpact,
     DailyMeta,
+    FaSuggestion,
     IpPace,
     LineupOptimizeResponse,
     LineupSlot,
@@ -402,6 +404,46 @@ class LineupService:
             return load_player_pool()
         except Exception:
             return None
+
+    @staticmethod
+    def _fa_suggestions(moves, pool) -> list[FaSuggestion]:
+        """Map recommend_fa_moves() dicts → FaSuggestion contracts.
+
+        The engine emits category_impact as a {cat: float} dict; we render each as a
+        StatItem(label=cat, value=+/-N.NN SGP). A move missing add_id/drop_id is skipped
+        (never raises). PlayerRefs are pool-enriched (mlb_id/team for headshots/logos)."""
+        out: list[FaSuggestion] = []
+        if not isinstance(moves, list):
+            return out
+        for m in moves:
+            if not isinstance(m, dict):
+                continue
+            try:
+                add_id = int(m.get("add_id", 0) or 0)
+                drop_id = int(m.get("drop_id", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not add_id or not drop_id:
+                continue
+            cat_items: list[StatItem] = []
+            for cat, val in dict(m.get("category_impact") or {}).items():
+                fv = LineupService._f(val, float("nan"))
+                if not math.isfinite(fv):
+                    continue
+                cat_items.append(StatItem(label=str(cat), value=f"{fv:+.2f}"))
+            out.append(
+                FaSuggestion(
+                    add=player_ref_from_pool(add_id, pool, name=m.get("add_name"), positions=m.get("add_positions")),
+                    drop=player_ref_from_pool(
+                        drop_id, pool, name=m.get("drop_name"), positions=m.get("drop_positions")
+                    ),
+                    net_sgp_delta=LineupService._f(m.get("net_sgp_delta")),
+                    category_impact=cat_items,
+                    reasoning=str(m.get("reasoning") or "").strip(),
+                    urgency_categories=[str(c) for c in (m.get("urgency_categories") or [])],
+                )
+            )
+        return out
 
     @staticmethod
     def _schedule_today(resolved_date) -> list:
