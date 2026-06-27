@@ -11,6 +11,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.errors import install_error_handlers
 from api.request_context import REQUEST_ID_HEADER, set_request_id
 
 # The Next.js frontend calls this API from a different origin, so the browser
@@ -43,6 +44,8 @@ def create_app() -> FastAPI:
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = rid
         return response
+
+    install_error_handlers(app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
