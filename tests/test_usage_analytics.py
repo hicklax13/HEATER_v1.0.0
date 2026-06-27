@@ -38,22 +38,35 @@ def _event(uid, page, created_at, action="view", session_id="s1"):
 
 
 def test_dau_series_counts_distinct_users_per_day(temp_db):
+    from datetime import UTC, datetime, timedelta
+
+    # dau_series filters by a `now - days` cutoff, so the seeded events must be dated
+    # RELATIVE to today (two distinct recent days, safely inside the 30-day window) —
+    # hardcoded calendar dates turn this into a time-bomb once they age past the window.
+    today = datetime.now(UTC).date()
+    d1 = (today - timedelta(days=2)).isoformat()
+    d2 = (today - timedelta(days=1)).isoformat()
     amy = _seed_user("an_amy")
     ben = _seed_user("an_ben")
-    _event(amy, "My Team", "2026-05-28T10:00:00+00:00")
-    _event(ben, "Leaders", "2026-05-28T11:00:00+00:00")
-    _event(amy, "Leaders", "2026-05-29T09:00:00+00:00")
+    _event(amy, "My Team", f"{d1}T10:00:00+00:00")
+    _event(ben, "Leaders", f"{d1}T11:00:00+00:00")
+    _event(amy, "Leaders", f"{d2}T09:00:00+00:00")
     series = usage.dau_series(days=30)
     by_day = {r["day"]: r["users"] for r in series}
-    assert by_day["2026-05-28"] == 2
-    assert by_day["2026-05-29"] == 1
+    assert by_day[d1] == 2
+    assert by_day[d2] == 1
 
 
 def test_most_used_pages_orders_by_views(temp_db):
+    from datetime import UTC, datetime, timedelta
+
+    # most_used_pages also filters by a `now - days` cutoff — date events relative to today
+    # (yesterday is safely inside the 30-day window) instead of a hardcoded calendar date.
+    day = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
     amy = _seed_user("an_cat")
-    _event(amy, "Leaders", "2026-05-29T09:00:00+00:00")
-    _event(amy, "Leaders", "2026-05-29T09:05:00+00:00", session_id="s2")
-    _event(amy, "My Team", "2026-05-29T09:10:00+00:00")
+    _event(amy, "Leaders", f"{day}T09:00:00+00:00")
+    _event(amy, "Leaders", f"{day}T09:05:00+00:00", session_id="s2")
+    _event(amy, "My Team", f"{day}T09:10:00+00:00")
     rows = usage.most_used_pages(days=30)
     assert rows[0]["page"] == "Leaders"
     assert rows[0]["views"] == 2
