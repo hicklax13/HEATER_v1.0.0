@@ -99,7 +99,7 @@ function rowTone(s: LineupSlot): string {
 }
 
 function Row({ s }: { s: LineupSlot }) {
-  const st = s.forcedStart ? { label: "Start", cls: "bg-heat/12 text-heat" } : STATUS[s.status];
+  const st = s.forcedStart ? { label: "Start", cls: "bg-heat/12 text-heat" } : (STATUS[s.status] ?? STATUS.bench);
   const swapHint = s.currentSlot && s.status === "start" && normSlot(s.currentSlot) !== normSlot(s.slot);
   return (
     <tr

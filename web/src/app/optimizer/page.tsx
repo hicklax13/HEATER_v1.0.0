@@ -137,7 +137,7 @@ function PickupsCard({ pickups }: { pickups: FaPickup[] }) {
           <li key={i} className="rounded-lg border border-line bg-surface p-2.5">
             <div className="flex items-center justify-between gap-2">
               <PlayerDialog player={p.add}>
-                <button className="flex min-w-0 items-center gap-2 text-left">
+                <button type="button" className="flex min-w-0 items-center gap-2 text-left">
                   <PlayerAvatar mlbId={p.add.mlbId} teamId={p.add.teamId} name={p.add.name} size={24} />
                   <span className="min-w-0">
                     <span className="block text-[9px] font-bold uppercase tracking-wide text-ok">Add</span>
