@@ -4074,6 +4074,13 @@
                 "type": "null"
               }
             ]
+          },
+          "urgency": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Urgency",
+            "type": "object"
           }
         },
         "required": [
