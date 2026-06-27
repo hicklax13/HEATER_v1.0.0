@@ -3,6 +3,10 @@
 **Heater Analytics LLC**
 Last Updated: [EFFECTIVE_DATE]
 
+> **★ See also (current, more complete — 2026-06-26):** this April strategy is extended by the public-launch licensing docs, which add the commercial-feed vendor options (MySportsFeeds/SportsDataIO/Sportradar), the CBC v. MLBAM public-domain-stats precedent, ESPN, the AI providers, and the player-headshot/logo likeness caveat. Treat these as the current source of truth:
+> - [`docs/launch/source_inventory.md`](../launch/source_inventory.md) — per-source commercial-rights inventory
+> - [`docs/launch/data-licensing-options.md`](../launch/data-licensing-options.md) — vendor landscape + recommended solo-operator path
+
 ---
 
 ## Overview

@@ -85,6 +85,32 @@ requirements:
     blocking_ring: limited_public
     last_verified: "2026-06-26"
     score_contribution: data_quality
+  - id: P1-POLICY-AUDIT
+    category: security
+    phase: 1
+    description: ToS/Privacy/DATA_SOURCES audited vs public-launch reqs; AI disclosure drafted; update punchlist produced (WP 1.3).
+    status: passing
+    subsystem: legal
+    verify: "test -f docs/launch/legal-policy-gap-assessment.md && test -f docs/legal/AI_DISCLOSURE.md"
+    metric: "audit + AI disclosure + punchlist exist"
+    evidence: "docs/launch/legal-policy-gap-assessment.md, docs/legal/AI_DISCLOSURE.md"
+    external_review: lawyer
+    blocking_ring: limited_public
+    last_verified: "2026-06-26"
+    score_contribution: security
+  - id: P1-PRIVACY-OPS
+    category: security
+    phase: 1
+    description: Privacy export/delete/disconnect/revoke workflows (WP 1.5) — designed; implementation deferred to post-Postgres (Phase 2/3) to avoid throwaway against the split SQLite.
+    status: deferred
+    subsystem: backend
+    verify: "tests/privacy/ (after Phase 2/3)"
+    metric: "export+delete pass per data class"
+    evidence: "docs/launch/legal-policy-gap-assessment.md (privacy-ops section)"
+    external_review: none
+    blocking_ring: limited_public
+    last_verified: "n/a"
+    score_contribution: security
   - id: P1-LEGAL-DATA-RIGHTS
     category: data_quality
     phase: 1
