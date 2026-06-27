@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 
 from api.contracts.common import PlayerRef
+from api.contracts.trade import CategoryImpact
 from api.contracts.trade_finder import TradeFinderResponse, TradeSuggestion
 from api.services.player_ref import make_player_ref
 
@@ -121,6 +122,47 @@ class TradeFinderService:
             return {}
 
     @staticmethod
+    def _category_impacts(
+        user_roster_ids: list[int],
+        giving_ids: list[int],
+        receiving_ids: list[int],
+        pool,
+        config=None,
+    ) -> list[CategoryImpact]:
+        """Per-category SGP delta of the post-trade roster vs the current roster.
+        Cheap totals diff (no MC/LP) — fine for ≤10 cards. Mirrors src.in_season.
+        analyze_trade: each cat's delta = totals_sgp({cat: after - before}) via the
+        SOLE SGP path (handles inverse-stat signs + denominators correctly). Returns
+        [] on any failure or empty roster."""
+        if not user_roster_ids:
+            return []
+        try:
+            from src.in_season import _roster_category_totals
+            from src.valuation import LeagueConfig, SGPCalculator
+
+            cfg = config or LeagueConfig()
+            calc = SGPCalculator(cfg)
+            before_ids = list(user_roster_ids)
+            give = set(giving_ids)
+            after_ids = [pid for pid in before_ids if pid not in give] + list(receiving_ids)
+            before = _roster_category_totals(before_ids, pool)
+            after = _roster_category_totals(after_ids, pool)
+            out: list[CategoryImpact] = []
+            for cat in cfg.all_categories:
+                b = float(before.get(cat, 0.0) or 0.0)
+                a = float(after.get(cat, 0.0) or 0.0)
+                # totals_sgp applies the inverse-stat sign (L/ERA/WHIP) + denom, so a
+                # raw (after - before) delta becomes a correctly-signed SGP delta.
+                delta = calc.totals_sgp({cat: a - b})
+                if delta != delta:  # NaN guard
+                    continue
+                out.append(CategoryImpact(cat=cat, delta=round(delta, 3)))
+            return out
+        except Exception:
+            logger.warning("TradeFinderService._category_impacts failed", exc_info=True)
+            return []
+
+    @staticmethod
     def _build_league_rosters(rosters_df) -> dict[str, list[int]]:
         """Convert rosters DataFrame to {team_name: [player_ids]}."""
         result: dict[str, list[int]] = {}
@@ -159,6 +201,9 @@ class TradeFinderService:
 
             giving = _build_player_refs(giving_ids, pool)
             receiving = _build_player_refs(receiving_ids, pool)
+            category_impacts = TradeFinderService._category_impacts(
+                user_roster_ids or [], giving_ids, receiving_ids, pool
+            )
 
             suggestions.append(
                 TradeSuggestion(
@@ -168,6 +213,7 @@ class TradeFinderService:
                     giving=giving,
                     receiving=receiving,
                     net_sgp=net_sgp,
+                    category_impacts=category_impacts,
                     rationale=rationale,
                 )
             )

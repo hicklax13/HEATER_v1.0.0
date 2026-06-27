@@ -240,3 +240,86 @@ def test_build_suggestions_missing_grade_and_records_degrade(monkeypatch):
     )
     assert out[0].grade == ""
     assert out[0].partner_record is None
+
+
+# ── Task 4: category_impacts (service-side per-category SGP diff) ──────────────
+
+
+def test_category_impacts_computed_from_roster_diff():
+    """category_impacts = per-category SGP delta of (roster - give + receive) vs
+    roster, computed in the service (the finder engine doesn't surface it)."""
+    svc = TradeFinderService()
+    # pool with real-ish category columns so totals_sgp moves on a swap
+    pool = pd.DataFrame(
+        {
+            "player_id": [1, 2, 3, 4],
+            "player_name": ["You A", "You B", "You C", "Riv A"],
+            "positions": ["OF", "OF", "OF", "SS"],
+            "mlb_id": [101, 102, 103, 104],
+            "team": ["NYM", "SEA", "KC", "CIN"],
+            "is_hitter": [1, 1, 1, 1],
+            "r": [80, 70, 60, 95],
+            "hr": [20, 15, 10, 30],
+            "rbi": [70, 60, 50, 90],
+            "sb": [5, 3, 2, 30],
+            "ab": [550, 540, 500, 560],
+            "h": [150, 140, 130, 165],
+            "bb": [50, 45, 40, 60],
+            "hbp": [3, 2, 2, 4],
+            "sf": [4, 3, 3, 5],
+            "obp": [0.350, 0.330, 0.320, 0.380],
+            "avg": [0.272, 0.259, 0.260, 0.295],
+        }
+    )
+    user_roster_ids = [1, 2, 3]
+    impacts = svc._category_impacts(user_roster_ids, [1], [4], pool)
+    cats = {ci.cat for ci in impacts}
+    # at minimum SB should be a large positive delta (give a 5-SB OF, get a 30-SB SS)
+    sb = next((ci for ci in impacts if ci.cat == "SB"), None)
+    assert sb is not None and sb.delta > 0
+    assert "HR" in cats  # a counting cat is present
+
+
+def test_category_impacts_empty_when_no_user_roster():
+    """No user roster ids → empty impacts, no crash."""
+    svc = TradeFinderService()
+    assert svc._category_impacts([], [1], [4], _fake_pool()) == []
+
+
+def test_build_suggestions_threads_category_impacts():
+    """When user_roster_ids is passed, each suggestion carries computed
+    category_impacts; when omitted (None), impacts default to []."""
+    svc = TradeFinderService()
+    pool = pd.DataFrame(
+        {
+            "player_id": [1, 2, 3, 4],
+            "player_name": ["You A", "You B", "You C", "Riv A"],
+            "positions": ["OF", "OF", "OF", "SS"],
+            "mlb_id": [101, 102, 103, 104],
+            "team": ["NYM", "SEA", "KC", "CIN"],
+            "is_hitter": [1, 1, 1, 1],
+            "r": [80, 70, 60, 95],
+            "hr": [20, 15, 10, 30],
+            "rbi": [70, 60, 50, 90],
+            "sb": [5, 3, 2, 30],
+            "ab": [550, 540, 500, 560],
+            "h": [150, 140, 130, 165],
+            "bb": [50, 45, 40, 60],
+            "hbp": [3, 2, 2, 4],
+            "sf": [4, 3, 3, 5],
+            "obp": [0.350, 0.330, 0.320, 0.380],
+            "avg": [0.272, 0.259, 0.260, 0.295],
+        }
+    )
+    raw = [
+        {
+            "giving_ids": [1],
+            "receiving_ids": [4],
+            "opponent_team": "Rival",
+            "user_sgp_gain": 1.0,
+        }
+    ]
+    with_roster = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert len(with_roster[0].category_impacts) > 0
+    without_roster = svc._build_suggestions(raw, pool)
+    assert without_roster[0].category_impacts == []

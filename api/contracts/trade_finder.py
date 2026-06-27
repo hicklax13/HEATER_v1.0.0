@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from api.contracts.common import PlayerRef
+from api.contracts.trade import CategoryImpact
 
 
 class TradeSuggestion(BaseModel):
@@ -14,6 +15,7 @@ class TradeSuggestion(BaseModel):
     giving: list[PlayerRef] = []  # players YOU give
     receiving: list[PlayerRef] = []  # players you receive
     net_sgp: float = 0.0
+    category_impacts: list[CategoryImpact] = []  # per-cat SGP delta (service-side diff)
     rationale: str = ""
 
 

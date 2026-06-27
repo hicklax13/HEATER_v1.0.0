@@ -4412,6 +4412,14 @@
       },
       "TradeSuggestion": {
         "properties": {
+          "category_impacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CategoryImpact"
+            },
+            "title": "Category Impacts",
+            "type": "array"
+          },
           "giving": {
             "default": [],
             "items": {
