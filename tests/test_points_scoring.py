@@ -6,6 +6,9 @@ from src.points_scoring import (
     PointsResult,
     PointsScoringConfig,
     project_player_points,
+    rank_players_by_points,
+    roster_points,
+    uncovered_stats,
 )
 
 
@@ -106,3 +109,43 @@ def test_pure_pitcher_is_not_scored_with_hitter_weights():
     cfg = _cfg(hit={"HR": 4.0}, pit={"K": 1.0})
     res = project_player_points(_pitcher(k=200), cfg)
     assert res.points == 200.0  # only the pitcher half
+
+
+def _pool():
+    return pd.DataFrame(
+        [
+            _hitter(player_id=1, hr=30),
+            _hitter(player_id=2, hr=10),
+            _pitcher(player_id=3, k=250),
+        ]
+    )
+
+
+def test_uncovered_stats_reports_per_type_unprojected_stats():
+    cfg = _cfg(hit={"HR": 4.0, "K": -1.0, "DOUBLES": 2.0}, pit={"K": 1.0, "HLD": 5.0})
+    unc = uncovered_stats(cfg, _pool())
+    assert unc["hitter"] == {"K", "DOUBLES"}
+    assert unc["pitcher"] == {"HLD"}
+
+
+def test_rank_orders_by_points_desc_and_does_not_mutate_input():
+    cfg = _cfg(hit={"HR": 4.0})
+    pool = _pool()
+    before = pool.copy(deep=True)
+    ranked = rank_players_by_points(pool, cfg)
+    assert "points" in ranked.columns
+    hitters = ranked[ranked["is_hitter"] == 1]
+    assert list(hitters["player_id"])[:2] == [1, 2]  # hr 30 (120) before hr 10 (40)
+    assert "points" not in pool.columns  # input untouched
+    pd.testing.assert_frame_equal(pool, before)
+
+
+def test_roster_points_sums_named_players_unknown_ids_zero():
+    cfg = _cfg(hit={"HR": 4.0})
+    total = roster_points([1, 2, 999], _pool(), cfg)
+    assert total == 120.0 + 40.0  # ids 1 and 2; 999 unknown → 0
+
+
+def test_roster_points_empty_roster_is_zero():
+    cfg = _cfg(hit={"HR": 4.0})
+    assert roster_points([], _pool(), cfg) == 0.0

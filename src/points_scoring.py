@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import pandas as pd
+
 # Friendly stat name -> pool column, per player type. The SINGLE place to widen
 # coverage later. Verified against load_player_pool() (2026-06-27).
 _HITTER_STAT_COLUMNS: dict[str, str] = {
@@ -135,3 +137,34 @@ def project_player_points(player_row, config: PointsScoringConfig) -> PointsResu
         uncovered |= half.uncovered
 
     return PointsResult(points=total, breakdown=breakdown, uncovered=uncovered)
+
+
+def uncovered_stats(config: PointsScoringConfig, pool=None) -> dict[str, set[str]]:
+    """Which configured stats HEATER cannot score, per player type — for upfront
+    UI transparency. `pool` is accepted for signature symmetry but not required
+    (coverage is determined by the static stat maps)."""
+    hit = {str(s).strip().upper() for s in config.hitter_weights}
+    pit = {str(s).strip().upper() for s in config.pitcher_weights}
+    return {
+        "hitter": {s for s in hit if s not in _HITTER_STAT_COLUMNS},
+        "pitcher": {s for s in pit if s not in _PITCHER_STAT_COLUMNS},
+    }
+
+
+def rank_players_by_points(pool: pd.DataFrame, config: PointsScoringConfig) -> pd.DataFrame:
+    """Return a copy of `pool` with a `points` column, sorted points-descending.
+    Never mutates the input."""
+    out = pool.copy()
+    out["points"] = [project_player_points(row, config).points for _, row in out.iterrows()]
+    return out.sort_values("points", ascending=False, kind="mergesort").reset_index(drop=True)
+
+
+def roster_points(roster_ids: list, pool: pd.DataFrame, config: PointsScoringConfig) -> float:
+    """Total projected points for the players in `roster_ids` (looked up by
+    player_id). Unknown ids contribute 0."""
+    if pool is None or len(pool) == 0 or not roster_ids:
+        return 0.0
+    ids = {int(_num(i)) for i in roster_ids}
+    pid = pd.to_numeric(pool["player_id"], errors="coerce")
+    subset = pool[pid.isin(ids)]
+    return float(sum(project_player_points(row, config).points for _, row in subset.iterrows()))
