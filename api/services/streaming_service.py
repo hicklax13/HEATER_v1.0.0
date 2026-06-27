@@ -70,6 +70,31 @@ def _build_budget(ctx) -> BudgetStrip:
     )
 
 
+def _resolve_urgency(ctx) -> dict[str, float]:
+    """The matchup-derived per-category urgency the builder already computed
+    (ctx.urgency_weights['urgency']); recompute from ctx.live_matchup as a
+    fallback. Finite-coerced; {} on any failure (never raises)."""
+    try:
+        uw = getattr(ctx, "urgency_weights", None) or {}
+        urgency = uw.get("urgency") if isinstance(uw, dict) else None
+        if not urgency:
+            from src.optimizer.category_urgency import compute_urgency_weights
+            from src.valuation import LeagueConfig
+
+            urgency = (compute_urgency_weights(getattr(ctx, "live_matchup", None), LeagueConfig()) or {}).get(
+                "urgency", {}
+            )
+        out: dict[str, float] = {}
+        for cat, val in (urgency or {}).items():
+            fv = _f(val, default=float("nan"))
+            if not math.isnan(fv):
+                out[str(cat)] = fv
+        return out
+    except Exception as exc:  # never break the streaming response on urgency
+        logger.warning("StreamingService urgency resolve failed: %s", exc)
+        return {}
+
+
 def _likelihood_from(confidence) -> str:
     """Map the date-proximity confidence tier → a start-likelihood label (proxy)."""
     return {"HIGH": "confirmed", "MEDIUM": "likely", "LOW": "projected"}.get(str(confidence or "").upper(), "projected")
@@ -139,6 +164,7 @@ class StreamingService:
         top_pick: StreamCandidate | None = None
         budget = BudgetStrip()
         probables: list[ProbableStarter] = []
+        urgency: dict[str, float] = {}
         try:
             from src.optimizer.shared_data_layer import build_optimizer_context
             from src.optimizer.stream_analyzer import build_stream_board
@@ -158,6 +184,7 @@ class StreamingService:
                     candidates.append(self._to_candidate(row, rank))
             top_pick = _pick_top(candidates)
             budget = _build_budget(ctx)
+            urgency = _resolve_urgency(ctx)
             try:
                 full_board = build_stream_board(ctx, target_date, include_rostered=True)
                 if full_board is not None and not full_board.empty:
@@ -175,6 +202,7 @@ class StreamingService:
             top_pick=top_pick,
             budget=budget,
             probables=probables,
+            urgency=urgency,
         )
 
     @staticmethod
