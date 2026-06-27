@@ -53,6 +53,7 @@ class LineupService:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         impact: list[CatImpact] = []
+        fa_suggestions: list[FaSuggestion] = []
         optimal = False
         summary = "Lineup unavailable (no live data in this environment)."
         resolved_date = date or ""
@@ -89,6 +90,7 @@ class LineupService:
             slots, bench = self._to_slots(lineup, pool, roster)
             impact = self._impact((lineup or {}).get("projected_stats") if isinstance(lineup, dict) else None)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
+            fa_suggestions = self._compose_fa(team_name, scope, yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set."
         except Exception as exc:
@@ -102,6 +104,7 @@ class LineupService:
             optimal=optimal,
             impact=impact,
             mode="standard",
+            fa_suggestions=fa_suggestions,
         )
 
     # ------------------------------------------------------------------ daily (today's DCV start/sit)
@@ -109,6 +112,7 @@ class LineupService:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         daily: DailyMeta | None = None
+        fa_suggestions: list[FaSuggestion] = []
         optimal = False
         summary = "Daily lineup unavailable (no live data in this environment)."
         resolved_date = date or ""
@@ -148,6 +152,7 @@ class LineupService:
             )
             daily = self._daily_meta(result, slots, roster, pool, resolved_date)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
+            fa_suggestions = self._compose_fa(team_name, "today", yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set for {resolved_date}."
         except Exception as exc:
@@ -161,6 +166,7 @@ class LineupService:
             optimal=optimal,
             mode="daily",
             daily=daily,
+            fa_suggestions=fa_suggestions,
         )
 
     def _daily_inputs(self, roster, pool, schedule) -> dict:
@@ -444,6 +450,29 @@ class LineupService:
                 )
             )
         return out
+
+    def _compose_fa(self, team_name: str, scope: str, yds, pool) -> list[FaSuggestion]:
+        """Build a matchup-aware optimizer context at `scope` and map recommend_fa_moves
+        → FaSuggestions (the canonical Free Agents composition). build_optimizer_context
+        calls yds.get_matchup() internally for FA-side urgency. Never raises (missing live
+        data / no roster → []); recommend_fa_moves itself returns [] when adds_remaining<=0
+        or the roster/pool is empty."""
+        try:
+            from src.optimizer.fa_recommender import recommend_fa_moves
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.valuation import LeagueConfig
+
+            ctx = build_optimizer_context(
+                scope,
+                yds,
+                config=LeagueConfig(),
+                user_team_name=team_name,
+            )
+            moves = recommend_fa_moves(ctx)
+            return self._fa_suggestions(moves, pool)
+        except Exception as exc:
+            logger.warning("LineupService._compose_fa failed: %s", exc)
+            return []
 
     @staticmethod
     def _schedule_today(resolved_date) -> list:

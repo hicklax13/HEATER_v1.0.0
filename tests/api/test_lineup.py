@@ -367,6 +367,11 @@ def test_optimize_standard_uses_enriched_team_roster_not_all_teams(monkeypatch):
             }
 
     calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    # Isolate the H-1 LP-roster guard from the (separately-tested) FA composition:
+    # _compose_fa → build_optimizer_context legitimately calls yds.get_rosters() to build
+    # the league-wide FA context, which would otherwise trip the "get_rosters not in calls"
+    # assertion below. The LP path itself must still use get_team_roster, not get_rosters.
+    monkeypatch.setattr(LineupService, "_compose_fa", lambda self, *a, **k: [])
     resp = LineupService().optimize(team_name="Team Hickey", mode="standard")
 
     # roster came from the team-filtered ENRICHED source, NOT the all-teams bare source
@@ -394,6 +399,9 @@ def test_optimize_daily_uses_enriched_team_roster_not_all_teams(monkeypatch):
             return {"daily_dcv": dcv, "daily_lineup": {"starters": starters, "bench": []}}
 
     calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    # Isolate the H-1 LP-roster guard from the (separately-tested) FA composition (see the
+    # standard test above) — _compose_fa's build_optimizer_context calls yds.get_rosters().
+    monkeypatch.setattr(LineupService, "_compose_fa", lambda self, *a, **k: [])
     resp = LineupService().optimize(team_name="Team Hickey", mode="daily")
 
     # daily mode ALSO uses the team-filtered enriched roster (same bug, both methods)
@@ -563,6 +571,49 @@ def test_fa_moves_to_suggestions_handles_empty_and_garbage():
     assert LineupService._fa_suggestions([], None) == []
     # a malformed move (missing ids) is skipped, never raises
     assert LineupService._fa_suggestions([{"reasoning": "x"}], None) == []
+
+
+# ── WS1: FA composition — _compose_fa builds ctx at scope and maps recommend_fa_moves ──
+
+
+def test_compose_fa_calls_context_at_scope_and_maps_moves(monkeypatch):
+    seen = {}
+
+    def _fake_ctx(scope, yds, **kw):
+        seen["scope"] = scope
+        seen["user_team_name"] = kw.get("user_team_name")
+        return object()  # opaque ctx; recommend_fa_moves is faked below
+
+    def _fake_recs(ctx, max_moves=3):
+        seen["max_moves"] = max_moves
+        return [
+            {
+                "add_id": 10,
+                "add_name": "Add Guy",
+                "add_positions": "OF",
+                "drop_id": 20,
+                "drop_name": "Drop Guy",
+                "drop_positions": "2B",
+                "net_sgp_delta": 1.0,
+                "category_impact": {"HR": 0.3},
+                "reasoning": "ok",
+                "urgency_categories": ["HR"],
+            }
+        ]
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", _fake_ctx)
+    monkeypatch.setattr("src.optimizer.fa_recommender.recommend_fa_moves", _fake_recs)
+    out = LineupService()._compose_fa("Team Hickey", "rest_of_week", yds=object(), pool=None)
+    assert seen["scope"] == "rest_of_week" and seen["user_team_name"] == "Team Hickey"
+    assert len(out) == 1 and out[0].add.id == 10
+
+
+def test_compose_fa_never_raises_on_engine_failure(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("no live data")
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", _boom)
+    assert LineupService()._compose_fa("T", "today", yds=object(), pool=None) == []
 
 
 def test_lineup_response_fa_suggestions_defaults_empty():
