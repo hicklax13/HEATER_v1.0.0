@@ -64,3 +64,45 @@ def test_nan_and_missing_values_score_zero_never_raise():
     res = project_player_points(row, cfg)
     assert res.points == 0.0
     assert math.isfinite(res.points)
+
+
+def _pitcher(**over):
+    row = {
+        "player_id": 2,
+        "is_hitter": 0,
+        "w": 15,
+        "l": 8,
+        "sv": 0,
+        "k": 220,
+        "ip": 195,
+        "er": 70,
+        "bb_allowed": 50,
+        "h_allowed": 165,
+        "era": 3.23,
+        "whip": 1.10,
+    }
+    row.update(over)
+    return row
+
+
+def test_pitcher_uses_pitcher_columns_for_h_and_bb():
+    # A pitcher's "H" must resolve to h_allowed (165), NOT a hitter h.
+    cfg = _cfg(pit={"K": 1.0, "W": 5.0, "ER": -2.0, "H": -0.5, "BB": -0.5})
+    res = project_player_points(_pitcher(), cfg)
+    # 220*1 + 15*5 + 70*-2 + 165*-0.5 + 50*-0.5 = 220 + 75 - 140 - 82.5 - 25 = 47.5
+    assert res.points == 47.5
+
+
+def test_two_way_player_scores_both_halves():
+    cfg = _cfg(hit={"HR": 4.0}, pit={"K": 1.0})
+    # Ohtani-like: hits AND pitches.
+    row = _hitter(player_id=3, hr=50, ip=130, k=180, is_hitter=1)
+    res = project_player_points(row, cfg)
+    # hitter: 50*4 = 200 ; pitcher: 180*1 = 180 → 380
+    assert res.points == 380.0
+
+
+def test_pure_pitcher_is_not_scored_with_hitter_weights():
+    cfg = _cfg(hit={"HR": 4.0}, pit={"K": 1.0})
+    res = project_player_points(_pitcher(k=200), cfg)
+    assert res.points == 200.0  # only the pitcher half
