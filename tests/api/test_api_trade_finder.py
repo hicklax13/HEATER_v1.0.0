@@ -323,3 +323,94 @@ def test_build_suggestions_threads_category_impacts():
     assert len(with_roster[0].category_impacts) > 0
     without_roster = svc._build_suggestions(raw, pool)
     assert without_roster[0].category_impacts == []
+
+
+# ── Observability: response.reason makes a recurrence LOUD (not a silent empty) ──
+
+
+def test_reason_team_not_resolved_when_name_misses_emoji_key(monkeypatch):
+    """The original bug was a SILENT empty (raw .get missed the emoji roster key).
+    A recurrence must be observable: an unresolved name → reason='team_not_resolved'
+    (+ a logged warning), not a bare empty 200."""
+    monkeypatch.setattr("src.database.load_player_pool", _fake_pool)
+    monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
+
+    class _Yds:
+        def get_rosters(self):
+            # only an emoji-keyed team exists; the request name below won't match
+            return pd.DataFrame({"team_name": ["\U0001f3c6 Real Team", "\U0001f3c6 Real Team"], "player_id": [1, 2]})
+
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _Yds())
+    monkeypatch.setattr("src.standings_utils.get_all_team_totals", lambda *a, **k: {"x": {}})
+    monkeypatch.setattr("src.trade_finder.find_trade_opportunities", lambda **k: [])
+    resp = TradeFinderService().get_suggestions(team_name="Totally Different", limit=10)
+    assert resp.suggestions == []
+    assert resp.reason == "team_not_resolved"
+
+
+def test_reason_no_totals_when_get_all_team_totals_empty(monkeypatch):
+    """all_team_totals={} forces the engine to yield nothing — surface it as
+    reason='no_totals' (+ a logged warning), and return BEFORE the engine call."""
+    called = {"engine": False}
+
+    def _fake_find(**kwargs):
+        called["engine"] = True
+        return []
+
+    monkeypatch.setattr("src.database.load_player_pool", _fake_pool)
+    monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _FakeYds())
+    monkeypatch.setattr("src.standings_utils.get_all_team_totals", lambda *a, **k: {})
+    monkeypatch.setattr("src.trade_finder.find_trade_opportunities", _fake_find)
+    resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
+    assert resp.reason == "no_totals"
+    assert resp.suggestions == []
+    assert called["engine"] is False  # short-circuited before the doomed engine call
+
+
+def test_reason_ok_when_suggestion_produced(monkeypatch):
+    """Engine ran (regardless of count) → reason='ok'."""
+    monkeypatch.setattr("src.database.load_player_pool", _fake_pool)
+    monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _FakeYds())
+    monkeypatch.setattr(
+        "src.standings_utils.get_all_team_totals",
+        lambda *a, **k: {"\U0001f3c6 Team Hickey": {"HR": 100.0}, "Over the Rembow": {"HR": 90.0}},
+    )
+    monkeypatch.setattr(
+        "src.trade_finder.find_trade_opportunities",
+        lambda **k: [
+            {
+                "giving_ids": [1],
+                "receiving_ids": [4],
+                "opponent_team": "Over the Rembow",
+                "user_sgp_gain": 1.2,
+                "grade": "B+",
+            }
+        ],
+    )
+    resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
+    assert resp.reason == "ok"
+    assert len(resp.suggestions) == 1
+
+
+def test_reason_no_pool_when_pool_empty(monkeypatch):
+    """Empty pool → reason='no_pool' (cold env observable)."""
+    monkeypatch.setattr("src.database.load_player_pool", lambda: pd.DataFrame())
+    resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
+    assert resp.reason == "no_pool"
+    assert resp.suggestions == []
+
+
+def test_reason_no_league_data_when_rosters_empty(monkeypatch):
+    """No league_rosters → reason='no_league_data'."""
+    monkeypatch.setattr("src.database.load_player_pool", _fake_pool)
+
+    class _EmptyYds:
+        def get_rosters(self):
+            return pd.DataFrame()
+
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _EmptyYds())
+    resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
+    assert resp.reason == "no_league_data"
+    assert resp.suggestions == []

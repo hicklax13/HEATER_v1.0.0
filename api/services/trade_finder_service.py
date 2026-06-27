@@ -5,6 +5,7 @@ Resilient: cold env / heavy-scan failure → empty suggestions, never a 500."""
 from __future__ import annotations
 
 import logging
+import math
 
 from api.contracts.common import PlayerRef
 from api.contracts.trade import CategoryImpact
@@ -25,13 +26,13 @@ class TradeFinderService:
 
             pool = load_player_pool()
             if pool is None or pool.empty:
-                return TradeFinderResponse(team_name=team_name)
+                return TradeFinderResponse(team_name=team_name, reason="no_pool")
 
             yds = get_yahoo_data_service()
             rosters_df = yds.get_rosters()
             league_rosters = self._build_league_rosters(rosters_df)
             if not league_rosters:
-                return TradeFinderResponse(team_name=team_name)
+                return TradeFinderResponse(team_name=team_name, reason="no_league_data")
 
             # Resolve the user's team against the ACTUAL roster keys (Yahoo keys
             # carry emoji/whitespace, e.g. "🏆 Team Hickey"); a raw .get(team_name)
@@ -39,29 +40,43 @@ class TradeFinderService:
             # name downstream so all_team_totals / find_trade_opportunities agree.
             resolved_team, user_roster_ids = self._resolve_user_roster(team_name, league_rosters)
             if not user_roster_ids:
-                return TradeFinderResponse(team_name=team_name)
+                # The ORIGINAL bug. Make a recurrence LOUD, not a silent empty.
+                logger.warning(
+                    "TradeFinderService: team_name %r did not resolve to any roster key (have: %s)",
+                    team_name,
+                    list(league_rosters.keys()),
+                )
+                return TradeFinderResponse(team_name=team_name, reason="team_not_resolved")
 
             # all_team_totals is REQUIRED: find_trade_opportunities early-returns []
             # when it's None (src/trade_finder.py:1895). Compute it (Yahoo-standings-
             # first, projection fallback) and pass it.
             all_team_totals = get_all_team_totals(league_rosters=league_rosters, player_pool=pool)
+            if not all_team_totals:
+                # Empty totals → the engine would yield nothing. Surface it instead of
+                # running a doomed scan and returning a confusing bare empty.
+                logger.warning(
+                    "TradeFinderService: get_all_team_totals empty for %d rosters — finder will yield no suggestions",
+                    len(league_rosters),
+                )
+                return TradeFinderResponse(team_name=team_name, reason="no_totals")
 
             raw = find_trade_opportunities(
                 user_roster_ids=user_roster_ids,
                 player_pool=pool,
                 config=LeagueConfig(),
-                all_team_totals=all_team_totals or None,
+                all_team_totals=all_team_totals,
                 user_team_name=resolved_team,
                 league_rosters=league_rosters,
                 max_results=limit,
             )
 
             suggestions = self._build_suggestions(raw, pool, user_roster_ids)
-            return TradeFinderResponse(team_name=team_name, suggestions=suggestions)
+            return TradeFinderResponse(team_name=team_name, suggestions=suggestions, reason="ok")
 
         except Exception as exc:
             logger.warning("TradeFinderService.get_suggestions failed: %s", exc, exc_info=True)
-            return TradeFinderResponse(team_name=team_name)
+            return TradeFinderResponse(team_name=team_name, reason="error")
 
     # ── private helpers ──────────────────────────────────────────────────
 
@@ -154,7 +169,7 @@ class TradeFinderService:
                 # totals_sgp applies the inverse-stat sign (L/ERA/WHIP) + denom, so a
                 # raw (after - before) delta becomes a correctly-signed SGP delta.
                 delta = calc.totals_sgp({cat: a - b})
-                if delta != delta:  # NaN guard
+                if not math.isfinite(delta):  # guards NaN AND inf (repo _f convention)
                     continue
                 out.append(CategoryImpact(cat=cat, delta=round(delta, 3)))
             return out

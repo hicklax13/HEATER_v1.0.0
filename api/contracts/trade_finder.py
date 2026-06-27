@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from api.contracts.common import PlayerRef
@@ -22,3 +24,8 @@ class TradeSuggestion(BaseModel):
 class TradeFinderResponse(BaseModel):
     team_name: str
     suggestions: list[TradeSuggestion] = []
+    # Observability: WHY the suggestion list is what it is. The original bug was a
+    # SILENT empty (a missed roster key), so a recurrence must be diagnosable from
+    # the response. Additive/optional (default None) → backward-compatible; the
+    # frontend may ignore it.
+    reason: Literal["ok", "team_not_resolved", "no_pool", "no_league_data", "no_totals", "error"] | None = None

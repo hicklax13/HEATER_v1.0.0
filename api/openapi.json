@@ -4391,6 +4391,25 @@
       },
       "TradeFinderResponse": {
         "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "team_not_resolved",
+                  "no_pool",
+                  "no_league_data",
+                  "no_totals",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "suggestions": {
             "default": [],
             "items": {
