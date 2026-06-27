@@ -117,3 +117,187 @@ class StartSitService:
             if label in template:
                 taken[label] += 1
         return {slot: max(0, template[slot] - taken.get(slot, 0)) for slot in template}
+
+    # Finite-float coercion exposed on the class (the module-level `_f` is reused so
+    # both StartSitService._f(...) and self._f(...) resolve identically).
+    _f = staticmethod(_f)
+
+    # ----------------------------------------------------------------- compare
+    @staticmethod
+    def _scope(scope: str) -> str:
+        s = str(scope or "").lower().strip()
+        return s if s in _SCOPES else "rest_of_season"
+
+    def compare(self, req) -> StartSitCompareResponse:  # noqa: F821 (forward ref via lazy import)
+        from api.contracts.start_sit import StartSitCompareResponse, StartSitVerdict
+
+        scope = self._scope(req.scope)
+        # Clamp 2..6 (the engine cap is 6; <2 just yields a thin verdict, never raises).
+        pids = [int(p) for p in (req.player_ids or [])][:6]
+
+        candidates: list = []
+        open_slots: dict[str, int] = {}
+        verdict = StartSitVerdict()
+        confidence = 0.0
+        confidence_label = "Toss-up"
+        try:
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.start_sit import start_sit_recommendation
+            from src.valuation import LeagueConfig
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            config = LeagueConfig()
+            yds = get_yahoo_data_service()
+            # Matchup-aware by construction: build_optimizer_context calls
+            # yds.get_matchup() and sets ctx.category_weights from compute_urgency_weights.
+            ctx = build_optimizer_context(
+                scope=scope, yds=yds, config=config, user_team_name=req.team_name, level_filter="All"
+            )
+            pool = getattr(ctx, "player_pool", None)
+            roster = getattr(ctx, "roster", None)
+            open_slots = self._open_slots(roster)
+
+            # start_sit_recommendation already weighs categories internally; it falls
+            # back to uniform weights when standings/totals are absent (never raises).
+            rec = start_sit_recommendation(pids, pool, config)
+            players = rec.get("players") if isinstance(rec, dict) else None
+            if players:
+                candidates = self._score_candidates(players, pool, scope, ctx)
+                confidence = round(float(rec.get("confidence", 0.0) or 0.0), 4)
+                confidence_label = self._confidence_label(confidence)
+                verdict = self._greedy_verdict(candidates, open_slots)
+        except Exception as exc:
+            logger.warning("StartSitService.compare failed: %s", exc)
+
+        return StartSitCompareResponse(
+            scope=scope,
+            candidates=candidates,
+            verdict=verdict,
+            open_slots=open_slots,
+            confidence=confidence,
+            confidence_label=confidence_label,
+        )
+
+    @staticmethod
+    def _confidence_label(conf: float) -> str:
+        if conf > 0.30:
+            return "Clear"
+        if conf > 0.15:
+            return "Lean"
+        return "Toss-up"
+
+    def _score_candidates(self, players, pool, scope, ctx) -> list:
+        """Engine player dicts -> ranked StartSitCandidate list (start_score normalized
+        0-100 across the set, best = 100). players is already score-sorted desc by the
+        engine; preserve that order for rank."""
+        from api.contracts.start_sit import StartSitCandidate
+        from api.services.player_ref import player_ref_from_pool
+
+        raw = [self._f(p.get("start_score")) for p in players]
+        top = max((abs(x) for x in raw), default=0.0)
+        pool_rows = self._pool_index(pool)
+
+        out: list = []
+        for rank, p in enumerate(players, start=1):
+            try:
+                pid = int(p.get("player_id", 0) or 0)
+            except (TypeError, ValueError):
+                pid = 0
+            row = pool_rows.get(pid, {})
+            is_hitter = bool(row.get("is_hitter", 1))
+            score = self._f(p.get("start_score"))
+            norm = round(100.0 * score / top, 1) if top > 0 else 0.0
+            status = str(row.get("status", "") or "").strip().lower()
+            out.append(
+                StartSitCandidate(
+                    player=player_ref_from_pool(pid, pool, name=p.get("name"), positions=row.get("positions")),
+                    start_score=norm,
+                    rank=rank,
+                    eligible_slots=self._eligible_slots(row.get("positions"), is_hitter),
+                    projected=self._projected_line(row, scope),
+                    category_impact=self._impact_items(p.get("category_impact")),
+                    matchup="",  # filled by /optimize's daily path; compare leaves blank (no schedule fetch)
+                    reason="; ".join(str(r) for r in (p.get("reasoning") or [])[:2]),
+                    playable=status not in _INACTIVE_STATUSES,
+                )
+            )
+        return out
+
+    @staticmethod
+    def _pool_index(pool) -> dict[int, dict]:
+        import pandas as pd
+
+        if not isinstance(pool, pd.DataFrame) or pool.empty or "player_id" not in pool.columns:
+            return {}
+        out: dict[int, dict] = {}
+        for r in pool.to_dict("records"):
+            try:
+                out[int(r.get("player_id", 0) or 0)] = r
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    @staticmethod
+    def _impact_items(category_impact) -> list:
+        """Engine {cat: sgp} -> StatItem[] sorted by |impact| desc (top 4)."""
+        from api.contracts.common import StatItem
+
+        if not isinstance(category_impact, dict):
+            return []
+        items = sorted(category_impact.items(), key=lambda kv: abs(StartSitService._f(kv[1])), reverse=True)
+        return [StatItem(label=str(k).upper(), value=f"{StartSitService._f(v):+.2f}") for k, v in items[:4]]
+
+    def _projected_line(self, row, scope) -> list:
+        """Scope-scaled projected stat line (StatItem[]). Uses compute_weekly_projection
+        for the weekly/today shape; degrades to the row's season rates on any failure."""
+        from api.contracts.common import StatItem
+
+        try:
+            import pandas as pd
+
+            from src.start_sit import compute_weekly_projection
+
+            wk = compute_weekly_projection(pd.Series(row)) if row else {}
+        except Exception:
+            wk = {}
+        is_hitter = bool(row.get("is_hitter", 1))
+        keys = ["r", "hr", "rbi", "sb", "avg", "obp"] if is_hitter else ["w", "k", "sv", "era", "whip"]
+        out: list = []
+        for k in keys:
+            v = self._f(wk.get(k, row.get(k)))
+            if k in ("avg", "obp"):
+                disp = f"{v:.3f}".lstrip("0") if 0.0 <= v < 1.0 else f"{v:.3f}"
+            elif k in ("era", "whip"):
+                disp = f"{v:.2f}"
+            else:
+                disp = str(int(round(v)))
+            out.append(StatItem(label=k.upper(), value=disp))
+        return out
+
+    def _greedy_verdict(self, candidates, open_slots) -> StartSitVerdict:  # noqa: F821
+        """Bounded greedy slot assignment: walk candidates best-first, assign each to
+        ANY open eligible slot (decrementing the slot count). Assigned -> start; the
+        rest -> sit. This is a heuristic; /optimize is the authoritative LP."""
+        from api.contracts.start_sit import StartSitVerdict
+
+        remaining = dict(open_slots)
+        start_ids: list[int] = []
+        sit_ids: list[int] = []
+        for c in candidates:
+            placed = False
+            if c.playable:
+                for slot in c.eligible_slots:
+                    if remaining.get(slot, 0) > 0:
+                        remaining[slot] -= 1
+                        start_ids.append(c.player.id)
+                        placed = True
+                        break
+            if not placed:
+                sit_ids.append(c.player.id)
+        n = len(start_ids)
+        reasoning = (
+            f"Start the top {n} by projected value that fit your open slots; sit the rest."
+            if n
+            else "No open lineup slots for these players (or none are playable today)."
+        )
+        return StartSitVerdict(start_ids=start_ids, sit_ids=sit_ids, reasoning=reasoning)

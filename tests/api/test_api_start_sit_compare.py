@@ -117,3 +117,212 @@ def test_open_slots_empty_roster_returns_full_template():
     svc = _svc()
     open_slots = svc._open_slots(pd.DataFrame())
     assert open_slots["OF"] == 3 and open_slots["P"] == 4 and open_slots["C"] == 1
+
+
+def _fake_ctx(pool, roster_ids):
+    import types
+
+    ctx = types.SimpleNamespace()
+    ctx.player_pool = pool
+    ctx.user_roster_ids = roster_ids
+    ctx.category_weights = {"hr": 1.4, "sb": 0.6}
+    ctx.roster = pool[pool["player_id"].isin(roster_ids)].copy()
+    ctx.adds_remaining_this_week = 10
+    ctx.scope = "today"
+    return ctx
+
+
+def test_compare_scores_ranks_and_builds_verdict(monkeypatch):
+    import pandas as pd
+
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": 1,
+                "name": "OF One",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "NYY",
+                "selected_position": "BN",
+                "hr": 30,
+                "r": 90,
+                "rbi": 88,
+                "sb": 5,
+                "avg": 0.290,
+                "obp": 0.370,
+                "ab": 550,
+                "h": 160,
+                "bb": 60,
+                "hbp": 5,
+                "sf": 4,
+                "pa": 620,
+                "mlb_id": 592450,
+            },
+            {
+                "player_id": 2,
+                "name": "OF Two",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "BOS",
+                "selected_position": "BN",
+                "hr": 12,
+                "r": 60,
+                "rbi": 50,
+                "sb": 20,
+                "avg": 0.255,
+                "obp": 0.320,
+                "ab": 500,
+                "h": 128,
+                "bb": 45,
+                "hbp": 3,
+                "sf": 4,
+                "pa": 560,
+                "mlb_id": 519222,
+            },
+            {
+                "player_id": 3,
+                "name": "MI Three",
+                "positions": "2B,SS",
+                "is_hitter": 1,
+                "team": "KC",
+                "selected_position": "BN",
+                "hr": 18,
+                "r": 75,
+                "rbi": 70,
+                "sb": 15,
+                "avg": 0.275,
+                "obp": 0.340,
+                "ab": 540,
+                "h": 149,
+                "bb": 50,
+                "hbp": 4,
+                "sf": 5,
+                "pa": 600,
+                "mlb_id": 677951,
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context",
+        lambda **k: _fake_ctx(pool, [1, 2, 3]),
+    )
+    # start_sit_recommendation returns higher score for player 1.
+    monkeypatch.setattr(
+        "src.start_sit.start_sit_recommendation",
+        lambda *a, **k: {
+            "recommendation": 1,
+            "confidence": 0.42,
+            "confidence_label": "Clear Start",
+            "players": [
+                {
+                    "player_id": 1,
+                    "name": "OF One",
+                    "start_score": 9.0,
+                    "matchup_factors": {},
+                    "floor": 8.0,
+                    "ceiling": 10.0,
+                    "category_impact": {"HR": 1.2, "SB": 0.1},
+                    "reasoning": ["Favorable park"],
+                },
+                {
+                    "player_id": 3,
+                    "name": "MI Three",
+                    "start_score": 6.0,
+                    "matchup_factors": {},
+                    "floor": 5.0,
+                    "ceiling": 7.0,
+                    "category_impact": {"HR": 0.7, "SB": 0.5},
+                    "reasoning": ["Average matchup"],
+                },
+                {
+                    "player_id": 2,
+                    "name": "OF Two",
+                    "start_score": 4.0,
+                    "matchup_factors": {},
+                    "floor": 3.0,
+                    "ceiling": 5.0,
+                    "category_impact": {"HR": 0.4, "SB": 0.9},
+                    "reasoning": ["SB upside"],
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
+    # today scope path will try build_daily_dcv_table; make it gracefully empty.
+    monkeypatch.setattr("src.optimizer.daily_optimizer.build_daily_dcv_table", lambda *a, **k: pd.DataFrame())
+
+    from api.contracts.start_sit import StartSitCompareRequest
+
+    resp = _svc().compare(StartSitCompareRequest(team_name="Team Hickey", scope="today", player_ids=[1, 2, 3]))
+    assert resp.scope == "today"
+    # ranked by start_score desc -> 1, 3, 2
+    assert [c.player.id for c in resp.candidates] == [1, 3, 2]
+    assert resp.candidates[0].rank == 1 and resp.candidates[0].start_score == 100.0  # normalized top = 100
+    # 3 OF/Util players, but only 3 OF + 2 Util open -> all 3 can be started here.
+    assert set(resp.verdict.start_ids).issubset({1, 2, 3})
+    assert resp.candidates[0].eligible_slots  # non-empty (OF/Util)
+    assert resp.candidates[0].category_impact  # StatItem list
+    assert resp.confidence_label in ("Clear", "Lean", "Toss-up")
+
+
+def test_compare_cold_env_returns_empty(monkeypatch):
+    # build_optimizer_context raises -> graceful empty (never 500).
+    def _boom(**k):
+        raise RuntimeError("no data")
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", _boom)
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
+
+    from api.contracts.start_sit import StartSitCompareRequest
+
+    resp = _svc().compare(StartSitCompareRequest(team_name="Team Hickey", scope="today", player_ids=[1, 2]))
+    assert resp.candidates == [] and resp.scope == "today"
+
+
+def test_compare_clamps_to_six(monkeypatch):
+    import pandas as pd
+
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": i,
+                "name": f"P{i}",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "NYY",
+                "selected_position": "BN",
+                "hr": 10,
+                "r": 50,
+                "rbi": 40,
+                "sb": 5,
+                "avg": 0.26,
+                "obp": 0.33,
+                "ab": 400,
+                "h": 104,
+                "bb": 30,
+                "hbp": 2,
+                "sf": 3,
+                "pa": 440,
+                "mlb_id": 1000 + i,
+            }
+            for i in range(1, 9)
+        ]
+    )
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context", lambda **k: _fake_ctx(pool, list(range(1, 9)))
+    )
+    captured = {}
+
+    def _rec(player_ids, *a, **k):
+        captured["n"] = len(player_ids)
+        return {"recommendation": None, "confidence": 0.0, "confidence_label": "Toss-up", "players": []}
+
+    monkeypatch.setattr("src.start_sit.start_sit_recommendation", _rec)
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
+    monkeypatch.setattr("src.optimizer.daily_optimizer.build_daily_dcv_table", lambda *a, **k: pd.DataFrame())
+
+    from api.contracts.start_sit import StartSitCompareRequest
+
+    _svc().compare(StartSitCompareRequest(team_name="T", scope="rest_of_season", player_ids=list(range(1, 9))))
+    assert captured["n"] == 6  # clamped 8 -> 6
