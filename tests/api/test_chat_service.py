@@ -242,3 +242,22 @@ def test_send_stream_threads_cap_usd_into_budget(monkeypatch):
     monkeypatch.setattr(cs.budget, "is_over_cap", _over)
     list(ChatService().send_stream(chat_user_id=1, message="hi", model="gpt-5", cap_usd=0.42))
     assert captured["cap_usd"] == 0.42
+
+
+def test_chat_send_request_accepts_page_context():
+    from api.contracts.chat import ChatSendRequest, PageContext
+
+    req = ChatSendRequest(
+        message="why is this 0.28?",
+        model="gpt-5",
+        page_context=PageContext(page="optimizer", data_json='{"slots":[]}'),
+    )
+    assert req.page_context.page == "optimizer"
+    assert req.page_context.data_json == '{"slots":[]}'
+
+
+def test_chat_send_request_page_context_defaults_none():
+    from api.contracts.chat import ChatSendRequest
+
+    req = ChatSendRequest(message="hi", model="gpt-5")
+    assert req.page_context is None
