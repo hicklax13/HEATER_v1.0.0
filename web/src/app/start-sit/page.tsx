@@ -134,7 +134,7 @@ export default function StartSitPage() {
           )}
         </motion.div>
       </main>
-      <Footer freshnessMinutes={9} />
+      <Footer freshnessMinutes={undefined} />
     </>
   );
 }
@@ -153,11 +153,6 @@ function Header() {
   );
 }
 
-/** Normalize a name for matching candidates ↔ selected picks. */
-function normName(s: string): string {
-  return s.trim().toLowerCase();
-}
-
 function Results({
   data,
   selected,
@@ -171,16 +166,11 @@ function Results({
   applying: boolean;
   optimized: StartSitOptimizeData | null;
 }) {
-  // Resolve each candidate to its HEATER id (by mlbId when both nonzero, else by
-  // name) so we can mark START vs SIT against the verdict's id lists; and map the
-  // verdict ids back to names for the panel.
+  // Each candidate carries its HEATER id (== the verdict's id keys), so START/SIT
+  // resolves directly with no fragile mlbId/name join (Muncy-DNA-safe). The
+  // selected picks only provide id → name for the verdict panel's lists.
   const byId = new Map(selected.map((p) => [p.id, p.name] as const));
   const startSet = new Set(data.verdict.startIds);
-  const candId = (cName: string, cMlb: number): number | undefined => {
-    const hit =
-      selected.find((p) => cMlb > 0 && p.mlbId === cMlb) ?? selected.find((p) => normName(p.name) === normName(cName));
-    return hit?.id;
-  };
   const startNames = data.verdict.startIds.map((id) => byId.get(id) ?? `#${id}`);
   const sitNames = data.verdict.sitIds.map((id) => byId.get(id) ?? `#${id}`);
 
@@ -199,11 +189,9 @@ function Results({
               />
             </Card>
           ) : (
-            data.candidates.map((c) => {
-              const id = candId(c.player.name, c.player.mlbId);
-              const started = id === undefined ? undefined : startSet.has(id);
-              return <CompareCard key={`${c.rank}-${c.player.name}`} c={c} started={started} />;
-            })
+            data.candidates.map((c) => (
+              <CompareCard key={c.id || `${c.rank}-${c.player.name}`} c={c} started={startSet.has(c.id)} />
+            ))
           )}
         </div>
         <aside>

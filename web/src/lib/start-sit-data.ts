@@ -30,6 +30,7 @@ export interface StatItem {
 }
 
 export interface StartSitCandidate {
+  id: number; // HEATER player_id — authoritative join key to verdict.start_ids/sit_ids
   player: PlayerRef;
   startScore: number; // 0-100 heat
   rank: number;
@@ -75,6 +76,7 @@ function toPlayerRef(p: {
 
 function adaptCandidate(c: ApiStartSitCandidate): StartSitCandidate {
   return {
+    id: c.player.id, // HEATER player_id (the authoritative join key, dropped by toPlayerRef)
     player: toPlayerRef(c.player),
     startScore: c.start_score ?? 0,
     rank: c.rank ?? 0,
@@ -136,6 +138,7 @@ export async function optimizeStartSit(scope: Scope, playerIds: number[]): Promi
 // --- off-live mocks (showcase) -------------------------------------------------
 function mockCompare(scope: Scope, ids: number[]): StartSitCompareData {
   const candidates: StartSitCandidate[] = ids.slice(0, 6).map((id, i) => ({
+    id, // the selected HEATER id — so the verdict join (startSet.has(c.id)) matches
     player: { name: `Player ${id}`, pos: "OF", teamAbbr: "NYY", teamId: 147, mlbId: 0 },
     startScore: Math.max(20, 100 - i * 18),
     rank: i + 1,
@@ -152,11 +155,12 @@ function mockCompare(scope: Scope, ids: number[]): StartSitCompareData {
     reason: i === 0 ? "Favorable park + platoon edge" : "Average matchup",
     playable: true,
   }));
-  const startIds = candidates.slice(0, Math.min(2, candidates.length)).map((c) => c.player.mlbId || c.rank);
+  // The first two selected ids are the mock "start" picks (matches the c.id join).
+  const startIds = candidates.slice(0, Math.min(2, candidates.length)).map((c) => c.id);
   return {
     scope,
     candidates,
-    verdict: { startIds, sitIds: candidates.slice(2).map((c) => c.rank), reasoning: "Start the top 2 that fit your open slots." },
+    verdict: { startIds, sitIds: candidates.slice(2).map((c) => c.id), reasoning: "Start the top 2 that fit your open slots." },
     openSlots: { OF: 2, Util: 1 },
     confidence: 0.34,
     confidenceLabel: "Clear",
