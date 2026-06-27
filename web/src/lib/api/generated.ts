@@ -2871,6 +2871,10 @@ export interface components {
             /** Probables */
             probables?: components["schemas"]["ProbableStarter"][];
             top_pick?: components["schemas"]["StreamCandidate"] | null;
+            /** Urgency */
+            urgency?: {
+                [key: string]: number;
+            };
         };
         /** SubscriptionResponse */
         SubscriptionResponse: {
