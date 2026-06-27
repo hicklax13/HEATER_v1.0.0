@@ -318,13 +318,20 @@ _METRIC_SPECS: dict[str, dict] = {
         "formula": "daily_category_value = base_sgp_per_game · urgency_weight · "
         "matchup_multiplier · volume_factor; normalized to a 0-100 heat. Locked/IL/"
         "off-day starts get volume_factor 0.",
-        "module": "daily_optimizer.py",
+        # Module-PREFIX filter (anchored, not a loose substring) so the listed
+        # constants are scoped to this metric's area and don't bleed in from
+        # unrelated modules whose path merely contains the token.
+        "module": "daily_optimizer",
     },
     "trade_grade": {
         "formula": "grade derives from Phase-1 weighted surplus_sgp = Σ_cat "
         "(marginal_sgp(receiving) - marginal_sgp(giving)) · category_weight; "
         "inverse cats (L/ERA/WHIP) sign-flipped. Phase 1 is the grade authority.",
-        "module": "engine",
+        # The grade is computed from SGP marginals, NOT from tunable registered
+        # constants, so this anchored prefix surfaces few/none — the formula IS
+        # the recipe. (The broad 'engine' substring used to drag in unrelated
+        # league_avg_* baselines via standings_engine.py — a misleading match.)
+        "module": "engine/portfolio",
     },
     "start_score": {
         "formula": "start_score (0-100) = weekly_projection · urgency · matchup_factors, "
@@ -332,6 +339,20 @@ _METRIC_SPECS: dict[str, dict] = {
         "module": "start_sit.py",
     },
 }
+
+# Honest note for the module-filtered metrics: the listed constants are RELATED
+# provenance for the metric's area, not a guaranteed exact/exhaustive formula.
+_AREA_NOTE = (
+    "These are registered constants for this metric's area — related provenance, "
+    "NOT a guaranteed exhaustive or exact formula. The live per-category values "
+    "travel inline on the page payload (streaming factors[], trade category_impacts, "
+    "daily DCV slot fields)."
+)
+# Exact note for stream_score: the 6 component weights ARE the precise blend.
+_EXACT_NOTE = (
+    "Live per-category values travel inline on the page payload (streaming factors[]); "
+    "these six weights are the exact convex blend that composes the score."
+)
 
 
 def _explain_metric(kind: str, params: dict) -> str:
@@ -346,6 +367,7 @@ def _explain_metric(kind: str, params: dict) -> str:
     provided = params.get("components", {}) if isinstance(params.get("components"), dict) else {}
     components: list[dict] = []
     if spec.get("weight_keys"):
+        # Exact path: stream_score's six factor weights ARE the precise blend.
         prefix = spec["weight_prefix"]
         for key, label in spec["weight_keys"]:
             entry = CONSTANTS_REGISTRY.get(f"{prefix}{key}")
@@ -358,10 +380,13 @@ def _explain_metric(kind: str, params: dict) -> str:
                     "detail": entry.description if entry is not None else "",
                 }
             )
+        note = _EXACT_NOTE
     else:
+        # Area path: anchored module-PREFIX match (startswith, not a loose
+        # substring) so a token like 'engine' can't bleed into standings_engine.py.
         mod = str(spec.get("module", "")).lower()
         for key, entry in CONSTANTS_REGISTRY.items():
-            if mod and mod in entry.module.lower():
+            if mod and entry.module.lower().startswith(mod):
                 components.append(
                     {
                         "key": key,
@@ -371,6 +396,7 @@ def _explain_metric(kind: str, params: dict) -> str:
                         "detail": entry.description,
                     }
                 )
+        note = _AREA_NOTE
     inputs = {kk: vv for kk, vv in params.items() if kk != "components"}
     return json.dumps(
         {
@@ -378,9 +404,7 @@ def _explain_metric(kind: str, params: dict) -> str:
             "formula": spec["formula"],
             "components": components,
             "inputs": inputs,
-            "note": "Live per-category values travel inline on the page payload "
-            "(streaming factors[], trade category_impacts, daily DCV slot fields); "
-            "this tool explains the recipe + weights.",
+            "note": note,
         },
         default=str,
     )

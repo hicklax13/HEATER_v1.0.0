@@ -49,9 +49,35 @@ def test_explain_metric_trade_grade_supported():
     assert out["kind"] == "trade_grade" and out["formula"]
 
 
+def test_explain_metric_trade_grade_not_over_inclusive():
+    """The grade derives from SGP marginals, NOT from the broad league_avg_*
+    baselines that a loose 'engine' substring used to drag in (they don't feed
+    the grade). Components must be bounded + must not present those baselines as
+    grade weights."""
+    out = json.loads(dispatch_tool("explain_metric", {"kind": "trade_grade"}, user_id=99))
+    keys = {c["key"] for c in out["components"]}
+    assert not ({"league_avg_era", "league_avg_whip", "league_avg_woba"} & keys)
+    # the old loose filter surfaced 3 unrelated baselines; the anchored filter is
+    # bounded (formula carries the recipe; few/no registered weights compose it)
+    assert len(out["components"]) <= 2
+
+
+def test_explain_metric_non_stream_note_is_honest_not_exact_formula():
+    """For dcv/trade_grade/start_score the components are area-related registered
+    constants, NOT a guaranteed exact formula — the note must say so (avoid a
+    confidently-wrong recipe claim). stream_score stays the exact 6-weight blend."""
+    for kind in ("dcv", "trade_grade", "start_score"):
+        out = json.loads(dispatch_tool("explain_metric", {"kind": kind}, user_id=99))
+        note = out["note"].lower()
+        assert "not" in note and ("exhaustive" in note or "exact" in note)
+
+
 def test_explain_metric_start_score_supported():
     out = json.loads(dispatch_tool("explain_metric", {"kind": "start_score"}, user_id=99))
     assert out["kind"] == "start_score" and out["formula"]
+    keys = {c["key"] for c in out["components"]}
+    # start_sit.py constants only — no bleed from other modules
+    assert keys == {"home_advantage", "away_discount"}
 
 
 def test_explain_metric_unknown_kind_is_graceful():
