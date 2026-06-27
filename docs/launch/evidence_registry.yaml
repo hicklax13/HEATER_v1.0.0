@@ -215,6 +215,32 @@ requirements:
     blocking_ring: invite_beta
     last_verified: "n/a"
     score_contribution: recommendation_trust
+  - id: P9-READINESS
+    category: reliability
+    phase: 9
+    description: Liveness (/livez), readiness (/readyz) + dependency-health summary; /healthz back-compat preserved.
+    status: passing
+    subsystem: api
+    verify: "python -m pytest tests/api/test_health.py -q"
+    metric: "readyz reports per-dependency status; 503 when a dependency is down"
+    evidence: "api/health.py, tests/api/test_health.py"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: reliability
+  - id: P10-SECURITY-HEADERS
+    category: security
+    phase: 10
+    description: Defense-in-depth security response headers on every API response (additive).
+    status: passing
+    subsystem: api
+    verify: "python -m pytest tests/api/test_security_headers.py -q"
+    metric: "headers present on every response; payloads unchanged"
+    evidence: "api/security_headers.py, tests/api/test_security_headers.py"
+    external_review: none
+    blocking_ring: ci
+    last_verified: "2026-06-26"
+    score_contribution: security
   - id: P9-RELIABILITY
     category: reliability
     phase: 9
