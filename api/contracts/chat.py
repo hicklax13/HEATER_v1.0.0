@@ -12,6 +12,16 @@ class ChatAttachment(BaseModel):
     data_url: str  # a data:image/...;base64,... URL
 
 
+class PageContext(BaseModel):
+    """Structured snapshot of what the page is currently displaying, attached to
+    a chat turn so Bubba can 'see the screen'. `data_json` is a (size-capped,
+    possibly truncated) JSON string the frontend serializes from the page's
+    loaded data; `page` is the route id (e.g. 'optimizer')."""
+
+    page: str = ""
+    data_json: str = ""
+
+
 class ChatSendRequest(BaseModel):
     message: str
     model: str
@@ -21,6 +31,7 @@ class ChatSendRequest(BaseModel):
     reasoning_effort: Literal["off", "low", "medium", "high"] | None = None
     attached_text: str | None = None
     attachments: list[ChatAttachment] | None = None
+    page_context: PageContext | None = None
 
 
 class ToolTraceEntry(BaseModel):

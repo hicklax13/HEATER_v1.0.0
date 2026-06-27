@@ -583,6 +583,46 @@ class TestStartSitRecommendation:
         assert result["recommendation"] in (1, 2, 3, 4)
         assert len(result["players"]) == 4
 
+    def test_six_player_comparison(self):
+        """Should handle 6 players (the raised maximum)."""
+        import pandas as pd
+
+        from src.start_sit import _MAX_PLAYERS
+
+        assert _MAX_PLAYERS == 6  # cap raised 4 -> 6 (WS3)
+
+        # Extend the base pool to 6 hitters with distinct ids.
+        base = _make_pool()
+        extra = pd.DataFrame(
+            [
+                {**base.iloc[0].to_dict(), "player_id": 101, "name": "Extra A"},
+                {**base.iloc[0].to_dict(), "player_id": 102, "name": "Extra B"},
+            ]
+        )
+        pool = pd.concat([base, extra], ignore_index=True)
+        config = _make_config()
+
+        result = start_sit_recommendation([1, 2, 3, 4, 101, 102], pool, config)
+        assert len(result["players"]) == 6
+        assert result["recommendation"] in (1, 2, 3, 4, 101, 102)
+
+    def test_truncates_to_six_players(self):
+        """More than 6 players should be truncated to 6."""
+        import pandas as pd
+
+        base = _make_pool()
+        extra = pd.DataFrame(
+            [
+                {**base.iloc[0].to_dict(), "player_id": 101, "name": "Extra A"},
+                {**base.iloc[0].to_dict(), "player_id": 102, "name": "Extra B"},
+                {**base.iloc[0].to_dict(), "player_id": 103, "name": "Extra C"},
+            ]
+        )
+        pool = pd.concat([base, extra], ignore_index=True)
+        config = _make_config()
+        result = start_sit_recommendation([1, 2, 3, 4, 101, 102, 103], pool, config)
+        assert len(result["players"]) <= 6
+
     def test_single_player_returns_trivial(self):
         """Single player should return that player with full confidence."""
         pool = _make_pool()
@@ -728,14 +768,15 @@ class TestStartSitRecommendation:
         nyy_player = next(p for p in result["players"] if p["player_id"] == 1)
         assert "park" in nyy_player["matchup_factors"]
 
-    def test_truncates_to_four_players(self):
-        """More than 4 players should be truncated to 4."""
+    def test_legacy_four_input_still_bounded(self):
+        """Four-or-fewer inputs are returned untruncated (≤ the 6-cap)."""
+        from src.start_sit import _MAX_PLAYERS
+
         pool = _make_pool()
         config = _make_config()
         result = start_sit_recommendation([1, 2, 3, 4, 10], pool, config)
 
-        # Should have at most 4 players
-        assert len(result["players"]) <= 4
+        assert len(result["players"]) <= _MAX_PLAYERS
 
 
 # ── Confidence label tests ──────────────────────────────────────────

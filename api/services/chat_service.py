@@ -57,14 +57,27 @@ def _wrap_tool_trace(raw: list) -> list[ToolTraceEntry]:
     return out
 
 
-def _build_user_content(message: str, attached_text: str | None, attachments: list | None):
+def _build_user_content(message: str, attached_text: str | None, attachments: list | None, page_context=None):
     """Build the user-turn content. Returns a STRING (today's shape) unless image
     attachments are present, then an OpenAI-style multimodal parts list. Text tags
-    are wrapped exactly like the live Streamlit app so both paths behave identically."""
+    are wrapped exactly like the live Streamlit app so both paths behave identically.
+    An optional page_context (what the page is displaying) is prepended as an
+    explicit, truncation-aware block; when absent the result is byte-identical to today."""
+    prefix = ""
+    if page_context is not None:
+        page = getattr(page_context, "page", "") or "current"
+        data_json = getattr(page_context, "data_json", "") or ""
+        if data_json:
+            prefix = (
+                f"[Data currently displayed on the {page} page "
+                "(may be truncated — use explain_metric/query_data for more)]\n"
+                f"{data_json}\n\n"
+            )
+
     if attached_text:
-        text = f"[Context the user selected on the page]\n{attached_text}\n\n[Question]\n{message}"
+        text = prefix + f"[Context the user selected on the page]\n{attached_text}\n\n[Question]\n{message}"
     else:
-        text = message
+        text = prefix + message if prefix else message
 
     image_urls = [
         getattr(a, "data_url", None)
@@ -72,7 +85,7 @@ def _build_user_content(message: str, attached_text: str | None, attachments: li
         if getattr(a, "kind", None) == "image" and getattr(a, "data_url", None)
     ]
     if not image_urls:
-        return text  # byte-identical to today when no text tag + no image
+        return text  # byte-identical to today when no page_context + no text tag + no image
     return [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
 
 
@@ -100,6 +113,7 @@ class ChatService:
         cap_usd: float | None = None,
         page: str | None = None,
         viewer_team: str | None = None,
+        page_context=None,
     ) -> dict:
         # Pre-call: key/cap/prompt + the paid provider call. A failure HERE (no
         # spend yet, or the provider itself erroring) becomes a structured error.
@@ -118,7 +132,9 @@ class ChatService:
             prior = history.load_messages(conversation_id, user_id=chat_user_id) if conversation_id else []
             convo = [{"role": "system", "content": _build_system_prompt(page or _DEFAULT_PAGE, viewer_team)}]
             convo += [{"role": m["role"], "content": m["content"]} for m in prior]
-            convo.append({"role": "user", "content": _build_user_content(message, attached_text, attachments)})
+            convo.append(
+                {"role": "user", "content": _build_user_content(message, attached_text, attachments, page_context)}
+            )
 
             result = providers.chat(
                 model=model,
@@ -190,6 +206,7 @@ class ChatService:
         cap_usd: float | None = None,
         page: str | None = None,
         viewer_team: str | None = None,
+        page_context=None,
     ) -> Generator[str, None, None]:
         """Stream the chat as SSE frames. Mirrors send()'s pre-call validation,
         then iterates providers._chat_events. Meters + persists on the `done`
@@ -221,7 +238,9 @@ class ChatService:
             prior = history.load_messages(conversation_id, user_id=chat_user_id) if conversation_id else []
             convo = [{"role": "system", "content": _build_system_prompt(page or _DEFAULT_PAGE, viewer_team)}]
             convo += [{"role": m["role"], "content": m["content"]} for m in prior]
-            convo.append({"role": "user", "content": _build_user_content(message, attached_text, attachments)})
+            convo.append(
+                {"role": "user", "content": _build_user_content(message, attached_text, attachments, page_context)}
+            )
         except Exception as e:  # noqa: BLE001 - pre-call failure -> error frame, never 500
             _log.warning("chat send_stream failed before streaming", exc_info=True)
             yield _sse({"type": "error", "message": f"Chat error: {type(e).__name__}: {str(e)[:200]}"})

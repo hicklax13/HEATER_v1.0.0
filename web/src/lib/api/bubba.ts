@@ -58,6 +58,10 @@ export interface ChatSendBody {
   reasoning_effort?: "off" | "low" | "medium" | "high";
   attached_text?: string;
   attachments?: { kind: "image"; data_url: string }[];
+  /** Auto-attached structured snapshot of the current page's data (size-capped,
+   *  possibly truncated) so Bubba can "see the screen". Distinct from the manual
+   *  attached_text select-to-tag flow. */
+  page_context?: { page: string; data_json: string };
 }
 
 /** SSE events from POST /api/chat/send-stream (mirrors src/ai/providers._chat_events). */

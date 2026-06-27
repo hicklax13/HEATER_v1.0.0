@@ -389,6 +389,16 @@
             "title": "Model",
             "type": "string"
           },
+          "page_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PageContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reasoning_effort": {
             "anyOf": [
               {
@@ -1224,6 +1234,47 @@
         "title": "DraftSimulatePicksResponse",
         "type": "object"
       },
+      "FaSuggestion": {
+        "description": "A 'drop X for available Y' free-agent upgrade, alongside the LP lineup.\n\nComposed from recommend_fa_moves(ctx) over the optimize context. The LP still\noptimizes the CURRENT roster; these are the available-pickup layer.",
+        "properties": {
+          "add": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "category_impact": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Category Impact",
+            "type": "array"
+          },
+          "drop": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "net_sgp_delta": {
+            "default": 0.0,
+            "title": "Net Sgp Delta",
+            "type": "number"
+          },
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "urgency_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Urgency Categories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "add",
+          "drop"
+        ],
+        "title": "FaSuggestion",
+        "type": "object"
+      },
       "FactorDetail": {
         "properties": {
           "detail": {
@@ -2005,6 +2056,13 @@
             "title": "Date",
             "type": "string"
           },
+          "fa_suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/FaSuggestion"
+            },
+            "title": "Fa Suggestions",
+            "type": "array"
+          },
           "impact": {
             "items": {
               "$ref": "#/components/schemas/CatImpact"
@@ -2126,6 +2184,13 @@
             "default": 0.0,
             "title": "Value",
             "type": "number"
+          },
+          "value_breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Value Breakdown",
+            "type": "array"
           }
         },
         "required": [
@@ -2678,6 +2743,23 @@
           "player"
         ],
         "title": "OverallLeaderRow",
+        "type": "object"
+      },
+      "PageContext": {
+        "description": "Structured snapshot of what the page is currently displaying, attached to\na chat turn so Bubba can 'see the screen'. `data_json` is a (size-capped,\npossibly truncated) JSON string the frontend serializes from the page's\nloaded data; `page` is the route id (e.g. 'optimizer').",
+        "properties": {
+          "data_json": {
+            "default": "",
+            "title": "Data Json",
+            "type": "string"
+          },
+          "page": {
+            "default": "",
+            "title": "Page",
+            "type": "string"
+          }
+        },
+        "title": "PageContext",
         "type": "object"
       },
       "PitcherScorecard": {
@@ -3656,6 +3738,229 @@
         "title": "StandingsResponse",
         "type": "object"
       },
+      "StartSitCandidate": {
+        "properties": {
+          "category_impact": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Category Impact",
+            "type": "array"
+          },
+          "eligible_slots": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eligible Slots",
+            "type": "array"
+          },
+          "matchup": {
+            "default": "",
+            "title": "Matchup",
+            "type": "string"
+          },
+          "playable": {
+            "default": true,
+            "title": "Playable",
+            "type": "boolean"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "projected": {
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Projected",
+            "type": "array"
+          },
+          "rank": {
+            "default": 0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "start_score": {
+            "default": 0.0,
+            "title": "Start Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "StartSitCandidate",
+        "type": "object"
+      },
+      "StartSitCompareRequest": {
+        "properties": {
+          "player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Player Ids",
+            "type": "array"
+          },
+          "scope": {
+            "default": "today",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          }
+        },
+        "title": "StartSitCompareRequest",
+        "type": "object"
+      },
+      "StartSitCompareResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/StartSitCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "confidence_label": {
+            "default": "Toss-up",
+            "title": "Confidence Label",
+            "type": "string"
+          },
+          "open_slots": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Open Slots",
+            "type": "object"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/StartSitVerdict"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "StartSitCompareResponse",
+        "type": "object"
+      },
+      "StartSitOptimizeRequest": {
+        "properties": {
+          "player_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Player Ids",
+            "type": "array"
+          },
+          "scope": {
+            "default": "today",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          }
+        },
+        "title": "StartSitOptimizeRequest",
+        "type": "object"
+      },
+      "StartSitOptimizeResponse": {
+        "properties": {
+          "bench": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Bench",
+            "type": "array"
+          },
+          "daily": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "StartSitOptimizeResponse",
+        "type": "object"
+      },
+      "StartSitVerdict": {
+        "properties": {
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "sit_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sit Ids",
+            "type": "array"
+          },
+          "start_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Start Ids",
+            "type": "array"
+          }
+        },
+        "title": "StartSitVerdict",
+        "type": "object"
+      },
       "StatItem": {
         "description": "A single labeled stat for display, e.g. {label: \"HR\", value: \"18\"}.\n\nShared across pages (free agents, team movers/lever, \u2026). The frontend renders\nlabel + value; counting stats are integer strings, rate stats pre-formatted.",
         "properties": {
@@ -4019,6 +4324,13 @@
                 "type": "null"
               }
             ]
+          },
+          "urgency": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Urgency",
+            "type": "object"
           }
         },
         "required": [
@@ -4329,6 +4641,25 @@
       },
       "TradeFinderResponse": {
         "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "team_not_resolved",
+                  "no_pool",
+                  "no_league_data",
+                  "no_totals",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "suggestions": {
             "default": [],
             "items": {
@@ -4350,6 +4681,14 @@
       },
       "TradeSuggestion": {
         "properties": {
+          "category_impacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CategoryImpact"
+            },
+            "title": "Category Impacts",
+            "type": "array"
+          },
           "giving": {
             "default": [],
             "items": {
@@ -4358,10 +4697,26 @@
             "title": "Giving",
             "type": "array"
           },
+          "grade": {
+            "default": "",
+            "title": "Grade",
+            "type": "string"
+          },
           "net_sgp": {
             "default": 0.0,
             "title": "Net Sgp",
             "type": "number"
+          },
+          "partner_record": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partner Record"
           },
           "partner_team": {
             "title": "Partner Team",
@@ -6594,6 +6949,124 @@
         "summary": "Get Standings",
         "tags": [
           "standings"
+        ]
+      }
+    },
+    "/api/start-sit/compare": {
+      "post": {
+        "operationId": "compare_start_sit_api_start_sit_compare_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSitCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartSitCompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare Start Sit",
+        "tags": [
+          "start-sit"
+        ]
+      }
+    },
+    "/api/start-sit/optimize": {
+      "post": {
+        "operationId": "optimize_start_sit_api_start_sit_optimize_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSitOptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartSitOptimizeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Optimize Start Sit",
+        "tags": [
+          "start-sit"
         ]
       }
     },

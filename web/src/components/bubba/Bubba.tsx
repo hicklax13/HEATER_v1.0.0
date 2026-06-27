@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { bubba, type ChatModelOption, type ConversationSummary, type KeyMeta, type SavedPrompt } from "@/lib/api/bubba";
 import { captureScreen, extractPdfText, readImageFile } from "./attachments";
+import { useBubbaContext } from "./BubbaContext";
 import { isAuthRequired } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +50,40 @@ interface UiMessage {
 }
 
 const PROVIDERS = ["deepseek", "anthropic", "openai", "gemini", "xai", "openrouter", "ollama"];
+
+const PAGE_CONTEXT_CAP = 16 * 1024; // 16 KB cap on the auto-attached page snapshot
+
+/** Serialize the current page's loaded data into a size-capped page_context.
+ *  Returns undefined when there's nothing to attach or the data can't be
+ *  serialized (cycles / non-serializable) — never throws. The backend treats an
+ *  empty/truncated data_json gracefully (the user turn stays byte-identical when
+ *  absent), and the prepended block tells Bubba the data may be truncated. */
+function buildPageContext(pageId: string, data: unknown): { page: string; data_json: string } | undefined {
+  if (!pageId || data == null) return undefined;
+  let json: string;
+  try {
+    json = JSON.stringify(data);
+  } catch {
+    return undefined; // non-serializable (cycles) — skip rather than throw
+  }
+  if (!json) return undefined;
+  // Cap by UTF-8 BYTE size on code-point boundaries. String.length/.slice count UTF-16
+  // units, so accented MLB names (José, Peña) could slip past a "16 KB" char cap, and a
+  // raw slice could emit a lone surrogate the backend rejects. Measure per code point.
+  const enc = new TextEncoder();
+  if (enc.encode(json).length <= PAGE_CONTEXT_CAP) {
+    return { page: pageId, data_json: json };
+  }
+  let out = "";
+  let bytes = 0;
+  for (const ch of json) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > PAGE_CONTEXT_CAP) break;
+    out += ch;
+    bytes += b;
+  }
+  return { page: pageId, data_json: out + "…[truncated]" };
+}
 
 export function Bubba() {
   const [open, setOpen] = useState(false);
@@ -104,6 +139,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [queue, setQueue] = useState<{ id: string; text: string }[]>([]);
   const [showPrompts, setShowPrompts] = useState(false);
+  // Auto page-context: Bubba reads what the current page published (via usePageData)
+  // and attaches a size-capped JSON of it on every message. Default ON (quiet toggle).
+  const { pageId, data: pageData } = useBubbaContext();
+  const [pageContextOn, setPageContextOn] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -291,6 +330,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       ...sentDocs.map((d) => `[Document: ${d.label}]\n${d.text}`),
     ];
 
+    // Auto page-context (distinct from the manual attached_text tag flow above):
+    // attached on EVERY message (incl. queued) since it reflects the live page.
+    const pageCtx = pageContextOn ? buildPageContext(pageId, pageData) : undefined;
+
     try {
       await bubba.sendStream(
         {
@@ -304,6 +347,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           attachments: sentImages.length
             ? sentImages.map((im) => ({ kind: "image" as const, data_url: im.dataUrl }))
             : undefined,
+          page_context: pageCtx,
         },
         (e) => {
           if (e.type === "text_delta") {
@@ -361,7 +405,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       setSending(false);
       setToolStatus(null);
     }
-  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs]);
+  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs, pageContextOn, pageId, pageData]);
 
   const onSubmit = useCallback(() => {
     const text = input.trim();
@@ -594,6 +638,12 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               </select>
               <Toggle label="Web" on={webSearch} onClick={() => setWebSearch((v) => !v)} />
               <Toggle label="Research" on={deepResearch} onClick={() => setDeepResearch((v) => !v)} />
+              <Toggle
+                label="Page"
+                on={pageContextOn}
+                onClick={() => setPageContextOn((v) => !v)}
+                title="Let Bubba see this page's data"
+              />
               <button
                 type="button"
                 onClick={() => setSelectMode((v) => !v)}
@@ -874,12 +924,23 @@ function IconBtn({
   );
 }
 
-function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+function Toggle({
+  label,
+  on,
+  onClick,
+  title,
+}: {
+  label: string;
+  on: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={on}
+      title={title}
       className={cn(
         "rounded-full border px-2.5 py-1 font-semibold transition-colors",
         on ? "border-heat bg-heat/10 text-heat" : "border-line bg-canvas text-ink-3 hover:text-ink",

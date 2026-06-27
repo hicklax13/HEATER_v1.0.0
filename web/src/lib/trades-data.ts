@@ -8,10 +8,11 @@ import type { PlayerPick } from "./player-search";
 
 /**
  * Trades data — the Finder tab's auto-suggested trades. Mock by default; live
- * behind NEXT_PUBLIC_HEATER_LIVE via /api/trade-finder. The contract is lean
- * (partner + giving/receiving + net_sgp + rationale), so grade/impact/playoffDelta/
- * partnerRecord are mock-only and hidden on live data; verdict is derived from
- * net_sgp. Suggestions are roster-relative → empty locally, real on Railway.
+ * behind NEXT_PUBLIC_HEATER_LIVE via /api/trade-finder. The enriched contract
+ * carries grade + partner_record + category_impacts (all rendered live); verdict
+ * is a net_sgp-derived fallback string. Only playoffDelta stays mock-only (a
+ * per-card playoff sim is too slow — deferred). Suggestions are roster-relative →
+ * empty locally, real on Railway.
  */
 export interface TradePlayer extends PlayerRef {
   posLabel: string; // "RF · NYM"
@@ -27,15 +28,15 @@ export interface CatImpact {
 export interface TradeRec {
   id: number;
   partner: string;
-  partnerRecord?: string; // optional — not in the trade-finder contract
-  grade?: string; // "A-", "B+"… — optional (mock); live shows netSgp instead
+  partnerRecord?: string; // "11-1-0 · 1st" — live from the enriched contract
+  grade?: string; // "A-", "B+"… — live engine grade; falsy → card shows netSgp badge
   netSgp?: number; // net SGP gain from the trade (live trade-finder signal)
   verdict: string; // "Fair", "You win", … (derived from netSgp on live data)
   give: TradePlayer[];
   get: TradePlayer[];
-  impact?: CatImpact[]; // optional — no per-category breakdown in the contract
+  impact?: CatImpact[]; // per-category SGP impacts — live from the enriched contract
   rationale: string;
-  playoffDelta?: number; // change in playoff odds (pp) — optional (mock only)
+  playoffDelta?: number; // change in playoff odds (pp) — optional (mock only, deferred)
 }
 
 export interface TradesData {

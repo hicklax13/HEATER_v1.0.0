@@ -61,6 +61,39 @@ def tool_specs(web_search_enabled: bool = False, deep_research_enabled: bool = F
             "refresh); omit to refresh everything. Returns a request_id; the scheduler runs it. Use sparingly.",
             {"source": {"type": "string"}},
         ),
+        _fn(
+            "explain_constant",
+            "Explain ONE registered optimizer constant: its value, plausible bounds, "
+            "research citation, source module, sensitivity tier, and a one-line description. "
+            "Use this to cite how a tunable number (matchup weight, stabilization point, "
+            "platoon split, etc.) was set when explaining 'how' a metric was computed.",
+            {"name": {"type": "string", "description": "The constant's registry key, e.g. 'stream_score_w_matchup'."}},
+            ["name"],
+        ),
+        _fn(
+            "list_constants",
+            "Browse the registered optimizer constants (name + one-line description). "
+            "Optionally filter by 'module' (substring, e.g. 'streaming.py') or 'sensitivity' "
+            "(HIGH/MEDIUM/LOW). Use to discover which constant to explain_constant.",
+            {
+                "module": {"type": "string", "description": "Substring match against the source module."},
+                "sensitivity": {"type": "string", "description": "HIGH, MEDIUM, or LOW."},
+            },
+        ),
+        _fn(
+            "explain_metric",
+            "Explain HOW a HEATER score is computed: returns the formula string, each "
+            "component's registry weight + value, and the input variables. kind is one of "
+            "'stream_score' (pitcher streaming), 'dcv' (daily category value), 'trade_grade', "
+            "'start_score' (start/sit). Pass live numbers in 'params' (e.g. "
+            "{'components': {...}, 'net_sgp': 1.2}) to have them surfaced; omit to get the "
+            "recipe + weights. Cite the constants it returns when answering 'how'.",
+            {
+                "kind": {"type": "string", "description": "stream_score | dcv | trade_grade | start_score"},
+                "params": {"type": "object", "description": "Optional live inputs/components to surface."},
+            },
+            ["kind"],
+        ),
     ]
     if web_search_enabled:
         specs.append(
@@ -132,6 +165,12 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
 
             rid = request_refresh(args.get("source", "all"), requested_by=user_id)
             return json.dumps({"request_id": rid, "status": "pending"})
+        if name == "explain_constant":
+            return _explain_constant(str(args.get("name", "")))
+        if name == "list_constants":
+            return _list_constants(args.get("module"), args.get("sensitivity"))
+        if name == "explain_metric":
+            return _explain_metric(str(args.get("kind", "")), args.get("params") or {})
         if name == "web_search":
             from src.ai.search import web_search
 
@@ -211,3 +250,161 @@ def _get_free_agents(limit: int) -> str:
     if df is None or df.empty:
         return json.dumps({"error": "no free agents"})
     return df.head(limit).to_json(orient="records")
+
+
+def _explain_constant(name: str) -> str:
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    key = name.strip()
+    entry = CONSTANTS_REGISTRY.get(key)
+    if entry is None:
+        return json.dumps({"error": f"Unknown constant: {name!r}. Use list_constants to browse."})
+    return json.dumps(
+        {
+            "name": key,
+            "value": entry.value,
+            "lower_bound": entry.lower_bound,
+            "upper_bound": entry.upper_bound,
+            "citation": entry.citation,
+            "module": entry.module,
+            "sensitivity": entry.sensitivity,
+            "description": entry.description,
+        },
+        default=str,
+    )
+
+
+def _list_constants(module: str | None, sensitivity: str | None) -> str:
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    mod = (module or "").strip().lower()
+    sens = (sensitivity or "").strip().upper()
+    rows = []
+    for key, entry in CONSTANTS_REGISTRY.items():
+        if mod and mod not in entry.module.lower():
+            continue
+        if sens and entry.sensitivity.upper() != sens:
+            continue
+        rows.append(
+            {
+                "name": key,
+                "description": entry.description,
+                "module": entry.module,
+                "sensitivity": entry.sensitivity,
+            }
+        )
+    return json.dumps({"count": len(rows), "constants": rows}, default=str)
+
+
+# Per-metric formula string + the registry weight keys that compose it. The
+# stream_score key list MIRRORS api/services/streaming_service.py::_factors so the
+# explainer and the live board agree. dcv/start_score/trade_grade describe the
+# recipe; the live per-category numbers travel inline on each page's payload.
+_METRIC_SPECS: dict[str, dict] = {
+    "stream_score": {
+        "formula": "stream_score (0-100) = 100 * Σ w_k · factor_k for k in "
+        "{matchup, sgp, form, lineup, env, winprob}, each factor_k in [-1, 1].",
+        "weight_keys": [
+            ("matchup", "Matchup"),
+            ("sgp", "Streaming value"),
+            ("form", "Recent form"),
+            ("lineup", "Lineup exposure"),
+            ("env", "Environment / park"),
+            ("winprob", "Team win probability"),
+        ],
+        "weight_prefix": "stream_score_w_",
+    },
+    "dcv": {
+        "formula": "daily_category_value = base_sgp_per_game · urgency_weight · "
+        "matchup_multiplier · volume_factor; normalized to a 0-100 heat. Locked/IL/"
+        "off-day starts get volume_factor 0.",
+        # Module-PREFIX filter (anchored, not a loose substring) so the listed
+        # constants are scoped to this metric's area and don't bleed in from
+        # unrelated modules whose path merely contains the token.
+        "module": "daily_optimizer",
+    },
+    "trade_grade": {
+        "formula": "grade derives from Phase-1 weighted surplus_sgp = Σ_cat "
+        "(marginal_sgp(receiving) - marginal_sgp(giving)) · category_weight; "
+        "inverse cats (L/ERA/WHIP) sign-flipped. Phase 1 is the grade authority.",
+        # The grade is computed from SGP marginals, NOT from tunable registered
+        # constants, so this anchored prefix surfaces few/none — the formula IS
+        # the recipe. (The broad 'engine' substring used to drag in unrelated
+        # league_avg_* baselines via standings_engine.py — a misleading match.)
+        "module": "engine/portfolio",
+    },
+    "start_score": {
+        "formula": "start_score (0-100) = weekly_projection · urgency · matchup_factors, "
+        "risk-adjusted; home/away apply home_advantage/away_discount.",
+        "module": "start_sit.py",
+    },
+}
+
+# Honest note for the module-filtered metrics: the listed constants are RELATED
+# provenance for the metric's area, not a guaranteed exact/exhaustive formula.
+_AREA_NOTE = (
+    "These are registered constants for this metric's area — related provenance, "
+    "NOT a guaranteed exhaustive or exact formula. The live per-category values "
+    "travel inline on the page payload (streaming factors[], trade category_impacts, "
+    "daily DCV slot fields)."
+)
+# Exact note for stream_score: the 6 component weights ARE the precise blend.
+_EXACT_NOTE = (
+    "Live per-category values travel inline on the page payload (streaming factors[]); "
+    "these six weights are the exact convex blend that composes the score."
+)
+
+
+def _explain_metric(kind: str, params: dict) -> str:
+    k = (kind or "").strip().lower()
+    spec = _METRIC_SPECS.get(k)
+    if spec is None:
+        return json.dumps(
+            {"error": f"Unsupported metric kind: {kind!r}. Supported: stream_score, dcv, trade_grade, start_score."}
+        )
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+    provided = params.get("components", {}) if isinstance(params.get("components"), dict) else {}
+    components: list[dict] = []
+    if spec.get("weight_keys"):
+        # Exact path: stream_score's six factor weights ARE the precise blend.
+        prefix = spec["weight_prefix"]
+        for key, label in spec["weight_keys"]:
+            entry = CONSTANTS_REGISTRY.get(f"{prefix}{key}")
+            components.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "weight": float(entry.value) if entry is not None else 0.0,
+                    "value": provided.get(key),
+                    "detail": entry.description if entry is not None else "",
+                }
+            )
+        note = _EXACT_NOTE
+    else:
+        # Area path: anchored module-PREFIX match (startswith, not a loose
+        # substring) so a token like 'engine' can't bleed into standings_engine.py.
+        mod = str(spec.get("module", "")).lower()
+        for key, entry in CONSTANTS_REGISTRY.items():
+            if mod and entry.module.lower().startswith(mod):
+                components.append(
+                    {
+                        "key": key,
+                        "label": key,
+                        "weight": float(entry.value),
+                        "value": provided.get(key),
+                        "detail": entry.description,
+                    }
+                )
+        note = _AREA_NOTE
+    inputs = {kk: vv for kk, vv in params.items() if kk != "components"}
+    return json.dumps(
+        {
+            "kind": k,
+            "formula": spec["formula"],
+            "components": components,
+            "inputs": inputs,
+            "note": note,
+        },
+        default=str,
+    )

@@ -1,6 +1,6 @@
 """Start/Sit Advisor: 3-layer decision model for roster slot decisions.
 
-Helps users decide which player to start when choosing between 2-4 players
+Helps users decide which player to start when choosing between 2-6 players
 competing for the same roster slot. Uses H2H category weights, weekly
 matchup adjustments, and risk-adjusted scoring.
 
@@ -118,7 +118,7 @@ _DEFAULT_GAMES_PER_WEEK: int = 6
 
 # Minimum players for comparison
 _MIN_PLAYERS: int = 2
-_MAX_PLAYERS: int = 4
+_MAX_PLAYERS: int = 6
 
 # Weather thresholds (°F). Hot weather aids HR carry; cold suppresses it.
 # Sources: Statcast HR/ball-flight studies at temperature extremes.
@@ -389,7 +389,7 @@ def start_sit_recommendation(
     *,
     inputs: StartSitInputs | None = None,
 ) -> dict[str, Any]:
-    """Compare 2-4 players competing for the same roster slot.
+    """Compare 2-6 players competing for the same roster slot.
 
     Uses a 3-layer decision model:
       Layer 1: H2H-weighted weekly projection score
@@ -397,7 +397,7 @@ def start_sit_recommendation(
       Layer 3: Per-category SGP impact analysis
 
     Args:
-        player_ids: List of 2-4 player IDs to compare.
+        player_ids: List of 2-6 player IDs to compare.
         player_pool: Full player pool DataFrame.
         config: League configuration. Uses default if None.
         weekly_schedule: Weekly schedule from get_weekly_schedule().

@@ -242,3 +242,142 @@ def test_send_stream_threads_cap_usd_into_budget(monkeypatch):
     monkeypatch.setattr(cs.budget, "is_over_cap", _over)
     list(ChatService().send_stream(chat_user_id=1, message="hi", model="gpt-5", cap_usd=0.42))
     assert captured["cap_usd"] == 0.42
+
+
+def test_chat_send_request_accepts_page_context():
+    from api.contracts.chat import ChatSendRequest, PageContext
+
+    req = ChatSendRequest(
+        message="why is this 0.28?",
+        model="gpt-5",
+        page_context=PageContext(page="optimizer", data_json='{"slots":[]}'),
+    )
+    assert req.page_context.page == "optimizer"
+    assert req.page_context.data_json == '{"slots":[]}'
+
+
+def test_chat_send_request_page_context_defaults_none():
+    from api.contracts.chat import ChatSendRequest
+
+    req = ChatSendRequest(message="hi", model="gpt-5")
+    assert req.page_context is None
+
+
+def test_build_user_content_folds_page_context():
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content(
+        "why 0.28?",
+        None,
+        None,
+        page_context=PageContext(page="optimizer", data_json='{"slots":[1,2]}'),
+    )
+    assert isinstance(out, str)
+    assert "optimizer" in out
+    assert '{"slots":[1,2]}' in out
+    assert "why 0.28?" in out
+
+
+def test_build_user_content_no_page_context_is_byte_identical():
+    # the existing no-tag, no-image path: bare message string, unchanged
+    assert cs._build_user_content("hi", None, None) == "hi"
+    assert cs._build_user_content("hi", None, None, page_context=None) == "hi"
+
+
+def test_build_user_content_page_context_and_attached_text_coexist():
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content(
+        "good start?",
+        "Trout .312",
+        None,
+        page_context=PageContext(page="players", data_json='{"x":1}'),
+    )
+    assert "Trout .312" in out and '{"x":1}' in out and "good start?" in out
+
+
+def test_send_threads_page_context_into_user_turn(monkeypatch):
+    from api.contracts.chat import PageContext
+
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
+    monkeypatch.setattr(cs, "_build_system_prompt", lambda page, team: "SYS")
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _chat(**k):
+        captured.update(k)
+        return {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+
+    monkeypatch.setattr(cs.providers, "chat", _chat)
+    ChatService().send(
+        chat_user_id=1_000_000_001,
+        message="why?",
+        model="gpt-5",
+        page_context=PageContext(page="streaming", data_json='{"board":[]}'),
+    )
+    content = captured["messages"][-1]["content"]
+    assert "streaming" in content and '{"board":[]}' in content
+
+
+def test_build_user_content_empty_data_json_is_byte_identical():
+    """A PageContext with an empty data_json must NOT emit a '[Data...]' block —
+    locks the `if data_json:` guard so an empty page payload stays today's bare
+    message (regression guard)."""
+    from api.contracts.chat import PageContext
+
+    out = cs._build_user_content("hi", None, None, page_context=PageContext(page="optimizer", data_json=""))
+    assert out == "hi"
+
+
+def test_chat_send_route_passes_page_from_page_context(monkeypatch):
+    """The /send route must orient build_system_prompt to the page_context.page,
+    not the generic default — so the system prompt says the user is on the
+    'streaming' page (regression: the router dropped page=)."""
+    from fastapi.testclient import TestClient
+
+    from api.identity import require_app_user
+    from api.main import create_app
+    from api.stores.user_store import AppUser
+
+    captured = {}
+    monkeypatch.setattr(cs, "_provider_of", lambda m: "openai")
+    monkeypatch.setattr(cs.keys, "get_key", lambda uid, prov: "sk-user")
+    monkeypatch.setattr(cs.keys, "list_keys", lambda uid: [{"provider": "openai"}])
+    monkeypatch.setattr(cs.budget, "is_over_cap", lambda uid, on_own_key=False, cap_usd=None: False)
+    monkeypatch.setattr(cs.history, "load_messages", lambda *a, **k: [])
+    monkeypatch.setattr(cs.history, "create_conversation", lambda *a, **k: 1)
+    monkeypatch.setattr(cs.history, "append_message", lambda *a, **k: 1)
+    monkeypatch.setattr(cs, "_price_per_token", lambda m: (0.0, 0.0))
+    monkeypatch.setattr(cs.budget, "record_usage", lambda *a, **k: None)
+
+    def _spy_prompt(page, team):
+        captured["page"] = page
+        return "SYS"
+
+    monkeypatch.setattr(cs, "_build_system_prompt", _spy_prompt)
+    monkeypatch.setattr(
+        cs.providers, "chat", lambda **k: {"content": "ok", "tokens_in": 1, "tokens_out": 1, "tool_trace": []}
+    )
+
+    app = create_app()
+    app.dependency_overrides[require_app_user] = lambda: AppUser(
+        id=7, clerk_user_id="u_test", created_at="2026-06-27T00:00:00Z"
+    )
+    client = TestClient(app)
+    resp = client.post(
+        "/api/chat/send",
+        json={
+            "message": "how was this computed?",
+            "model": "gpt-5",
+            "page_context": {"page": "streaming", "data_json": '{"board":[]}'},
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["page"] == "streaming"  # NOT the generic "the app" default

@@ -367,6 +367,11 @@ def test_optimize_standard_uses_enriched_team_roster_not_all_teams(monkeypatch):
             }
 
     calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    # Isolate the H-1 LP-roster guard from the (separately-tested) FA composition:
+    # _compose_fa → build_optimizer_context legitimately calls yds.get_rosters() to build
+    # the league-wide FA context, which would otherwise trip the "get_rosters not in calls"
+    # assertion below. The LP path itself must still use get_team_roster, not get_rosters.
+    monkeypatch.setattr(LineupService, "_compose_fa", lambda self, *a, **k: [])
     resp = LineupService().optimize(team_name="Team Hickey", mode="standard")
 
     # roster came from the team-filtered ENRICHED source, NOT the all-teams bare source
@@ -394,6 +399,9 @@ def test_optimize_daily_uses_enriched_team_roster_not_all_teams(monkeypatch):
             return {"daily_dcv": dcv, "daily_lineup": {"starters": starters, "bench": []}}
 
     calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    # Isolate the H-1 LP-roster guard from the (separately-tested) FA composition (see the
+    # standard test above) — _compose_fa's build_optimizer_context calls yds.get_rosters().
+    monkeypatch.setattr(LineupService, "_compose_fa", lambda self, *a, **k: [])
     resp = LineupService().optimize(team_name="Team Hickey", mode="daily")
 
     # daily mode ALSO uses the team-filtered enriched roster (same bug, both methods)
@@ -427,3 +435,192 @@ def test_ip_pace_filters_pitchers_and_merges_pool_ip(monkeypatch):
     assert names == {"Cole", "Holmes"}  # only pitchers
     cole = next(p for p in captured["pitchers"] if p["name"] == "Cole")
     assert cole["ip"] == 180.0 and cole["is_starter"] is True  # pool IP merged; SP flagged
+
+
+# ── WS1: FaSuggestion + fa_suggestions + value_breakdown contract ──
+
+
+def test_fa_suggestion_contract_shape():
+    from api.contracts.common import StatItem
+    from api.contracts.lineup import FaSuggestion
+
+    fs = FaSuggestion(
+        add=PlayerRef(id=10, name="Add Guy", positions="OF"),
+        drop=PlayerRef(id=20, name="Drop Guy", positions="2B"),
+        net_sgp_delta=1.42,
+        category_impact=[StatItem(label="HR", value="+0.30"), StatItem(label="SB", value="+0.10")],
+        reasoning="Upgrades HR + SB you're losing.",
+        urgency_categories=["HR", "SB"],
+    )
+    d = fs.model_dump()
+    assert d["add"]["id"] == 10 and d["drop"]["id"] == 20
+    assert d["net_sgp_delta"] == 1.42
+    assert d["category_impact"][0] == {"label": "HR", "value": "+0.30"}
+    assert d["urgency_categories"] == ["HR", "SB"]
+
+
+# ── WS1: _to_slots populates current_slot for ALL scopes (standard, not just daily) ──
+
+
+def test_to_slots_populates_current_slot_from_roster():
+    lineup = _lineup([{"slot": "OF", "player_name": "Judge", "player_id": 1}])
+    roster = pd.DataFrame(
+        {
+            "player_id": [1, 2],
+            "name": ["Judge", "Benchy"],
+            "positions": ["OF", "2B"],
+            "selected_position": ["BN", "BN"],  # Judge currently benched; LP wants him in OF
+        }
+    )
+    starters, bench = LineupService._to_slots(lineup, pool=None, roster=roster)
+    assert starters[0].player.id == 1 and starters[0].current_slot == "BN"  # diffable swap (BN → OF)
+    assert bench[0].player.id == 2 and bench[0].current_slot == "BN"
+
+
+# ── WS1: scope routing + standard-path live-matchup pass-through ──
+
+
+def test_optimize_scope_today_routes_to_daily_path(monkeypatch):
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["mode"] = kw.get("mode")
+
+        def optimize(self, **kw):
+            captured["matchup"] = kw.get("matchup")
+            return {"daily_dcv": captured.get("dcv"), "daily_lineup": {"starters": [], "bench": []}}
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+    resp = LineupService().optimize(team_name="Team Hickey", scope="today")
+    assert captured["mode"] == "daily"  # scope=today → daily-DCV path
+    assert resp.mode == "daily"
+
+
+def test_optimize_scope_week_passes_matchup_to_standard_lp(monkeypatch):
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, roster, **kw):
+            captured["mode"] = kw.get("mode")
+
+        def optimize(self, **kw):
+            captured["matchup"] = kw.get("matchup")
+            ids = list(captured_roster["player_id"])
+            return {
+                "lineup": {
+                    "assignments": [{"slot": "OF", "player_name": "x", "player_id": int(i)} for i in ids],
+                    "projected_stats": {"hr": 55},
+                    "status": "Optimal",
+                }
+            }
+
+    calls = _patch_optimizer_seam(monkeypatch, _FakePipeline)
+
+    # the seam's _OptYDS.get_matchup returns None; make it return a sentinel so we can assert pass-through
+    class _MatchupYDS(_OptYDS):
+        def get_matchup(self):
+            return {"categories": []}
+
+    captured_roster_holder = {}
+
+    def _yds():
+        y = _MatchupYDS(calls)
+        return y
+
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", _yds)
+    global captured_roster
+    captured_roster = _MatchupYDS(calls).get_team_roster("Team Hickey")
+    resp = LineupService().optimize(team_name="Team Hickey", scope="rest_of_week")
+    assert captured["mode"] == "standard"  # week/season → standard LP
+    assert captured["matchup"] == {"categories": []}  # live matchup threaded into the standard LP
+    assert resp.mode == "standard"
+
+
+# ── WS1: FA-move dict → FaSuggestion mapping (DB-free; the engine's real dict keys) ──
+
+
+def test_fa_moves_to_suggestions_maps_engine_dict_keys():
+    moves = [
+        {
+            "add_id": 10,
+            "add_name": "Add Guy",
+            "add_positions": "OF",
+            "drop_id": 20,
+            "drop_name": "Drop Guy",
+            "drop_positions": "2B",
+            "net_sgp_delta": 1.4231,
+            "category_impact": {"HR": 0.3012, "SB": 0.1001, "ERA": -0.02},  # a {cat: float} DICT
+            "reasoning": "Upgrades HR + SB.",
+            "urgency_categories": ["HR", "SB"],
+        }
+    ]
+    out = LineupService._fa_suggestions(moves, pool=None)
+    assert len(out) == 1
+    fs = out[0]
+    assert fs.add.id == 10 and fs.add.name == "Add Guy"
+    assert fs.drop.id == 20 and fs.drop.name == "Drop Guy"
+    assert fs.net_sgp_delta == 1.4231
+    assert fs.urgency_categories == ["HR", "SB"]
+    labels = {si.label: si.value for si in fs.category_impact}
+    assert labels["HR"] == "+0.30" and labels["SB"] == "+0.10" and labels["ERA"] == "-0.02"
+
+
+def test_fa_moves_to_suggestions_handles_empty_and_garbage():
+    assert LineupService._fa_suggestions(None, None) == []
+    assert LineupService._fa_suggestions([], None) == []
+    # a malformed move (missing ids) is skipped, never raises
+    assert LineupService._fa_suggestions([{"reasoning": "x"}], None) == []
+
+
+# ── WS1: FA composition — _compose_fa builds ctx at scope and maps recommend_fa_moves ──
+
+
+def test_compose_fa_calls_context_at_scope_and_maps_moves(monkeypatch):
+    seen = {}
+
+    def _fake_ctx(scope, yds, **kw):
+        seen["scope"] = scope
+        seen["user_team_name"] = kw.get("user_team_name")
+        return object()  # opaque ctx; recommend_fa_moves is faked below
+
+    def _fake_recs(ctx, max_moves=3):
+        seen["max_moves"] = max_moves
+        return [
+            {
+                "add_id": 10,
+                "add_name": "Add Guy",
+                "add_positions": "OF",
+                "drop_id": 20,
+                "drop_name": "Drop Guy",
+                "drop_positions": "2B",
+                "net_sgp_delta": 1.0,
+                "category_impact": {"HR": 0.3},
+                "reasoning": "ok",
+                "urgency_categories": ["HR"],
+            }
+        ]
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", _fake_ctx)
+    monkeypatch.setattr("src.optimizer.fa_recommender.recommend_fa_moves", _fake_recs)
+    out = LineupService()._compose_fa("Team Hickey", "rest_of_week", yds=object(), pool=None)
+    assert seen["scope"] == "rest_of_week" and seen["user_team_name"] == "Team Hickey"
+    assert len(out) == 1 and out[0].add.id == 10
+
+
+def test_compose_fa_never_raises_on_engine_failure(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("no live data")
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", _boom)
+    assert LineupService()._compose_fa("T", "today", yds=object(), pool=None) == []
+
+
+def test_lineup_response_fa_suggestions_defaults_empty():
+    resp = LineupOptimizeResponse(team_name="T", date="2027-04-05", slots=[])
+    assert resp.model_dump()["fa_suggestions"] == []
+
+
+def test_lineup_slot_value_breakdown_defaults_empty():
+    slot = LineupSlot(slot="OF", player=PlayerRef(id=1, name="X", positions="OF"), action="START")
+    assert slot.model_dump()["value_breakdown"] == []

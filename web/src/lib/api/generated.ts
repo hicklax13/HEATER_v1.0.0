@@ -603,6 +603,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/start-sit/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compare Start Sit */
+        post: operations["compare_start_sit_api_start_sit_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/start-sit/optimize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Optimize Start Sit */
+        post: operations["optimize_start_sit_api_start_sit_optimize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/streaming": {
         parameters: {
             query?: never;
@@ -866,6 +900,7 @@ export interface components {
             message: string;
             /** Model */
             model: string;
+            page_context?: components["schemas"]["PageContext"] | null;
             /** Reasoning Effort */
             reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
             /**
@@ -1277,6 +1312,31 @@ export interface components {
              * @default
              */
             summary: string;
+        };
+        /**
+         * FaSuggestion
+         * @description A 'drop X for available Y' free-agent upgrade, alongside the LP lineup.
+         *
+         *     Composed from recommend_fa_moves(ctx) over the optimize context. The LP still
+         *     optimizes the CURRENT roster; these are the available-pickup layer.
+         */
+        FaSuggestion: {
+            add: components["schemas"]["PlayerRef"];
+            /** Category Impact */
+            category_impact?: components["schemas"]["StatItem"][];
+            drop: components["schemas"]["PlayerRef"];
+            /**
+             * Net Sgp Delta
+             * @default 0
+             */
+            net_sgp_delta: number;
+            /**
+             * Reasoning
+             * @default
+             */
+            reasoning: string;
+            /** Urgency Categories */
+            urgency_categories?: string[];
         };
         /** FactorDetail */
         FactorDetail: {
@@ -1693,6 +1753,8 @@ export interface components {
             daily?: components["schemas"]["DailyMeta"] | null;
             /** Date */
             date: string;
+            /** Fa Suggestions */
+            fa_suggestions?: components["schemas"]["FaSuggestion"][];
             /** Impact */
             impact?: components["schemas"]["CatImpact"][];
             /**
@@ -1763,6 +1825,8 @@ export interface components {
              * @default 0
              */
             value: number;
+            /** Value Breakdown */
+            value_breakdown?: components["schemas"]["StatItem"][];
         };
         /** MatchPlayer */
         MatchPlayer: {
@@ -2020,6 +2084,25 @@ export interface components {
              * @default 0
              */
             value: number;
+        };
+        /**
+         * PageContext
+         * @description Structured snapshot of what the page is currently displaying, attached to
+         *     a chat turn so Bubba can 'see the screen'. `data_json` is a (size-capped,
+         *     possibly truncated) JSON string the frontend serializes from the page's
+         *     loaded data; `page` is the route id (e.g. 'optimizer').
+         */
+        PageContext: {
+            /**
+             * Data Json
+             * @default
+             */
+            data_json: string;
+            /**
+             * Page
+             * @default
+             */
+            page: string;
         };
         /** PitcherScorecard */
         PitcherScorecard: {
@@ -2595,6 +2678,114 @@ export interface components {
             /** Teams */
             teams: components["schemas"]["TeamStanding"][];
         };
+        /** StartSitCandidate */
+        StartSitCandidate: {
+            /** Category Impact */
+            category_impact?: components["schemas"]["StatItem"][];
+            /** Eligible Slots */
+            eligible_slots?: string[];
+            /**
+             * Matchup
+             * @default
+             */
+            matchup: string;
+            /**
+             * Playable
+             * @default true
+             */
+            playable: boolean;
+            player: components["schemas"]["PlayerRef"];
+            /** Projected */
+            projected?: components["schemas"]["StatItem"][];
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Start Score
+             * @default 0
+             */
+            start_score: number;
+        };
+        /** StartSitCompareRequest */
+        StartSitCompareRequest: {
+            /** Player Ids */
+            player_ids?: number[];
+            /**
+             * Scope
+             * @default today
+             */
+            scope: string;
+            /** Team Name */
+            team_name?: string | null;
+        };
+        /** StartSitCompareResponse */
+        StartSitCompareResponse: {
+            /** Candidates */
+            candidates?: components["schemas"]["StartSitCandidate"][];
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Confidence Label
+             * @default Toss-up
+             */
+            confidence_label: string;
+            /** Open Slots */
+            open_slots?: {
+                [key: string]: number;
+            };
+            /** Scope */
+            scope: string;
+            verdict?: components["schemas"]["StartSitVerdict"];
+        };
+        /** StartSitOptimizeRequest */
+        StartSitOptimizeRequest: {
+            /** Player Ids */
+            player_ids?: number[];
+            /**
+             * Scope
+             * @default today
+             */
+            scope: string;
+            /** Team Name */
+            team_name?: string | null;
+        };
+        /** StartSitOptimizeResponse */
+        StartSitOptimizeResponse: {
+            /** Bench */
+            bench?: components["schemas"]["LineupSlot"][];
+            daily?: components["schemas"]["DailyMeta"] | null;
+            /** Scope */
+            scope: string;
+            /** Slots */
+            slots?: components["schemas"]["LineupSlot"][];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+        };
+        /** StartSitVerdict */
+        StartSitVerdict: {
+            /**
+             * Reasoning
+             * @default
+             */
+            reasoning: string;
+            /** Sit Ids */
+            sit_ids?: number[];
+            /** Start Ids */
+            start_ids?: number[];
+        };
         /**
          * StatItem
          * @description A single labeled stat for display, e.g. {label: "HR", value: "18"}.
@@ -2842,6 +3033,10 @@ export interface components {
             /** Probables */
             probables?: components["schemas"]["ProbableStarter"][];
             top_pick?: components["schemas"]["StreamCandidate"] | null;
+            /** Urgency */
+            urgency?: {
+                [key: string]: number;
+            };
         };
         /** SubscriptionResponse */
         SubscriptionResponse: {
@@ -3029,6 +3224,8 @@ export interface components {
         };
         /** TradeFinderResponse */
         TradeFinderResponse: {
+            /** Reason */
+            reason?: ("ok" | "team_not_resolved" | "no_pool" | "no_league_data" | "no_totals" | "error") | null;
             /**
              * Suggestions
              * @default []
@@ -3040,15 +3237,27 @@ export interface components {
         /** TradeSuggestion */
         TradeSuggestion: {
             /**
+             * Category Impacts
+             * @default []
+             */
+            category_impacts: components["schemas"]["CategoryImpact"][];
+            /**
              * Giving
              * @default []
              */
             giving: components["schemas"]["PlayerRef"][];
             /**
+             * Grade
+             * @default
+             */
+            grade: string;
+            /**
              * Net Sgp
              * @default 0
              */
             net_sgp: number;
+            /** Partner Record */
+            partner_record?: string | null;
             /** Partner Team */
             partner_team: string;
             /**
@@ -4442,6 +4651,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StandingsResponse"];
+                };
+            };
+        };
+    };
+    compare_start_sit_api_start_sit_compare_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSitCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartSitCompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    optimize_start_sit_api_start_sit_optimize_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSitOptimizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartSitOptimizeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

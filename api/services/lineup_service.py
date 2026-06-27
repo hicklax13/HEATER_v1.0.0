@@ -8,9 +8,11 @@ import logging
 import math
 import re
 
+from api.contracts.common import StatItem
 from api.contracts.lineup import (
     CatImpact,
     DailyMeta,
+    FaSuggestion,
     IpPace,
     LineupOptimizeResponse,
     LineupSlot,
@@ -39,15 +41,19 @@ class LineupService:
     def optimize(
         self, team_name: str, date=None, scope: str = "rest_of_season", mode: str = "standard"
     ) -> LineupOptimizeResponse:
-        if str(mode or "standard").lower() == "daily":
+        # scope is the driver: today → daily DCV; rest_of_week / rest_of_season → standard LP.
+        # mode is kept as a back-compat override (an explicit mode="daily" still forces daily).
+        sc = str(scope or "rest_of_season").lower()
+        if sc == "today" or str(mode or "standard").lower() == "daily":
             return self._optimize_daily(team_name, date)
-        return self._optimize_standard(team_name, date, scope)
+        return self._optimize_standard(team_name, date, sc)
 
     # ------------------------------------------------------------------ standard (ROS/weekly LP)
     def _optimize_standard(self, team_name: str, date, scope: str) -> LineupOptimizeResponse:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         impact: list[CatImpact] = []
+        fa_suggestions: list[FaSuggestion] = []
         optimal = False
         summary = "Lineup unavailable (no live data in this environment)."
         resolved_date = date or ""
@@ -67,16 +73,24 @@ class LineupService:
             # unavailable". This is the same enriched roster the Streamlit optimizer
             # page uses (pages/2_Line-up_Optimizer.py).
             roster = yds.get_team_roster(team_name)
+            matchup = None
+            try:
+                matchup = yds.get_matchup()
+            except Exception:
+                matchup = None
             pipeline = LineupOptimizerPipeline(roster, mode="standard", config=LeagueConfig())
             # The pipeline method is optimize() (NOT run()); it returns an OptimizerResult
             # dict whose "lineup" is {assignments, bench, projected_stats, status}.
-            result = pipeline.optimize() if hasattr(pipeline, "optimize") else None
+            # Pass the live matchup so week/season optimize is matchup-aware (urgency weights);
+            # the pipeline reads kwargs.get("matchup") and falls back to neutral when None.
+            result = pipeline.optimize(matchup=matchup) if hasattr(pipeline, "optimize") else None
             lineup = (result or {}).get("lineup") if isinstance(result, dict) else None
 
             pool = self._load_pool()
             slots, bench = self._to_slots(lineup, pool, roster)
             impact = self._impact((lineup or {}).get("projected_stats") if isinstance(lineup, dict) else None)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
+            fa_suggestions = self._compose_fa(team_name, scope, yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set."
         except Exception as exc:
@@ -90,6 +104,7 @@ class LineupService:
             optimal=optimal,
             impact=impact,
             mode="standard",
+            fa_suggestions=fa_suggestions,
         )
 
     # ------------------------------------------------------------------ daily (today's DCV start/sit)
@@ -97,6 +112,7 @@ class LineupService:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         daily: DailyMeta | None = None
+        fa_suggestions: list[FaSuggestion] = []
         optimal = False
         summary = "Daily lineup unavailable (no live data in this environment)."
         resolved_date = date or ""
@@ -136,6 +152,7 @@ class LineupService:
             )
             daily = self._daily_meta(result, slots, roster, pool, resolved_date)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
+            fa_suggestions = self._compose_fa(team_name, "today", yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set for {resolved_date}."
         except Exception as exc:
@@ -149,6 +166,7 @@ class LineupService:
             optimal=optimal,
             mode="daily",
             daily=daily,
+            fa_suggestions=fa_suggestions,
         )
 
     def _daily_inputs(self, roster, pool, schedule) -> dict:
@@ -394,6 +412,69 @@ class LineupService:
             return None
 
     @staticmethod
+    def _fa_suggestions(moves, pool) -> list[FaSuggestion]:
+        """Map recommend_fa_moves() dicts → FaSuggestion contracts.
+
+        The engine emits category_impact as a {cat: float} dict; we render each as a
+        StatItem(label=cat, value=+/-N.NN SGP). A move missing add_id/drop_id is skipped
+        (never raises). PlayerRefs are pool-enriched (mlb_id/team for headshots/logos)."""
+        out: list[FaSuggestion] = []
+        if not isinstance(moves, list):
+            return out
+        for m in moves:
+            if not isinstance(m, dict):
+                continue
+            try:
+                add_id = int(m.get("add_id", 0) or 0)
+                drop_id = int(m.get("drop_id", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not add_id or not drop_id:
+                continue
+            cat_items: list[StatItem] = []
+            for cat, val in dict(m.get("category_impact") or {}).items():
+                fv = LineupService._f(val, float("nan"))
+                if not math.isfinite(fv):
+                    continue
+                cat_items.append(StatItem(label=str(cat), value=f"{fv:+.2f}"))
+            out.append(
+                FaSuggestion(
+                    add=player_ref_from_pool(add_id, pool, name=m.get("add_name"), positions=m.get("add_positions")),
+                    drop=player_ref_from_pool(
+                        drop_id, pool, name=m.get("drop_name"), positions=m.get("drop_positions")
+                    ),
+                    net_sgp_delta=LineupService._f(m.get("net_sgp_delta")),
+                    category_impact=cat_items,
+                    reasoning=str(m.get("reasoning") or "").strip(),
+                    urgency_categories=[str(c) for c in (m.get("urgency_categories") or [])],
+                )
+            )
+        return out
+
+    def _compose_fa(self, team_name: str, scope: str, yds, pool) -> list[FaSuggestion]:
+        """Build a matchup-aware optimizer context at `scope` and map recommend_fa_moves
+        → FaSuggestions (the canonical Free Agents composition). build_optimizer_context
+        calls yds.get_matchup() internally for FA-side urgency. Never raises (missing live
+        data / no roster → []); recommend_fa_moves itself returns [] when adds_remaining<=0
+        or the roster/pool is empty."""
+        try:
+            from src.optimizer.fa_recommender import recommend_fa_moves
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.valuation import LeagueConfig
+
+            ctx = build_optimizer_context(
+                scope,
+                yds,
+                config=LeagueConfig(),
+                user_team_name=team_name,
+            )
+            moves = recommend_fa_moves(ctx)
+            return self._fa_suggestions(moves, pool)
+        except Exception as exc:
+            logger.warning("LineupService._compose_fa failed: %s", exc)
+            return []
+
+    @staticmethod
     def _schedule_today(resolved_date) -> list:
         try:
             import statsapi
@@ -489,6 +570,7 @@ class LineupService:
 
         if not isinstance(lineup, dict):
             return [], []
+        current = LineupService._current_slots(roster)
         assignments = lineup.get("assignments") or []
         starters: list[LineupSlot] = []
         starter_ids: set[int] = set()
@@ -510,6 +592,7 @@ class LineupService:
                     action="START",
                     projected=0.0,  # per-player value is daily-mode (DCV) → slice 2
                     status="start",
+                    current_slot=current.get(pid, ""),
                 )
             )
 
@@ -532,6 +615,7 @@ class LineupService:
                         action="SIT",
                         projected=0.0,
                         status="bench",
+                        current_slot=current.get(pid, ""),
                     )
                 )
         return starters, bench

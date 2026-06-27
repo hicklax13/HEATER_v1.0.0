@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from api.contracts.common import PlayerRef
+from api.contracts.common import PlayerRef, StatItem
 
 
 class LineupOptimizeRequest(BaseModel):
@@ -25,6 +25,9 @@ class LineupSlot(BaseModel):
     value: float = 0.0  # DAILY mode: 0-100 heat value (normalized DCV; best play today = 100)
     matchup: str = ""  # DAILY mode: "vs SF" / "@ COL" (empty if not playing / unknown)
     current_slot: str = ""  # the player's CURRENT Yahoo slot (lets the frontend diff swaps)
+    value_breakdown: list[StatItem] = Field(
+        default_factory=list
+    )  # per-category DCV/value contributions (WS5 inline explainer; additive, daily/standard)
 
 
 class CatImpact(BaseModel):
@@ -66,6 +69,21 @@ class DailyMeta(BaseModel):
     swaps: list[Swap] = Field(default_factory=list)  # benched players the optimizer wants to start
 
 
+class FaSuggestion(BaseModel):
+    """A 'drop X for available Y' free-agent upgrade, alongside the LP lineup.
+
+    Composed from recommend_fa_moves(ctx) over the optimize context. The LP still
+    optimizes the CURRENT roster; these are the available-pickup layer.
+    """
+
+    add: PlayerRef
+    drop: PlayerRef
+    net_sgp_delta: float = 0.0  # net SGP gain of the swap (add value − drop cost)
+    category_impact: list[StatItem] = Field(default_factory=list)  # per-cat SGP deltas, formatted
+    reasoning: str = ""
+    urgency_categories: list[str] = Field(default_factory=list)  # losing/tied cats this swap helps
+
+
 class LineupOptimizeResponse(BaseModel):
     team_name: str
     date: str
@@ -78,3 +96,6 @@ class LineupOptimizeResponse(BaseModel):
     impact: list[CatImpact] = Field(default_factory=list)  # projected category totals for the lineup
     mode: str = "standard"  # echoes the request mode
     daily: DailyMeta | None = None  # day-level context, daily mode only
+    fa_suggestions: list[FaSuggestion] = Field(
+        default_factory=list
+    )  # available "drop X for Y" pickups (composed from recommend_fa_moves)
