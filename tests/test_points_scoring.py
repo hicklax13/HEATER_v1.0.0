@@ -3,6 +3,7 @@ import math
 import pandas as pd
 
 from src.points_scoring import (
+    STANDARD_POINTS,
     PointsResult,
     PointsScoringConfig,
     project_player_points,
@@ -149,3 +150,18 @@ def test_roster_points_sums_named_players_unknown_ids_zero():
 def test_roster_points_empty_roster_is_zero():
     cfg = _cfg(hit={"HR": 4.0})
     assert roster_points([], _pool(), cfg) == 0.0
+
+
+def test_standard_points_preset_is_usable_and_covered():
+    # Every stat in the shipped preset must resolve (no uncovered) — it is built
+    # only from projected stats by construction.
+    unc = uncovered_stats(STANDARD_POINTS, _pool())
+    assert unc["hitter"] == set()
+    assert unc["pitcher"] == set()
+
+
+def test_standard_points_scores_a_hitter_and_pitcher():
+    res_h = project_player_points(_hitter(), STANDARD_POINTS)
+    res_p = project_player_points(_pitcher(), STANDARD_POINTS)
+    assert res_h.points > 0
+    assert isinstance(res_p.points, float)

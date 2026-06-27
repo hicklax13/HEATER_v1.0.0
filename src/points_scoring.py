@@ -168,3 +168,29 @@ def roster_points(roster_ids: list, pool: pd.DataFrame, config: PointsScoringCon
     pid = pd.to_numeric(pool["player_id"], errors="coerce")
     subset = pool[pid.isin(ids)]
     return float(sum(project_player_points(row, config).points for _, row in subset.iterrows()))
+
+
+# A documented, illustrative points preset built ONLY from projected stats (so it
+# never produces 'uncovered'). It is NOT a claim of any provider's exact defaults
+# — a user's real weights come from their league settings (Phase 5 connectors).
+STANDARD_POINTS = PointsScoringConfig(
+    name="standard",
+    hitter_weights={
+        "R": 1.0,
+        "HR": 4.0,
+        "RBI": 1.0,
+        "SB": 2.0,
+        "H": 1.0,
+        "BB": 1.0,
+    },
+    pitcher_weights={
+        "IP": 1.0,
+        "K": 1.0,
+        "W": 5.0,
+        "SV": 5.0,
+        "ER": -2.0,
+        "H": -0.5,
+        "BB": -0.5,
+        "L": -3.0,
+    },
+)
