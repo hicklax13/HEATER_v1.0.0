@@ -249,8 +249,6 @@ def test_compare_scores_ranks_and_builds_verdict(monkeypatch):
         },
     )
     monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
-    # today scope path will try build_daily_dcv_table; make it gracefully empty.
-    monkeypatch.setattr("src.optimizer.daily_optimizer.build_daily_dcv_table", lambda *a, **k: pd.DataFrame())
 
     from api.contracts.start_sit import StartSitCompareRequest
 
@@ -320,7 +318,6 @@ def test_compare_clamps_to_six(monkeypatch):
 
     monkeypatch.setattr("src.start_sit.start_sit_recommendation", _rec)
     monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
-    monkeypatch.setattr("src.optimizer.daily_optimizer.build_daily_dcv_table", lambda *a, **k: pd.DataFrame())
 
     from api.contracts.start_sit import StartSitCompareRequest
 
@@ -371,3 +368,105 @@ def test_compare_endpoint_contract():
         assert body["confidence_label"] == "Clear"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_compare_all_negative_scores_clamped(monkeypatch):
+    """MUST-FIX 1: an all-negative raw-score slate (e.g. every player a bad
+    matchup) must still produce start_scores within [0, 100] — never negative,
+    never >100 — so the frontend heat bar stays valid."""
+    import pandas as pd
+
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": 1,
+                "name": "Neg One",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "NYY",
+                "selected_position": "BN",
+                "hr": 5,
+                "r": 20,
+                "rbi": 18,
+                "sb": 1,
+                "avg": 0.21,
+                "obp": 0.28,
+                "ab": 300,
+                "h": 63,
+                "bb": 20,
+                "hbp": 1,
+                "sf": 2,
+                "pa": 330,
+                "mlb_id": 1,
+            },
+            {
+                "player_id": 2,
+                "name": "Neg Two",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "BOS",
+                "selected_position": "BN",
+                "hr": 4,
+                "r": 18,
+                "rbi": 15,
+                "sb": 0,
+                "avg": 0.20,
+                "obp": 0.27,
+                "ab": 290,
+                "h": 58,
+                "bb": 18,
+                "hbp": 1,
+                "sf": 2,
+                "pa": 318,
+                "mlb_id": 2,
+            },
+            {
+                "player_id": 3,
+                "name": "Neg Three",
+                "positions": "OF",
+                "is_hitter": 1,
+                "team": "KC",
+                "selected_position": "BN",
+                "hr": 3,
+                "r": 15,
+                "rbi": 12,
+                "sb": 0,
+                "avg": 0.19,
+                "obp": 0.26,
+                "ab": 280,
+                "h": 53,
+                "bb": 16,
+                "hbp": 1,
+                "sf": 2,
+                "pa": 305,
+                "mlb_id": 3,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context", lambda **k: _fake_ctx(pool, [1, 2, 3])
+    )
+    # Every player scores NEGATIVE (engine sorts desc -> -3 best, -8 worst).
+    monkeypatch.setattr(
+        "src.start_sit.start_sit_recommendation",
+        lambda *a, **k: {
+            "recommendation": 3,
+            "confidence": 0.05,
+            "confidence_label": "Toss-up",
+            "players": [
+                {"player_id": 3, "name": "Neg Three", "start_score": -3.0, "category_impact": {}, "reasoning": []},
+                {"player_id": 1, "name": "Neg One", "start_score": -5.0, "category_impact": {}, "reasoning": []},
+                {"player_id": 2, "name": "Neg Two", "start_score": -8.0, "category_impact": {}, "reasoning": []},
+            ],
+        },
+    )
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: object())
+
+    from api.contracts.start_sit import StartSitCompareRequest
+
+    resp = _svc().compare(StartSitCompareRequest(team_name="T", scope="rest_of_season", player_ids=[1, 2, 3]))
+    assert resp.candidates  # non-empty
+    for c in resp.candidates:
+        assert 0.0 <= c.start_score <= 100.0, f"start_score {c.start_score} out of [0,100]"
+    # all-negative slate -> the real max is <= 0 -> every normalized score is 0.0.
+    assert all(c.start_score == 0.0 for c in resp.candidates)

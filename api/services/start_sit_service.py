@@ -194,7 +194,10 @@ class StartSitService:
         from api.services.player_ref import player_ref_from_pool
 
         raw = [self._f(p.get("start_score")) for p in players]
-        top = max((abs(x) for x in raw), default=0.0)
+        # Normalize against the REAL max (not max-abs): best player -> 100, worse ->
+        # lower. An all-negative slate (every player a bad matchup) has top <= 0, so
+        # every score floors at 0.0 — the 0-100 contract holds (no negative heat bar).
+        top = max(raw, default=0.0)
         pool_rows = self._pool_index(pool)
 
         out: list = []
@@ -206,7 +209,7 @@ class StartSitService:
             row = pool_rows.get(pid, {})
             is_hitter = bool(row.get("is_hitter", 1))
             score = self._f(p.get("start_score"))
-            norm = round(100.0 * score / top, 1) if top > 0 else 0.0
+            norm = round(min(100.0, max(0.0, 100.0 * score / top)), 1) if top > 0 else 0.0
             status = str(row.get("status", "") or "").strip().lower()
             out.append(
                 StartSitCandidate(
