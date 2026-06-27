@@ -603,6 +603,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/start-sit/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compare Start Sit */
+        post: operations["compare_start_sit_api_start_sit_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/start-sit/optimize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Optimize Start Sit */
+        post: operations["optimize_start_sit_api_start_sit_optimize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/streaming": {
         parameters: {
             query?: never;
@@ -2624,6 +2658,114 @@ export interface components {
             /** Teams */
             teams: components["schemas"]["TeamStanding"][];
         };
+        /** StartSitCandidate */
+        StartSitCandidate: {
+            /** Category Impact */
+            category_impact?: components["schemas"]["StatItem"][];
+            /** Eligible Slots */
+            eligible_slots?: string[];
+            /**
+             * Matchup
+             * @default
+             */
+            matchup: string;
+            /**
+             * Playable
+             * @default true
+             */
+            playable: boolean;
+            player: components["schemas"]["PlayerRef"];
+            /** Projected */
+            projected?: components["schemas"]["StatItem"][];
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Start Score
+             * @default 0
+             */
+            start_score: number;
+        };
+        /** StartSitCompareRequest */
+        StartSitCompareRequest: {
+            /** Player Ids */
+            player_ids?: number[];
+            /**
+             * Scope
+             * @default today
+             */
+            scope: string;
+            /** Team Name */
+            team_name?: string | null;
+        };
+        /** StartSitCompareResponse */
+        StartSitCompareResponse: {
+            /** Candidates */
+            candidates?: components["schemas"]["StartSitCandidate"][];
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Confidence Label
+             * @default Toss-up
+             */
+            confidence_label: string;
+            /** Open Slots */
+            open_slots?: {
+                [key: string]: number;
+            };
+            /** Scope */
+            scope: string;
+            verdict?: components["schemas"]["StartSitVerdict"];
+        };
+        /** StartSitOptimizeRequest */
+        StartSitOptimizeRequest: {
+            /** Player Ids */
+            player_ids?: number[];
+            /**
+             * Scope
+             * @default today
+             */
+            scope: string;
+            /** Team Name */
+            team_name?: string | null;
+        };
+        /** StartSitOptimizeResponse */
+        StartSitOptimizeResponse: {
+            /** Bench */
+            bench?: components["schemas"]["LineupSlot"][];
+            daily?: components["schemas"]["DailyMeta"] | null;
+            /** Scope */
+            scope: string;
+            /** Slots */
+            slots?: components["schemas"]["LineupSlot"][];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+        };
+        /** StartSitVerdict */
+        StartSitVerdict: {
+            /**
+             * Reasoning
+             * @default
+             */
+            reasoning: string;
+            /** Sit Ids */
+            sit_ids?: number[];
+            /** Start Ids */
+            start_ids?: number[];
+        };
         /**
          * StatItem
          * @description A single labeled stat for display, e.g. {label: "HR", value: "18"}.
@@ -4489,6 +4631,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StandingsResponse"];
+                };
+            };
+        };
+    };
+    compare_start_sit_api_start_sit_compare_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSitCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartSitCompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    optimize_start_sit_api_start_sit_optimize_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSitOptimizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartSitOptimizeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -603,6 +603,13 @@ function toOptSlot(s: ApiLineupSlot, kind: "starter" | "bench"): OptSlot {
   };
 }
 
+/** Map one API LineupSlot → a frontend OptimizerData slot (kind drives the SIT vs
+ *  bench/off status). Exported for the Start/Sit page, whose /optimize response
+ *  reuses the same LineupSlot shape — so it renders through the same LineupTable. */
+export function apiOptSlotToData(s: ApiLineupSlot, kind: "starter" | "bench" = "starter"): OptSlot {
+  return toOptSlot(s, kind);
+}
+
 /** Map /api/lineup/optimize (daily mode) → frontend OptimizerData. */
 export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData {
   const slots = api.slots ?? [];
