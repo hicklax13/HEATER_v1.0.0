@@ -27,6 +27,7 @@ from api.services.roster_query_service import RosterQueryService
 from api.services.roster_write_service import RosterWriteService
 from api.services.schedule_service import ScheduleService
 from api.services.standings_service import StandingsService
+from api.services.start_sit_service import StartSitService
 from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
 from api.services.trade_finder_service import TradeFinderService
@@ -64,6 +65,10 @@ def get_lineup_service() -> LineupService:
 
 def get_standings_service() -> StandingsService:
     return StandingsService()
+
+
+def get_start_sit_service() -> StartSitService:
+    return StartSitService()
 
 
 def get_closer_service() -> CloserService:

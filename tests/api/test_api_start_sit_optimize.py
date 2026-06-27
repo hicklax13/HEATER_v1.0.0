@@ -121,3 +121,41 @@ def test_optimize_cold_env_returns_empty(monkeypatch):
 
     resp = _svc().optimize(StartSitOptimizeRequest(team_name="T", scope="today", player_ids=[1]))
     assert resp.slots == [] and resp.scope == "today"
+
+
+def test_optimize_endpoint_contract():
+    from starlette.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.lineup import LineupSlot
+    from api.contracts.start_sit import StartSitOptimizeResponse
+    from api.deps import get_start_sit_service
+    from api.main import create_app
+
+    class _Fake:
+        def optimize(self, req):
+            return StartSitOptimizeResponse(
+                scope=req.scope,
+                slots=[
+                    LineupSlot(
+                        slot="OF", player=PlayerRef(id=1, name="X", positions="OF"), action="START", status="start"
+                    )
+                ],
+                bench=[],
+                summary="1 starters set.",
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_start_sit_service] = lambda: _Fake()
+    try:
+        body = (
+            TestClient(app)
+            .post(
+                "/api/start-sit/optimize", json={"team_name": "Team Hickey", "scope": "rest_of_week", "player_ids": [1]}
+            )
+            .json()
+        )
+        assert body["scope"] == "rest_of_week"
+        assert body["slots"][0]["player"]["id"] == 1
+    finally:
+        app.dependency_overrides.clear()

@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     from api.routers.roster_write import router as roster_write_router
     from api.routers.schedule import router as schedule_router
     from api.routers.standings import router as standings_router
+    from api.routers.start_sit import router as start_sit_router
     from api.routers.streaming import router as streaming_router
     from api.routers.team import router as team_router
     from api.routers.trade import router as trade_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(chat_router)
     app.include_router(schedule_router)
+    app.include_router(start_sit_router)
 
     def _custom_openapi() -> dict:
         if app.openapi_schema:

@@ -326,3 +326,48 @@ def test_compare_clamps_to_six(monkeypatch):
 
     _svc().compare(StartSitCompareRequest(team_name="T", scope="rest_of_season", player_ids=list(range(1, 9))))
     assert captured["n"] == 6  # clamped 8 -> 6
+
+
+def test_compare_endpoint_contract():
+    from starlette.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.start_sit import StartSitCandidate, StartSitCompareResponse, StartSitVerdict
+    from api.deps import get_start_sit_service
+    from api.main import create_app
+
+    class _Fake:
+        def compare(self, req):
+            return StartSitCompareResponse(
+                scope=req.scope,
+                candidates=[
+                    StartSitCandidate(
+                        player=PlayerRef(id=1, name="X", positions="OF"),
+                        start_score=100.0,
+                        rank=1,
+                        eligible_slots=["OF", "Util"],
+                        matchup="vs SF",
+                        reason="park",
+                    )
+                ],
+                verdict=StartSitVerdict(start_ids=[1], sit_ids=[2], reasoning="r"),
+                open_slots={"OF": 2},
+                confidence=0.4,
+                confidence_label="Clear",
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_start_sit_service] = lambda: _Fake()
+    try:
+        body = (
+            TestClient(app)
+            .post("/api/start-sit/compare", json={"team_name": "Team Hickey", "scope": "today", "player_ids": [1, 2]})
+            .json()
+        )
+        assert body["scope"] == "today"
+        assert body["candidates"][0]["rank"] == 1 and body["candidates"][0]["start_score"] == 100.0
+        assert body["verdict"]["start_ids"] == [1]
+        assert body["open_slots"]["OF"] == 2
+        assert body["confidence_label"] == "Clear"
+    finally:
+        app.dependency_overrides.clear()
