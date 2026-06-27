@@ -32,6 +32,17 @@ export interface CatImpact {
   trend: "up" | "down" | "flat";
 }
 
+export type OptimizerScope = "today" | "rest_of_week" | "rest_of_season";
+
+export interface FaPickup {
+  add: PlayerRef;
+  drop: PlayerRef;
+  netSgpDelta: number;
+  categoryImpact: { label: string; value: string }[];
+  reasoning: string;
+  urgencyCategories: string[];
+}
+
 export interface OptimizerSwap {
   out: string;
   in: string;
@@ -59,6 +70,7 @@ export interface OptimizerData {
   swaps: OptimizerSwap[];
   impact: CatImpact[];
   daily?: DailyContext; // daily-mode matchup context (urgency/rate-modes/game-state/recs)
+  faSuggestions: FaPickup[]; // available "drop X for Y" pickups (composed from recommend_fa_moves)
 }
 
 const p = (
@@ -117,21 +129,22 @@ export const OPTIMIZER: OptimizerData = {
       "Hold Clase for the save; WHIP is a protect category this week.",
     ],
   },
+  faSuggestions: [],
 };
 
-/** Live: POST /api/lineup/optimize (daily mode) → adapt. Live errors propagate
- *  (HIGH-3) so usePageData reaches error/locked (402)/unlinked (409); an empty
- *  lineup → null → page `empty`. Mock (off-live): the in-memory OPTIMIZER after a
- *  simulated delay. */
-export async function fetchOptimizer(): Promise<OptimizerData | null> {
+/** Live: POST /api/lineup/optimize at the chosen scope → adapt. scope="today" runs the
+ *  daily DCV start/sit path on the backend; rest_of_week/rest_of_season run the standard LP.
+ *  Live errors propagate (HIGH-3) so usePageData reaches error/locked(402)/unlinked(409); an
+ *  empty lineup → null → page `empty`. Off-live → the in-memory OPTIMIZER mock. */
+export async function fetchOptimizer(scope: OptimizerScope = "today"): Promise<OptimizerData | null> {
   return liveOrMock(
     async () => {
       const api = await apiPost<ApiLineupOptimizeResponse>("/lineup/optimize", {
         team_name: getViewerTeam(),
-        mode: "daily",
+        scope,
       });
       const data = apiOptimizeToData(api);
-      return data.starters.length > 0 ? data : null; // null → empty-state
+      return data.starters.length > 0 || data.faSuggestions.length > 0 ? data : null;
     },
     () => new Promise<OptimizerData>((resolve) => setTimeout(() => resolve(OPTIMIZER), 400)),
   );

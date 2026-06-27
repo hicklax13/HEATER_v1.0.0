@@ -617,6 +617,14 @@ export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData
       daily.tied.length > 0 ||
       Object.keys(daily.rateModes).length > 0 ||
       daily.recommendations.length > 0);
+  const faSuggestions = (api.fa_suggestions ?? []).map((f) => ({
+    add: toPlayerRef(f.add),
+    drop: toPlayerRef(f.drop),
+    netSgpDelta: f.net_sgp_delta ?? 0,
+    categoryImpact: (f.category_impact ?? []).map((s) => ({ label: s.label, value: s.value })),
+    reasoning: f.reasoning ?? "",
+    urgencyCategories: f.urgency_categories ?? [],
+  }));
   return {
     date: api.date || "Today",
     optimal: api.optimal ?? false,
@@ -631,6 +639,7 @@ export function apiOptimizeToData(api: ApiLineupOptimizeResponse): OptimizerData
       trend: (c.trend as "up" | "down" | "flat") ?? "flat",
     })),
     daily: hasDaily ? daily : undefined,
+    faSuggestions,
   };
 }
 
