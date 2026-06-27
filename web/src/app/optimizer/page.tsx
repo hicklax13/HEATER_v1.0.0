@@ -1,19 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
+import { Wand2, TrendingUp, TrendingDown, Minus, Clock, ArrowRight, Target } from "lucide-react";
 import {
-  Wand2,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Check,
-  ArrowDown,
-  Clock,
-  Repeat,
-  Target,
-} from "lucide-react";
-import { fetchOptimizer, type OptimizerData, type CatImpact } from "@/lib/optimizer-data";
+  fetchOptimizer,
+  type OptimizerData,
+  type CatImpact,
+  type FaPickup,
+  type OptimizerScope,
+} from "@/lib/optimizer-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
@@ -26,88 +22,76 @@ import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty, PageLocked, PageNotLinked } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 
-/** When optimized, move each swap's `in` player into the `out` player's slot
- *  (now starting) and drop the `out` player to the bench — so clicking Optimize
- *  visibly rebuilds the lineup, not just a banner. */
-function applySwaps(
-  starters: OptimizerData["starters"],
-  bench: OptimizerData["bench"],
-  swaps: OptimizerData["swaps"],
-  optimized: boolean,
-): { starters: OptimizerData["starters"]; bench: OptimizerData["bench"] } {
-  if (!optimized || swaps.length === 0) return { starters, bench };
-  const s = [...starters];
-  const b = [...bench];
-  for (const sw of swaps) {
-    const outIdx = s.findIndex((x) => x.player.name === sw.out);
-    const inIdx = b.findIndex((x) => x.player.name === sw.in);
-    if (outIdx === -1 || inIdx === -1) continue;
-    const outSlot = s[outIdx];
-    const inSlot = b[inIdx];
-    s[outIdx] = { ...inSlot, slot: outSlot.slot, status: "start", note: undefined };
-    b[inIdx] = { ...outSlot, slot: "BN", status: "bench", note: "Optimized to bench" };
-  }
-  return { starters: s, bench: b };
-}
+const SCOPES: { id: OptimizerScope; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "rest_of_week", label: "Rest of Week" },
+  { id: "rest_of_season", label: "Rest of Season" },
+];
 
 export default function OptimizerPage() {
-  const { state, retry } = usePageData(fetchOptimizer);
+  const [scope, setScope] = useState<OptimizerScope>("today");
+  // Stable per-scope fetcher: identity changes with scope → usePageData refetches.
+  const fetcher = useCallback(() => fetchOptimizer(scope), [scope]);
+  const { state, retry } = usePageData(fetcher);
 
   return (
     <>
       <main className="w-full flex-1 px-5 py-6">
+        <div className="mb-5">
+          <ScopeSelector scope={scope} onChange={setScope} />
+        </div>
         {state.status === "loading" && <LoadingView />}
         {state.status === "locked" && <PageLocked feature="The Optimizer" />}
         {state.status === "unlinked" && <PageNotLinked />}
         {state.status === "error" && <PageError onRetry={retry} />}
         {state.status === "empty" && (
-          <PageEmpty
-            icon={Wand2}
-            title="No lineup to optimize"
-            body="We couldn't find your roster for today."
-          />
+          <PageEmpty icon={Wand2} title="No lineup to optimize" body="We couldn't find your roster for this window." />
         )}
-        {state.status === "loaded" && <Loaded data={state.data} />}
+        {state.status === "loaded" && <Loaded data={state.data} scope={scope} />}
       </main>
       {state.status === "loaded" && <Footer freshnessMinutes={9} />}
     </>
   );
 }
 
-function Loaded({ data }: { data: OptimizerData }) {
-  const [optimized, setOptimized] = useState(false);
-  const view = applySwaps(data.starters, data.bench, data.swaps, optimized);
+function ScopeSelector({ scope, onChange }: { scope: OptimizerScope; onChange: (s: OptimizerScope) => void }) {
+  return (
+    <div className="inline-flex rounded-xl border border-line bg-surface p-1" role="tablist" aria-label="Optimize horizon">
+      {SCOPES.map((s) => (
+        <button
+          key={s.id}
+          role="tab"
+          aria-selected={scope === s.id}
+          onClick={() => onChange(s.id)}
+          className={cn(
+            "min-h-9 rounded-lg px-3.5 text-[12px] font-bold transition-colors",
+            scope === s.id ? "bg-navy text-white" : "text-ink-2 hover:text-navy",
+          )}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
+function Loaded({ data, scope }: { data: OptimizerData; scope: OptimizerScope }) {
+  const all = [...data.starters, ...data.bench];
+  const scopeLabel = SCOPES.find((s) => s.id === scope)?.label ?? "Today";
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
       <motion.div variants={staggerItem}>
-        <Header
-          date={data.date}
-          optimized={optimized}
-          changes={data.swaps.length}
-          onOptimize={() => setOptimized(true)}
-        />
+        <Header date={data.date} optimal={data.optimal} scopeLabel={scopeLabel} />
       </motion.div>
-      {optimized && (
-        <motion.div variants={staggerItem}>
-          <SuccessBanner swaps={data.swaps} />
-        </motion.div>
-      )}
       <motion.div variants={staggerItem} className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-6">
-          <Card className="p-5">
-            <SectionHead title="Starting Lineup" sub="Today" />
-            <LineupTable slots={view.starters} />
-          </Card>
-          <Card className="p-5">
-            <SectionHead title="Bench" sub="Available To Swap In" />
-            <LineupTable slots={view.bench} />
-          </Card>
-        </div>
+        <Card className="p-5">
+          <SectionHead title="Your Roster" sub={scopeLabel} />
+          <LineupTable slots={all} />
+        </Card>
         <aside className="space-y-4">
-          <SwapCard swaps={data.swaps} starters={data.starters} bench={data.bench} optimized={optimized} />
+          {data.faSuggestions.length > 0 && <PickupsCard pickups={data.faSuggestions} />}
           {data.daily && <DailyPlanCard daily={data.daily} />}
-          {(data.ipPace || data.movesLeft) && <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />}
+          {data.ipPace && <PaceCard ipPace={data.ipPace} />}
           {data.impact.length > 0 && <ImpactCard impact={data.impact} />}
         </aside>
       </motion.div>
@@ -115,50 +99,19 @@ function Loaded({ data }: { data: OptimizerData }) {
   );
 }
 
-function Header({
-  date,
-  optimized,
-  changes,
-  onOptimize,
-}: {
-  date: string;
-  optimized: boolean;
-  changes: number;
-  onOptimize: () => void;
-}) {
-  const subline = optimized
-    ? "Your lineup is optimal for today."
-    : changes > 0
-      ? `${changes} change${changes === 1 ? "" : "s"} can improve today's projection.`
-      : "Your lineup looks set for today.";
+function Header({ date, optimal, scopeLabel }: { date: string; optimal: boolean; scopeLabel: string }) {
+  const subline = optimal
+    ? "Your lineup is already optimal for this window."
+    : "Slots flagged with → can improve your projection.";
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">
-          Lineup · {date}
+          Lineup · {scopeLabel} · {date}
         </div>
         <h1 className="font-display text-3xl font-extrabold text-navy">Optimizer</h1>
         <p className="mt-1 text-[13px] text-ink-2">{subline}</p>
       </div>
-      {!optimized && changes > 0 && (
-        <button
-          onClick={onOptimize}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-5 py-2.5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
-        >
-          <Wand2 className="size-4" aria-hidden />
-          Optimize Lineup
-        </button>
-      )}
-    </div>
-  );
-}
-
-function SuccessBanner({ swaps }: { swaps: OptimizerData["swaps"] }) {
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-[13px] font-semibold text-ok">
-      <Check className="size-4 shrink-0" aria-hidden />
-      Lineup optimized — applied {swaps.length} change{swaps.length === 1 ? "" : "s"}
-      {swaps[0]?.gain ? ` (${swaps[0].gain})` : ""}.
     </div>
   );
 }
@@ -172,54 +125,49 @@ function SectionHead({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-type Slot = OptimizerData["starters"][number];
-
-function SwapCard({
-  swaps,
-  starters,
-  bench,
-  optimized,
-}: {
-  swaps: OptimizerData["swaps"];
-  starters: OptimizerData["starters"];
-  bench: OptimizerData["bench"];
-  optimized: boolean;
-}) {
-  const byName = new Map<string, Slot>([...starters, ...bench].map((s) => [s.player.name, s]));
+function PickupsCard({ pickups }: { pickups: FaPickup[] }) {
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-navy">
-        <Repeat className="size-4 text-heat" aria-hidden />
-        Recommended Change{swaps.length === 1 ? "" : "s"}
+        <ArrowRight className="size-4 text-heat" aria-hidden />
+        Recommended Pickups
       </div>
-      {swaps.length === 0 ? (
-        <p className="text-[13px] text-ink-2">No changes — your lineup is optimal.</p>
-      ) : (
-        <ul className="space-y-3">
-          {swaps.map((s, i) => (
-            <li key={i}>
-              <SwapRow tone="out" label="Sit" slot={byName.get(s.out)} fallbackName={s.out} />
-              <div className="my-1 flex items-center gap-2 pl-3.5">
-                <span className="flex size-5 items-center justify-center rounded-full bg-heat/12 text-heat">
-                  <ArrowDown className="size-3.5" aria-hidden />
-                </span>
-                {s.gain && (
-                  <span className="tnum rounded-md bg-heat/12 px-2 py-0.5 text-[11px] font-bold text-heat">
-                    {s.gain}
+      <ul className="space-y-3">
+        {pickups.map((p, i) => (
+          <li key={i} className="rounded-lg border border-line bg-surface p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <PlayerDialog player={p.add}>
+                <button className="flex min-w-0 items-center gap-2 text-left">
+                  <PlayerAvatar mlbId={p.add.mlbId} teamId={p.add.teamId} name={p.add.name} size={24} />
+                  <span className="min-w-0">
+                    <span className="block text-[9px] font-bold uppercase tracking-wide text-ok">Add</span>
+                    <span className="block truncate text-[13px] font-semibold text-navy">{p.add.name}</span>
                   </span>
-                )}
+                </button>
+              </PlayerDialog>
+              {p.netSgpDelta > 0 && (
+                <span className="tnum shrink-0 rounded-md bg-heat/12 px-2 py-0.5 text-[11px] font-bold text-heat">
+                  +{p.netSgpDelta.toFixed(2)} SGP
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 flex items-center gap-2 pl-1 text-[11px] text-ink-2">
+              <span className="font-bold uppercase tracking-wide text-ember">Drop</span>
+              <span className="truncate font-semibold text-navy">{p.drop.name}</span>
+            </div>
+            {p.categoryImpact.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {p.categoryImpact.map((c) => (
+                  <span key={c.label} className="tnum rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-ink-2">
+                    {c.label} {c.value}
+                  </span>
+                ))}
               </div>
-              <SwapRow tone="in" label="Start" slot={byName.get(s.in)} fallbackName={s.in} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {optimized && swaps.length > 0 && (
-        <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ok">
-          <Check className="size-3.5" aria-hidden />
-          Applied
-        </div>
-      )}
+            )}
+            {p.reasoning && <p className="mt-1.5 text-[11px] leading-snug text-ink-3">{p.reasoning}</p>}
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -304,94 +252,20 @@ function StatePill({ n, label, tone }: { n: number; label: string; tone: "ok" | 
   );
 }
 
-function SwapRow({
-  tone,
-  label,
-  slot,
-  fallbackName,
-}: {
-  tone: "out" | "in";
-  label: string;
-  slot?: Slot;
-  fallbackName: string;
-}) {
-  const cls = cn(
-    "flex w-full items-center gap-2.5 rounded-lg border border-line border-l-[3px] bg-surface px-2.5 py-2 text-left",
-    tone === "out" ? "border-l-ember/60" : "border-l-ok/60",
-  );
-  const labelCls = tone === "out" ? "text-ember" : "text-ok";
-  const content = (
-    <>
-      {slot && (
-        <PlayerAvatar
-          mlbId={slot.player.mlbId}
-          teamId={slot.player.teamId}
-          name={slot.player.name}
-          size={26}
-        />
-      )}
-      <span className="min-w-0 flex-1">
-        <span className={cn("block text-[9px] font-bold uppercase tracking-wide", labelCls)}>{label}</span>
-        <span className="block truncate text-[13px] font-semibold text-navy">
-          {slot?.player.name ?? fallbackName}
-        </span>
-      </span>
-      {slot && (
-        <span className="shrink-0 text-right">
-          <span className="tnum block font-display text-base font-bold text-navy">{slot.value}</span>
-          <span className="block text-[10px] text-ink-3">{slot.matchup}</span>
-        </span>
-      )}
-    </>
-  );
-  if (!slot) return <div className={cls}>{content}</div>;
-  return (
-    <PlayerDialog player={slot.player}>
-      <button
-        className={cn(
-          cls,
-          "transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50",
-        )}
-      >
-        {content}
-      </button>
-    </PlayerDialog>
-  );
-}
-
-function PaceCard({
-  ipPace,
-  movesLeft,
-}: {
-  ipPace?: { value: number; total: number };
-  movesLeft?: { value: number; total: number };
-}) {
+function PaceCard({ ipPace }: { ipPace: { value: number; total: number } }) {
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-navy">
         <Clock className="size-4 text-heat" aria-hidden />
         This Week
       </div>
-      {ipPace && (
-        <Meter
-          label="IP pace"
-          value={ipPace.value}
-          total={ipPace.total}
-          unit="IP"
-          caption={`On pace to clear the ${ipPace.total} IP minimum.`}
-        />
-      )}
-      {movesLeft && (
-        <div className={ipPace ? "mt-3.5" : ""}>
-          <Meter
-            label="Moves left"
-            value={movesLeft.value}
-            total={movesLeft.total}
-            tone="cool"
-            caption={`${movesLeft.total - movesLeft.value} used · comfortable burn rate.`}
-          />
-        </div>
-      )}
+      <Meter
+        label="IP pace"
+        value={ipPace.value}
+        total={ipPace.total}
+        unit="IP"
+        caption={`On pace toward the ${ipPace.total} IP minimum.`}
+      />
     </Card>
   );
 }
