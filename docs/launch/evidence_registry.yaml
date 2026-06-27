@@ -345,6 +345,32 @@ requirements:
     blocking_ring: limited_public
     last_verified: "n/a"
     score_contribution: ui_ux
+  - id: P14-AI-TOOL-SAFETY
+    category: ai
+    phase: 14
+    description: Bubba tool surface safety (read-only SQL, secret/user-table exclusion, gated request_refresh, never-crash dispatch) — verified for the single-league beta.
+    status: passing
+    subsystem: ai
+    verify: "python -m pytest tests/test_ai_sql_tool_readonly.py tests/test_ai_sql_excludes_user_tables.py tests/test_member_write_safety.py -q"
+    metric: "SQL read-only + secret/user tables excluded + write tool gated"
+    evidence: "docs/launch/ai-safety.md, src/ai/sql_tool.py, src/ai/tools.py"
+    external_review: none
+    blocking_ring: existing_league
+    last_verified: "2026-06-26"
+    score_contribution: ai
+  - id: P14-TENANT-SQL-SCOPE
+    category: ai
+    phase: 14
+    description: SQL tool reads the whole DB (not tenant-scoped) — cross-tenant exfiltration vector in multi-tenant; must scope to tenant_id/league_id or replace with vetted scoped templates.
+    status: deferred
+    subsystem: ai
+    verify: "tests/ai/test_sql_tool_tenant_scoped.py (after Phase 3)"
+    metric: "no cross-tenant rows reachable via the SQL tool"
+    evidence: "docs/launch/ai-safety.md"
+    external_review: pentest
+    blocking_ring: existing_league
+    last_verified: "n/a"
+    score_contribution: ai
   - id: P14-AI-SAFETY
     category: ai
     phase: 14
