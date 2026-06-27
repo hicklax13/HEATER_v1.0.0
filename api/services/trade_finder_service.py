@@ -17,6 +17,7 @@ class TradeFinderService:
     def get_suggestions(self, team_name: str, limit: int = 10) -> TradeFinderResponse:
         try:
             from src.database import load_player_pool
+            from src.standings_utils import get_all_team_totals
             from src.trade_finder import find_trade_opportunities
             from src.valuation import LeagueConfig
             from src.yahoo_data_service import get_yahoo_data_service
@@ -31,19 +32,30 @@ class TradeFinderService:
             if not league_rosters:
                 return TradeFinderResponse(team_name=team_name)
 
-            user_roster_ids = league_rosters.get(team_name, [])
+            # Resolve the user's team against the ACTUAL roster keys (Yahoo keys
+            # carry emoji/whitespace, e.g. "🏆 Team Hickey"); a raw .get(team_name)
+            # missed them → empty roster → zero suggestions. Use the resolved key
+            # name downstream so all_team_totals / find_trade_opportunities agree.
+            resolved_team, user_roster_ids = self._resolve_user_roster(team_name, league_rosters)
+            if not user_roster_ids:
+                return TradeFinderResponse(team_name=team_name)
+
+            # all_team_totals is REQUIRED: find_trade_opportunities early-returns []
+            # when it's None (src/trade_finder.py:1895). Compute it (Yahoo-standings-
+            # first, projection fallback) and pass it.
+            all_team_totals = get_all_team_totals(league_rosters=league_rosters, player_pool=pool)
 
             raw = find_trade_opportunities(
                 user_roster_ids=user_roster_ids,
                 player_pool=pool,
                 config=LeagueConfig(),
-                all_team_totals=None,
-                user_team_name=team_name,
+                all_team_totals=all_team_totals or None,
+                user_team_name=resolved_team,
                 league_rosters=league_rosters,
                 max_results=limit,
             )
 
-            suggestions = self._build_suggestions(raw, pool)
+            suggestions = self._build_suggestions(raw, pool, user_roster_ids)
             return TradeFinderResponse(team_name=team_name, suggestions=suggestions)
 
         except Exception as exc:
@@ -51,6 +63,24 @@ class TradeFinderService:
             return TradeFinderResponse(team_name=team_name)
 
     # ── private helpers ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _resolve_user_roster(team_name: str, league_rosters: dict[str, list[int]]) -> tuple[str, list[int]]:
+        """Map the requested team_name to the EXACT roster key (emoji/whitespace
+        tolerant), returning (resolved_key, roster_ids). Exact match wins; else a
+        normalized match; else ("", []) so the caller returns empty (never a crash,
+        never another team's roster)."""
+        # Deferred import: api.tenancy → api.deps → this service would cycle at
+        # module load. normalize_team_name is a tiny pure fn, cheap to import lazily.
+        from api.tenancy import normalize_team_name
+
+        if team_name in league_rosters:
+            return team_name, league_rosters[team_name]
+        target = normalize_team_name(team_name)
+        for key, ids in league_rosters.items():
+            if normalize_team_name(key) == target:
+                return key, ids
+        return "", []
 
     @staticmethod
     def _build_league_rosters(rosters_df) -> dict[str, list[int]]:
@@ -74,7 +104,7 @@ class TradeFinderService:
         return result
 
     @staticmethod
-    def _build_suggestions(raw: list[dict], pool) -> list[TradeSuggestion]:
+    def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
         """Map engine output dicts → TradeSuggestion list."""
         suggestions: list[TradeSuggestion] = []
         for opp in raw:
