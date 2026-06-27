@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isPaywall, isAuthRequired, isTeamNotLinked } from "@/lib/api/errors";
+import { useBubbaContext } from "@/components/bubba/BubbaContext";
 
 /** Page-level async state. `loaded` carries the data; the others are terminal UI
  *  states. `locked` is the M2 paywall (fetcher threw an ApiError 402 — signed-in
@@ -31,6 +32,16 @@ function forcedState(): Forced | undefined {
   return v === "loading" || v === "error" || v === "empty" ? v : undefined;
 }
 
+/** The current page id for Bubba's context, derived from the route. Reads
+ *  `window.location.pathname` directly (client-only) — same reason as
+ *  `forcedState`: avoids next/navigation's static-generation CSR bailout. */
+function currentPageId(): string {
+  if (typeof window === "undefined") return "";
+  const p = window.location.pathname;
+  if (p === "/") return "team";
+  return p.replace(/^\//, "").split("/")[0] || "team";
+}
+
 /**
  * Drives the four-state machine for a page. Pass a STABLE fetcher (a module-level
  * `fetchX` reference, never an inline arrow — an inline arrow changes identity
@@ -48,6 +59,10 @@ export function usePageData<T>(
   const [state, setState] = useState<PageState<T>>({ status: "loading" });
   // Incrementing this counter triggers the effect to re-run (retry path).
   const [epoch, setEpoch] = useState(0);
+  // Publish each page's loaded data to Bubba so the assistant can "see the screen".
+  // `publish` is useCallback-stable (or a no-op outside the provider), so adding it
+  // to the effect deps below does not re-fire the fetch.
+  const { publish } = useBubbaContext();
 
   useEffect(() => {
     const forced = forcedState();
@@ -70,7 +85,12 @@ export function usePageData<T>(
       .then((data) => {
         // data is undefined when the forced branch early-returned above.
         if (!alive || data === undefined) return;
-        setState(data == null ? { status: "empty" } : { status: "loaded", data });
+        if (data == null) {
+          setState({ status: "empty" });
+        } else {
+          setState({ status: "loaded", data });
+          publish(currentPageId(), data);
+        }
       })
       .catch((e) => {
         if (!alive) return;
@@ -91,7 +111,7 @@ export function usePageData<T>(
     return () => {
       alive = false;
     };
-  }, [fetcher, epoch]);
+  }, [fetcher, epoch, publish]);
 
   const retry = useCallback(() => setEpoch((n) => n + 1), []);
 

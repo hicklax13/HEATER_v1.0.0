@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
 import { TopBar } from "@/components/chrome/TopBar";
 import { Bubba } from "@/components/bubba/Bubba";
+import { BubbaContextProvider } from "@/components/bubba/BubbaContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { SubscriptionProvider } from "@/lib/use-subscription";
 
@@ -45,20 +46,25 @@ export default function RootLayout({
         <AuthProvider>
           <SubscriptionProvider>
             <Providers>
-              {/* Skip-to-content link: visually hidden until focused (sr-only + focus:not-sr-only). */}
-              <a
-                href="#main-content"
-                className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[9999] focus:rounded focus:bg-heat focus:px-3 focus:py-2 focus:text-sm focus:font-bold focus:text-white focus:outline-none"
-              >
-                Skip to content
-              </a>
-              <div className="flex min-h-full flex-col">
-                <TopBar />
-                <div id="main-content" className="contents">
-                  {children}
+              {/* BubbaContextProvider wraps BOTH the page tree ({children}, which
+                  publishes its loaded data via usePageData) AND <Bubba/> (which
+                  reads it) so the publisher and reader share one context. */}
+              <BubbaContextProvider>
+                {/* Skip-to-content link: visually hidden until focused (sr-only + focus:not-sr-only). */}
+                <a
+                  href="#main-content"
+                  className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[9999] focus:rounded focus:bg-heat focus:px-3 focus:py-2 focus:text-sm focus:font-bold focus:text-white focus:outline-none"
+                >
+                  Skip to content
+                </a>
+                <div className="flex min-h-full flex-col">
+                  <TopBar />
+                  <div id="main-content" className="contents">
+                    {children}
+                  </div>
                 </div>
-              </div>
-              <Bubba />
+                <Bubba />
+              </BubbaContextProvider>
             </Providers>
           </SubscriptionProvider>
         </AuthProvider>
