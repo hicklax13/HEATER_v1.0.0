@@ -5,9 +5,9 @@ import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { cn } from "@/lib/utils";
 
-// Yahoo display order. A player is placed by its CURRENT Yahoo slot (currentSlot);
-// when that is unknown (no live Yahoo) we fall back to the recommended slot.
-const BATTER_ORDER = ["C", "1B", "2B", "3B", "SS", "OF", "Util", "BN", "IL"];
+// Display order (UPPERCASE — slotKey normalizes case before matching). IL must be
+// LAST; BN before IL; Util before BN. Batters and pitchers each get their own order.
+const BATTER_ORDER = ["C", "1B", "2B", "3B", "SS", "OF", "UTIL", "BN", "IL"];
 const PITCHER_ORDER = ["SP", "RP", "P", "BN", "IL"];
 const PITCHER_SLOTS = new Set(["SP", "RP", "P"]);
 const IL_SLOTS = new Set(["IL", "IL10", "IL15", "IL60", "NA", "DTD"]);
@@ -26,8 +26,9 @@ function normSlot(raw: string): string {
 }
 
 function slotKey(slot: LineupSlot): string {
-  // group by the player's CURRENT Yahoo slot; fall back to the recommended slot
-  return normSlot(slot.currentSlot || slot.slot);
+  // Group + label by the RECOMMENDED slot — the table reads "play X at this slot".
+  // The recommendation IS the label (no "→ X" arrow), so currentSlot is not the key.
+  return normSlot(slot.slot);
 }
 
 function isPitcher(slot: LineupSlot): boolean {
@@ -38,8 +39,10 @@ function isPitcher(slot: LineupSlot): boolean {
   return /\b(SP|RP|P)\b/.test(pos);
 }
 
+// Match case-insensitively (UTIL/util/Util all map to the same order index); an
+// unmatched slot sorts to the end — never silently before IL.
 function orderIndex(order: string[], key: string): number {
-  const i = order.indexOf(key);
+  const i = order.indexOf(key.toUpperCase());
   return i === -1 ? order.length : i;
 }
 
@@ -100,7 +103,6 @@ function rowTone(s: LineupSlot): string {
 
 function Row({ s }: { s: LineupSlot }) {
   const st = s.forcedStart ? { label: "Start", cls: "bg-heat/12 text-heat" } : (STATUS[s.status] ?? STATUS.bench);
-  const swapHint = s.currentSlot && s.status === "start" && normSlot(s.currentSlot) !== normSlot(s.slot);
   return (
     <tr
       className={cn(
@@ -108,6 +110,7 @@ function Row({ s }: { s: LineupSlot }) {
         rowTone(s),
       )}
     >
+      {/* Slot = the RECOMMENDED slot (this row IS "play X here") — no swap arrow. */}
       <td className="tnum px-2.5 py-2.5 font-bold text-navy">{slotKey(s)}</td>
       <td className="p-0">
         <PlayerDialog player={s.player}>
@@ -130,9 +133,6 @@ function Row({ s }: { s: LineupSlot }) {
       <td className="tnum px-2.5 py-2.5 text-ink-2">{s.matchup || "—"}</td>
       <td className="px-2.5 py-2.5 text-right">
         <span className={cn("inline-flex rounded-md px-2 py-0.5 text-[11px] font-bold", st.cls)}>{st.label}</span>
-        {swapHint && (
-          <div className="mt-0.5 text-[10px] font-semibold text-heat">→ {normSlot(s.slot)}</div>
-        )}
       </td>
     </tr>
   );

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from api.contracts.common import PlayerRef, StatItem
@@ -12,6 +14,11 @@ class LineupOptimizeRequest(BaseModel):
     date: str | None = None
     scope: str = "rest_of_season"
     mode: str = "standard"  # "standard" (ROS/weekly LP) | "daily" (today's DCV start/sit)
+    # depth = how much work the optimize does:
+    #   "standard" → fast lineup-only path (NO FA composition), target < 30s;
+    #   "enhanced" → also composes recommend_fa_moves → fa_suggestions (slow, ~3min,
+    #                async-only via /optimize/start so it survives the Vercel gateway).
+    depth: Literal["standard", "enhanced"] = "standard"
 
 
 class LineupSlot(BaseModel):
@@ -99,3 +106,21 @@ class LineupOptimizeResponse(BaseModel):
     fa_suggestions: list[FaSuggestion] = Field(
         default_factory=list
     )  # available "drop X for Y" pickups (composed from recommend_fa_moves)
+
+
+class OptimizeJobRef(BaseModel):
+    """Handle returned by POST /api/lineup/optimize/start — the client polls
+    /optimize/result/{job_id} until status is 'done' or 'error'."""
+
+    job_id: str
+    status: str  # "running" at creation; the result endpoint reports the live status
+
+
+class OptimizeJobResult(BaseModel):
+    """Polled job state from GET /api/lineup/optimize/result/{job_id}.
+
+    status: "running" (still computing) | "done" (result populated) | "error" (error set)."""
+
+    status: str
+    result: LineupOptimizeResponse | None = None
+    error: str | None = None

@@ -32,7 +32,7 @@ def test_lineup_contract_shape():
 
 class _FakeLineupService:
     def optimize(
-        self, team_name: str, date=None, scope: str = "rest_of_season", mode: str = "standard"
+        self, team_name: str, date=None, scope: str = "rest_of_season", mode: str = "standard", depth: str = "standard"
     ) -> LineupOptimizeResponse:
         if str(mode).lower() == "daily":
             return LineupOptimizeResponse(

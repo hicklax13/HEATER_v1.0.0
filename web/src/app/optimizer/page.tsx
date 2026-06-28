@@ -2,13 +2,14 @@
 
 import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import { Wand2, TrendingUp, TrendingDown, Minus, Clock, ArrowRight, Target } from "lucide-react";
+import { Wand2, TrendingUp, TrendingDown, Minus, Clock, ArrowRight, Target, Flame, Loader2 } from "lucide-react";
 import {
-  fetchOptimizer,
+  runOptimize,
   type OptimizerData,
   type CatImpact,
   type FaPickup,
   type OptimizerScope,
+  type OptimizerDepth,
 } from "@/lib/optimizer-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
@@ -18,7 +19,8 @@ import { HeroNum } from "@/components/ui/HeroNum";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { LineupTable } from "@/components/optimizer/LineupTable";
-import { usePageData } from "@/lib/use-page-data";
+import { useBubbaContext } from "@/components/bubba/BubbaContext";
+import { isPaywall, isAuthRequired, isTeamNotLinked } from "@/lib/api/errors";
 import { PageError, PageEmpty, PageLocked, PageNotLinked } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 
@@ -28,50 +30,183 @@ const SCOPES: { id: OptimizerScope; label: string }[] = [
   { id: "rest_of_season", label: "Rest of Season" },
 ];
 
+const MODES: { id: OptimizerDepth; label: string; hint: string }[] = [
+  { id: "standard", label: "Standard", hint: "Fast lineup only" },
+  { id: "enhanced", label: "Enhanced", hint: "Adds pickups (slower)" },
+];
+
+// The Optimizer is EXPLICIT — nothing runs until the user presses Optimize.
+type RunState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "empty" }
+  | { status: "locked" }
+  | { status: "unlinked" }
+  | { status: "loaded"; data: OptimizerData };
+
 export default function OptimizerPage() {
   const [scope, setScope] = useState<OptimizerScope>("today");
-  // Stable per-scope fetcher: identity changes with scope → usePageData refetches.
-  const fetcher = useCallback(() => fetchOptimizer(scope), [scope]);
-  const { state, retry } = usePageData(fetcher);
+  const [depth, setDepth] = useState<OptimizerDepth>("standard");
+  const [run, setRun] = useState<RunState>({ status: "idle" });
+  const { publish } = useBubbaContext();
+
+  const onOptimize = useCallback(async () => {
+    setRun({ status: "loading" });
+    try {
+      const data = await runOptimize(scope, depth);
+      if (data == null) {
+        setRun({ status: "empty" });
+        return;
+      }
+      setRun({ status: "loaded", data });
+      publish("optimizer", data);
+    } catch (e) {
+      // 401 → sign-in (retry won't help); 409 → not linked; 402 → Pro paywall; else error.
+      if (isAuthRequired(e)) {
+        if (typeof window !== "undefined") window.location.assign("/sign-in");
+        return;
+      }
+      if (isTeamNotLinked(e)) {
+        setRun({ status: "unlinked" });
+        return;
+      }
+      setRun(isPaywall(e) ? { status: "locked" } : { status: "error" });
+    }
+  }, [scope, depth, publish]);
 
   return (
     <>
       <main className="w-full flex-1 px-5 py-6">
         <div className="mb-5">
-          <ScopeSelector scope={scope} onChange={setScope} />
+          <Controls
+            scope={scope}
+            depth={depth}
+            onScope={setScope}
+            onDepth={setDepth}
+            onOptimize={onOptimize}
+            running={run.status === "loading"}
+          />
         </div>
-        {state.status === "loading" && <LoadingView />}
-        {state.status === "locked" && <PageLocked feature="The Optimizer" />}
-        {state.status === "unlinked" && <PageNotLinked />}
-        {state.status === "error" && <PageError onRetry={retry} />}
-        {state.status === "empty" && (
+        {run.status === "idle" && <IdlePrompt depth={depth} />}
+        {run.status === "loading" && <LoadingView depth={depth} />}
+        {run.status === "locked" && <PageLocked feature="The Optimizer" />}
+        {run.status === "unlinked" && <PageNotLinked />}
+        {run.status === "error" && <PageError onRetry={onOptimize} />}
+        {run.status === "empty" && (
           <PageEmpty icon={Wand2} title="No lineup to optimize" body="We couldn't find your roster for this window." />
         )}
-        {state.status === "loaded" && <Loaded data={state.data} scope={scope} />}
+        {run.status === "loaded" && <Loaded data={run.data} scope={scope} />}
       </main>
-      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
+      {run.status === "loaded" && <Footer freshnessMinutes={9} />}
     </>
   );
 }
 
-function ScopeSelector({ scope, onChange }: { scope: OptimizerScope; onChange: (s: OptimizerScope) => void }) {
+function Controls({
+  scope,
+  depth,
+  onScope,
+  onDepth,
+  onOptimize,
+  running,
+}: {
+  scope: OptimizerScope;
+  depth: OptimizerDepth;
+  onScope: (s: OptimizerScope) => void;
+  onDepth: (d: OptimizerDepth) => void;
+  onOptimize: () => void;
+  running: boolean;
+}) {
   return (
-    <div className="inline-flex rounded-xl border border-line bg-surface p-1" role="tablist" aria-label="Optimize horizon">
-      {SCOPES.map((s) => (
+    <div className="flex flex-wrap items-end gap-4">
+      <Field label="Mode">
+        <Segmented
+          options={MODES.map((m) => ({ id: m.id, label: m.label, title: m.hint }))}
+          value={depth}
+          onChange={(v) => onDepth(v as OptimizerDepth)}
+          ariaLabel="Optimize mode"
+        />
+      </Field>
+      <Field label="Window">
+        <Segmented
+          options={SCOPES.map((s) => ({ id: s.id, label: s.label }))}
+          value={scope}
+          onChange={(v) => onScope(v as OptimizerScope)}
+          ariaLabel="Optimize horizon"
+        />
+      </Field>
+      {/* Orange Optimize launcher — mirrors the Ask-Bubba button's heat gradient/shadow. */}
+      <motion.button
+        type="button"
+        onClick={onOptimize}
+        disabled={running}
+        whileHover={running ? undefined : { scale: 1.03 }}
+        whileTap={running ? undefined : { scale: 0.98 }}
+        className="flex min-h-9 items-center gap-2 rounded-full bg-gradient-to-b from-heat-bright to-heat px-5 py-3 font-display text-sm font-bold text-white shadow-[0_8px_24px_rgba(255,92,16,0.45)] ring-1 ring-white/20 transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Flame className="size-4" aria-hidden />}
+        {running ? "Optimizing…" : "Optimize"}
+      </motion.button>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-3">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Segmented({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  options: { id: string; label: string; title?: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="inline-flex rounded-xl border border-line bg-surface p-1" role="tablist" aria-label={ariaLabel}>
+      {options.map((o) => (
         <button
-          key={s.id}
+          key={o.id}
           role="tab"
-          aria-selected={scope === s.id}
-          onClick={() => onChange(s.id)}
+          title={o.title}
+          aria-selected={value === o.id}
+          onClick={() => onChange(o.id)}
           className={cn(
             "min-h-9 rounded-lg px-3.5 text-[12px] font-bold transition-colors",
-            scope === s.id ? "bg-navy text-white" : "text-ink-2 hover:text-navy",
+            value === o.id ? "bg-navy text-white" : "text-ink-2 hover:text-navy",
           )}
         >
-          {s.label}
+          {o.label}
         </button>
       ))}
     </div>
+  );
+}
+
+/** Shown before the first Optimize — the page never auto-runs. */
+function IdlePrompt({ depth }: { depth: OptimizerDepth }) {
+  return (
+    <Card className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-heat/10">
+        <Wand2 className="size-6 text-heat" aria-hidden />
+      </div>
+      <h2 className="font-display text-lg font-bold text-navy">Choose a mode and window, then Optimize</h2>
+      <p className="max-w-sm text-[13px] text-ink-2">
+        {depth === "enhanced"
+          ? "Enhanced also scans free agents for upgrades — it can take a couple of minutes."
+          : "Standard sets your best lineup for the window in seconds."}
+      </p>
+    </Card>
   );
 }
 
@@ -102,7 +237,7 @@ function Loaded({ data, scope }: { data: OptimizerData; scope: OptimizerScope })
 function Header({ date, optimal, scopeLabel }: { date: string; optimal: boolean; scopeLabel: string }) {
   const subline = optimal
     ? "Your lineup is already optimal for this window."
-    : "Slots flagged with → can improve your projection.";
+    : "Each row is labeled with the slot we recommend playing it at.";
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -311,7 +446,7 @@ function ImpactCard({ impact }: { impact: CatImpact[] }) {
   return (
     <Card className="p-4">
       <div className="mb-1 text-[12px] font-bold uppercase tracking-wider text-navy">
-        Today&apos;s Projected Output
+        Projected Output
       </div>
       <p className="mb-3 text-[11px] text-ink-3">Expected category totals if you start the optimal lineup.</p>
       <div className="grid grid-cols-3 gap-2">
@@ -344,10 +479,13 @@ function ImpactCell({ c }: { c: CatImpact }) {
   );
 }
 
-function LoadingView() {
+function LoadingView({ depth }: { depth: OptimizerDepth }) {
   return (
-    <div className="space-y-6">
-      <Skeleton className="h-14 w-72" />
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+        <Loader2 className="size-4 animate-spin text-heat" aria-hidden />
+        {depth === "enhanced" ? "Optimizing + scanning free agents… this can take a minute." : "Optimizing your lineup…"}
+      </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         <Skeleton className="h-[28rem] w-full rounded-2xl" />
         <Skeleton className="h-[28rem] w-full rounded-2xl" />
