@@ -150,12 +150,19 @@ class PlayerDetailService:
     def _headline(row, is_pitcher: bool) -> list[LabelValue]:
         rank = int(_f(_g(row, "consensus_rank")))
         vol_label, vol = ("IP", "ytd_ip") if is_pitcher else ("GP", "ytd_gp")
-        out = []
+        cats = _PIT_CATS if is_pitcher else _HIT_CATS
+        out: list[LabelValue] = []
         if rank > 0:
             out.append(LabelValue(label="Rank", value=f"#{rank}"))
         gp = _g(row, vol)
         if gp is not None:
             out.append(LabelValue(label=vol_label, value=_fmt(vol_label, gp)))
+        # Per-category season highlights (the same ytd_* the Season Stats tab uses) so the
+        # header shows R/HR/RBI… (or W/K/ERA…), not just Rank + GP.
+        for c in cats:
+            v = _g(row, f"ytd_{c.lower()}")
+            if v is not None:
+                out.append(LabelValue(label=c, value=_fmt(c, v)))
         return out
 
     @staticmethod

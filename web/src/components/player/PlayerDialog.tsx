@@ -85,10 +85,13 @@ export function PlayerDialog({ player, children }: { player: DialogPlayer; child
               aria-hidden
               onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
               style={{
+                // Strong brightness + a tight white halo so a dark logo (e.g. Mariners
+                // navy) still reads on a same-color dark team header — without it, navy-on-navy
+                // washes out to nearly invisible (looked "missing").
                 filter:
-                  "brightness(1.7) drop-shadow(0 0 2px rgba(255,255,255,0.55)) drop-shadow(0 4px 16px rgba(0,0,0,0.25))",
+                  "brightness(2.4) drop-shadow(0 0 3px rgba(255,255,255,0.85)) drop-shadow(0 0 1px rgba(255,255,255,0.95)) drop-shadow(0 4px 16px rgba(0,0,0,0.3))",
               }}
-              className="pointer-events-none absolute -right-3 top-1/2 size-80 -translate-y-1/2 opacity-[0.5]"
+              className="pointer-events-none absolute -right-3 top-1/2 size-80 -translate-y-1/2 opacity-[0.62]"
             />
             {/* left scrim keeps white text crisp over the logo + bright team colors */}
             <span
