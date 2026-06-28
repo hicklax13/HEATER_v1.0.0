@@ -44,7 +44,68 @@ def _pick_top(candidates: list[StreamCandidate]) -> StreamCandidate | None:
     return None
 
 
-def _build_budget(ctx) -> BudgetStrip:
+def _days_remaining(target_date: str | None) -> int:
+    """Days left in the Mon–Sun fantasy week (Mon=7 … Sun=1); 7 on parse failure.
+    Mirrors LineupService._days_remaining so the two IP-pace surfaces agree."""
+    from datetime import datetime
+
+    try:
+        d = datetime.strptime(str(target_date)[:10], "%Y-%m-%d")
+        return max(1, 7 - d.weekday())
+    except Exception:
+        return 7
+
+
+def _ip_pace_from_ctx(ctx, target_date: str | None) -> float | None:
+    """Projected weekly IP from the user's roster pitchers (season IP merged from
+    the pool). Mirrors LineupService._ip_pace but sources roster + pool off the
+    optimizer context. None when there's no roster / no pitchers (never raises)."""
+    try:
+        import pandas as pd
+
+        from src.ip_tracker import compute_weekly_ip_projection
+
+        roster = getattr(ctx, "roster", None)
+        pool = getattr(ctx, "player_pool", None)
+        if not isinstance(roster, pd.DataFrame) or roster.empty or "player_id" not in roster.columns:
+            return None
+        pool_ip: dict[int, float] = {}
+        if isinstance(pool, pd.DataFrame) and not pool.empty and "player_id" in pool.columns and "ip" in pool.columns:
+            for pr in pool.to_dict("records"):
+                try:
+                    pool_ip[int(pr.get("player_id", 0) or 0)] = _f(pr.get("ip"))
+                except (TypeError, ValueError):
+                    continue
+        pitchers: list[dict] = []
+        for r in roster.to_dict("records"):
+            positions = str(r.get("positions", "") or r.get("roster_slot", "") or "").upper()
+            if not any(p in positions for p in ("SP", "RP", "P")):
+                continue
+            try:
+                pid = int(r.get("player_id", 0) or 0)
+            except (TypeError, ValueError):
+                pid = 0
+            pitchers.append(
+                {
+                    "name": str(r.get("name") or r.get("player_name") or ""),
+                    "positions": positions,
+                    "ip": pool_ip.get(pid, 0.0),
+                    "is_starter": "SP" in positions,
+                    "status": str(r.get("status", "") or ""),
+                }
+            )
+        if not pitchers:
+            return None
+        proj = compute_weekly_ip_projection(pitchers, days_remaining=_days_remaining(target_date))
+        if not isinstance(proj, dict):
+            return None
+        return _f(proj.get("projected_ip"))
+    except Exception as exc:
+        logger.warning("StreamingService IP-pace compute failed: %s", exc)
+        return None
+
+
+def _build_budget(ctx, target_date: str | None = None) -> BudgetStrip:
     from src.league_rules import WEEKLY_TRANSACTION_LIMIT
 
     adds_total = int(WEEKLY_TRANSACTION_LIMIT)
@@ -64,7 +125,7 @@ def _build_budget(ctx) -> BudgetStrip:
     return BudgetStrip(
         adds_left=adds_left,
         adds_total=adds_total,
-        ip_pace=None,
+        ip_pace=_ip_pace_from_ctx(ctx, target_date),
         ip_target=ip_target,
         cats_in_play=cats_in_play,
     )
@@ -188,7 +249,7 @@ class StreamingService:
                 for rank, (_, row) in enumerate(board.head(limit).iterrows(), start=1):
                     candidates.append(self._to_candidate(row, rank))
             top_pick = _pick_top(candidates)
-            budget = _build_budget(ctx)
+            budget = _build_budget(ctx, target_date)
             urgency = _resolve_urgency(ctx)
             try:
                 full_board = build_stream_board(ctx, target_date, include_rostered=True)
@@ -243,6 +304,7 @@ class StreamingService:
             team=str(g("team", "") or ""),
             opponent=str(g("opponent", "") or ""),
             is_home=bool(g("is_home", False)),
+            game_time=str(g("game_datetime", "") or ""),
             score=_f(g("stream_score")),
             status=status,
             confidence=confidence,

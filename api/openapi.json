@@ -2873,6 +2873,11 @@
             "title": "Factors",
             "type": "array"
           },
+          "game_time": {
+            "default": "",
+            "title": "Game Time",
+            "type": "string"
+          },
           "is_home": {
             "default": false,
             "title": "Is Home",
@@ -4222,6 +4227,11 @@
           "expected_line": {
             "default": "",
             "title": "Expected Line",
+            "type": "string"
+          },
+          "game_time": {
+            "default": "",
+            "title": "Game Time",
             "type": "string"
           },
           "is_home": {

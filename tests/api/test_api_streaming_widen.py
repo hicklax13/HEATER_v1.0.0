@@ -57,6 +57,15 @@ def test_to_candidate_maps_all_widened_fields():
     assert c.expected_line == "6.0 IP · 7 K · 2 ER"
 
 
+def test_to_candidate_maps_game_time():
+    # Schedule row carries the ISO UTC game start (statsapi game_datetime) → game_time.
+    c = StreamingService._to_candidate(_board_row(game_datetime="2026-06-29T22:35:00Z"), rank=1)
+    assert c.game_time == "2026-06-29T22:35:00Z"
+    # Absent / None → "" (never raises, never null in JSON)
+    assert StreamingService._to_candidate(_board_row(), rank=1).game_time == ""
+    assert StreamingService._to_candidate(_board_row(game_datetime=None), rank=1).game_time == ""
+
+
 def test_to_candidate_is_nan_safe():
     c = StreamingService._to_candidate(
         _board_row(
@@ -92,9 +101,37 @@ def test_build_budget_from_ctx():
     assert b.adds_total == 10
     assert b.adds_left == 7
     assert b.ip_target == float(WEEKLY_TARGET)  # real constant (~53.85); not the 54.0 fallback
-    assert b.ip_pace is None  # deferred (None = not computed)
+    assert b.ip_pace is None  # no roster on the fake ctx → None (never computed)
     # only contested (gap<=0) PITCHING cats; HR (hitting) excluded, ERA (gap>0) excluded
     assert set(b.cats_in_play) == {"K", "SV"}
+
+
+def test_build_budget_computes_ip_pace_from_roster():
+    """With a roster + pool, ip_pace is the projected weekly IP (ip_tracker), not None."""
+    import pandas as pd
+
+    class _CtxWithRoster:
+        adds_remaining_this_week = 8
+        category_gaps = {"K": -1.0}
+        roster = pd.DataFrame(
+            [
+                {"player_id": 1, "name": "Ace SP", "positions": "SP", "status": ""},
+                {"player_id": 2, "name": "Setup RP", "positions": "RP", "status": ""},
+                {"player_id": 3, "name": "Slugger", "positions": "OF", "status": ""},  # hitter ignored
+            ]
+        )
+        player_pool = pd.DataFrame(
+            [
+                {"player_id": 1, "ip": 190.0},  # full-season starter
+                {"player_id": 2, "ip": 65.0},
+                {"player_id": 3, "ip": 0.0},
+            ]
+        )
+
+    # Monday → 7 days remaining; a full-season SP projects a meaningful weekly IP.
+    b = _build_budget(_CtxWithRoster(), target_date="2026-06-29")  # 2026-06-29 is a Monday
+    assert b.ip_pace is not None
+    assert b.ip_pace > 0.0
 
 
 def test_streaming_endpoint_includes_top_pick_and_budget():
@@ -111,6 +148,7 @@ def test_streaming_endpoint_includes_top_pick_and_budget():
                 player=PlayerRef(id=1, mlb_id=660271, name="X", positions="SP", team_abbr="DET", team_id=116),
                 score=82.5,
                 rank=1,
+                game_time="2026-06-29T22:35:00Z",
                 expected_line="6.0 IP · 7 K · 2 ER",
             )
             return StreamingResponse(
@@ -125,6 +163,8 @@ def test_streaming_endpoint_includes_top_pick_and_budget():
     try:
         body = TestClient(app).get("/api/streaming").json()
         assert body["top_pick"]["expected_line"] == "6.0 IP · 7 K · 2 ER"
+        assert body["top_pick"]["game_time"] == "2026-06-29T22:35:00Z"
+        assert body["candidates"][0]["game_time"] == "2026-06-29T22:35:00Z"
         assert body["budget"]["adds_left"] == 7
         assert body["budget"]["ip_target"] == 54.0
         assert body["candidates"][0]["components"]["matchup"] == 0.0

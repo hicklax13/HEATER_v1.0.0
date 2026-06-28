@@ -25,6 +25,8 @@ class StreamCandidate(BaseModel):
     team: str = ""
     opponent: str = ""
     is_home: bool = False
+    # ISO-8601 UTC game start (statsapi game_datetime); "" if unknown. Frontend formats to local time.
+    game_time: str = ""
     score: float = 0.0
     status: Literal["", "PROBABLE", "LOCKED", "FINAL", "OPEN"] = ""
     confidence: Literal["", "HIGH", "MEDIUM", "LOW"] = ""
@@ -49,7 +51,7 @@ class StreamCandidate(BaseModel):
 class BudgetStrip(BaseModel):
     adds_left: int = 0
     adds_total: int = 10
-    ip_pace: float | None = None  # DEFERRED — weekly IP pace plumbing is a follow-up
+    ip_pace: float | None = None  # projected weekly IP from the roster's pitchers (ip_tracker); None if no roster
     ip_target: float = 54.0
     cats_in_play: list[str] = Field(default_factory=list)
 

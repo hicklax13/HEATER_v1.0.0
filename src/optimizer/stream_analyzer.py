@@ -620,6 +620,7 @@ def build_stream_board(
                     "throws": throws or "",
                     "opponent": opp_team,
                     "is_home": side == "home",
+                    "game_datetime": str(game.get("game_datetime", "") or ""),
                     "venue": home_abbr,
                     "park_factor": start_info["park_factor"],
                     "opp_wrc_plus": opp_context["wrc_plus"],
