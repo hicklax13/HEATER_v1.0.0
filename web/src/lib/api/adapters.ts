@@ -129,6 +129,7 @@ function toStreamCandidate(c: ApiStreamCandidate): StreamCandidate {
     player: toPlayerRef(c.player),
     opponent: c.opponent,
     isHome: c.is_home,
+    gameTime: c.game_time ?? "",
     score: Math.round(c.score),
     status: STREAM_STATUS[c.status] ?? "probable",
     confidence: STREAM_CONF[c.confidence] ?? "med",

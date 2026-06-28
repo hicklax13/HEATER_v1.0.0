@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { EASE_SNAP } from "@/lib/motion";
 import { COLORS } from "@/lib/tokens";
+import { cn } from "@/lib/utils";
 import type { StreamComponents } from "@/lib/streaming-data";
 
 const LABELS: Record<keyof StreamComponents, string> = {
@@ -16,8 +17,18 @@ const LABELS: Record<keyof StreamComponents, string> = {
 const ORDER: (keyof StreamComponents)[] = ["matchup", "sgp", "lineup", "env", "form", "winprob"];
 
 /** Diverging bars for the 6 stream-score components, each −1..+1.
- *  Positive (helps the stream) grows right in heat; negative grows left in steel. */
-export function FactorBars({ components }: { components: StreamComponents }) {
+ *  Positive (helps the stream) grows right in heat; negative grows left in steel.
+ *  labelClass / valueClass override the default muted text (the board's expanded
+ *  row passes near-black `text-ink` per the 2026-06-27 user-test). */
+export function FactorBars({
+  components,
+  labelClass = "text-ink-2",
+  valueClass = "text-ink-3",
+}: {
+  components: StreamComponents;
+  labelClass?: string;
+  valueClass?: string;
+}) {
   const reduce = useReducedMotion();
   return (
     <div className="space-y-1.5">
@@ -27,7 +38,7 @@ export function FactorBars({ components }: { components: StreamComponents }) {
         const half = (Math.abs(v) * 50).toFixed(1);
         return (
           <div key={k} className="grid grid-cols-[4.5rem_1fr_2.25rem] items-center gap-2 text-[11px]">
-            <span className="truncate font-semibold text-ink-2">{LABELS[k]}</span>
+            <span className={cn("truncate font-semibold", labelClass)}>{LABELS[k]}</span>
             <div className="relative h-2.5 rounded-full bg-surface-2">
               <span
                 className="absolute left-1/2 top-1/2 z-10 h-3.5 w-px -translate-x-1/2 -translate-y-1/2 bg-ink-3/40"
@@ -44,7 +55,7 @@ export function FactorBars({ components }: { components: StreamComponents }) {
                 transition={{ duration: 0.45, ease: EASE_SNAP, delay: 0.08 + i * 0.03 }}
               />
             </div>
-            <span className="tnum text-right font-semibold text-ink-3">
+            <span className={cn("tnum text-right font-semibold", valueClass)}>
               {pos ? "+" : ""}
               {v.toFixed(2)}
             </span>

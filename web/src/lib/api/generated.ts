@@ -2213,6 +2213,11 @@ export interface components {
             /** Factors */
             factors?: components["schemas"]["FactorDetail"][];
             /**
+             * Game Time
+             * @default
+             */
+            game_time: string;
+            /**
              * Is Home
              * @default false
              */
@@ -2984,6 +2989,11 @@ export interface components {
              * @default
              */
             expected_line: string;
+            /**
+             * Game Time
+             * @default
+             */
+            game_time: string;
             /**
              * Is Home
              * @default false

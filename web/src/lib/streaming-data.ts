@@ -29,6 +29,7 @@ export interface StreamCandidate {
   player: PlayerRef;
   opponent: string; // opponent team abbr
   isHome: boolean;
+  gameTime: string; // ISO-8601 UTC game start ("" if unknown); format to local time for display
   score: number; // 0-100
   status: StreamStatus;
   confidence: StreamConfidence;
@@ -102,6 +103,15 @@ export function formatStreamDate(raw: string | undefined): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** Format the candidate's ISO-8601 UTC `gameTime` ("2026-06-29T22:35:00Z") as a
+ *  local-time clock ("7:10 PM"). Empty / unparseable → "" so callers can hide it. */
+export function formatGameTime(raw: string | undefined): string {
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 const FACTOR_LABEL: Record<keyof StreamComponents, string> = {
   matchup: "Opponent offense",
   env: "Park & weather",
@@ -140,6 +150,7 @@ const cand = (
   player,
   opponent,
   isHome,
+  gameTime: "",
   score,
   status: "probable",
   confidence: score >= 70 ? "high" : score >= 50 ? "med" : "low",
@@ -251,6 +262,7 @@ function mockScorecard(p: ProbableStarter): PitcherScorecard {
     player: p.player,
     opponent: p.opponent,
     isHome: p.isHome,
+    gameTime: "",
     score: h,
     status: "probable",
     confidence: h >= 70 ? "high" : h >= 50 ? "med" : "low",
