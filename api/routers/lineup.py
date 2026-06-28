@@ -1,12 +1,18 @@
-"""Lineup router. THIN — delegates to the service."""
+"""Lineup router. THIN — delegates to the service / job store."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
-from api.contracts.lineup import LineupOptimizeRequest, LineupOptimizeResponse
+from api.contracts.lineup import (
+    LineupOptimizeRequest,
+    LineupOptimizeResponse,
+    OptimizeJobRef,
+    OptimizeJobResult,
+)
 from api.deps import get_lineup_service
 from api.gating import require_pro
+from api.services import optimize_jobs
 from api.tenancy import ViewerContext, require_viewer_context, resolve_required_team
 
 router = APIRouter(prefix="/api", tags=["lineup"])
@@ -30,4 +36,39 @@ def optimize_lineup(
     ctx: ViewerContext = Depends(require_viewer_context),
     service=Depends(get_lineup_service),
 ) -> LineupOptimizeResponse:
-    return service.optimize(resolve_required_team(ctx, req.team_name), req.date, req.scope, req.mode)
+    return service.optimize(resolve_required_team(ctx, req.team_name), req.date, req.scope, req.mode, req.depth)
+
+
+@router.post(
+    "/lineup/optimize/start",
+    response_model=OptimizeJobRef,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
+def start_optimize(
+    req: LineupOptimizeRequest,
+    background_tasks: BackgroundTasks,
+    ctx: ViewerContext = Depends(require_viewer_context),
+    service=Depends(get_lineup_service),
+) -> OptimizeJobRef:
+    """Kick off an optimize in the background (so Enhanced/FA can run ~3min past the
+    Vercel gateway timeout) and return a job handle immediately. The client polls
+    /lineup/optimize/result/{job_id}. Team resolution mirrors the sync route."""
+    team = resolve_required_team(ctx, req.team_name)
+    job_id = optimize_jobs.create()
+    background_tasks.add_task(optimize_jobs.run_optimize_job, service, job_id, team, req.date, req.scope, req.depth)
+    return OptimizeJobRef(job_id=job_id, status="running")
+
+
+@router.get(
+    "/lineup/optimize/result/{job_id}",
+    response_model=OptimizeJobResult,
+    dependencies=[Depends(require_pro)],
+    responses=_PRO_GATE,
+)
+def optimize_result(job_id: str) -> OptimizeJobResult:
+    """Poll a background optimize job. 404 if the job id is unknown/expired."""
+    job = optimize_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown optimize job.")
+    return OptimizeJobResult(status=job["status"], result=job["result"], error=job["error"])

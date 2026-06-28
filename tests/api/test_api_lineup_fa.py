@@ -9,7 +9,7 @@ from api.main import create_app
 
 
 class _FakeLineupService:
-    def optimize(self, team_name, date=None, scope="rest_of_season", mode="standard"):
+    def optimize(self, team_name, date=None, scope="rest_of_season", mode="standard", depth="standard"):
         return LineupOptimizeResponse(
             team_name=team_name,
             date=date or "2027-04-05",

@@ -39,17 +39,24 @@ def _engine_name(name) -> str | None:
 
 class LineupService:
     def optimize(
-        self, team_name: str, date=None, scope: str = "rest_of_season", mode: str = "standard"
+        self,
+        team_name: str,
+        date=None,
+        scope: str = "rest_of_season",
+        mode: str = "standard",
+        depth: str = "standard",
     ) -> LineupOptimizeResponse:
         # scope is the driver: today → daily DCV; rest_of_week / rest_of_season → standard LP.
         # mode is kept as a back-compat override (an explicit mode="daily" still forces daily).
+        # depth = "standard" (fast, lineup-only) | "enhanced" (also compose FA pickups, slow).
         sc = str(scope or "rest_of_season").lower()
+        dp = str(depth or "standard").lower()
         if sc == "today" or str(mode or "standard").lower() == "daily":
-            return self._optimize_daily(team_name, date)
-        return self._optimize_standard(team_name, date, sc)
+            return self._optimize_daily(team_name, date, dp)
+        return self._optimize_standard(team_name, date, sc, dp)
 
     # ------------------------------------------------------------------ standard (ROS/weekly LP)
-    def _optimize_standard(self, team_name: str, date, scope: str) -> LineupOptimizeResponse:
+    def _optimize_standard(self, team_name: str, date, scope: str, depth: str = "standard") -> LineupOptimizeResponse:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         impact: list[CatImpact] = []
@@ -87,13 +94,20 @@ class LineupService:
             lineup = (result or {}).get("lineup") if isinstance(result, dict) else None
 
             pool = self._load_pool()
-            slots, bench = self._to_slots(lineup, pool, roster)
+            # Per-scope projection: standard LP assignments carry NO per-player value, so
+            # value/projected are computed from the pool's projected stats scaled for the
+            # scope (rest_of_week → 1 week, rest_of_season → ROS) — see _projection_values.
+            proj_values = self._projection_values(roster, pool, scope)
+            slots, bench = self._to_slots(lineup, pool, roster, proj_values)
             impact = self._impact((lineup or {}).get("projected_stats") if isinstance(lineup, dict) else None)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
-            # FA pickups are loaded by the frontend via a SEPARATE request, NOT inline:
-            # _compose_fa runs a second full build_optimizer_context (~15-25s) on top of the
-            # LP, which pushed the optimize response to ~42s — past the Vercel gateway timeout
-            # → "data service didn't respond". Keep optimize lineup-only + fast (under the cap).
+            # FA pickups: in STANDARD depth they're loaded by the frontend via a SEPARATE
+            # request, NOT inline — _compose_fa runs a second full build_optimizer_context
+            # (~15-25s) on top of the LP, pushing the sync response past the Vercel gateway
+            # timeout. ENHANCED depth runs async (/optimize/start), so it can afford to
+            # compose them inline.
+            if str(depth or "standard").lower() == "enhanced":
+                fa_suggestions = self._compose_fa(team_name, scope, yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set."
         except Exception as exc:
@@ -111,7 +125,7 @@ class LineupService:
         )
 
     # ------------------------------------------------------------------ daily (today's DCV start/sit)
-    def _optimize_daily(self, team_name: str, date) -> LineupOptimizeResponse:
+    def _optimize_daily(self, team_name: str, date, depth: str = "standard") -> LineupOptimizeResponse:
         slots: list[LineupSlot] = []
         bench: list[LineupSlot] = []
         daily: DailyMeta | None = None
@@ -155,8 +169,11 @@ class LineupService:
             )
             daily = self._daily_meta(result, slots, roster, pool, resolved_date)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
-            # FA pickups loaded separately by the frontend (see _optimize_standard) — keeps the
-            # daily optimize response under the Vercel gateway timeout.
+            # FA pickups: STANDARD depth loads them separately (frontend) to keep the sync
+            # response under the Vercel gateway timeout; ENHANCED (async /optimize/start)
+            # composes them inline. "today" scope → the daily DCV optimize context.
+            if str(depth or "standard").lower() == "enhanced":
+                fa_suggestions = self._compose_fa(team_name, "today", yds, pool)
             if slots:
                 summary = f"{len(slots)} starters set for {resolved_date}."
         except Exception as exc:
@@ -416,6 +433,84 @@ class LineupService:
             return None
 
     @staticmethod
+    def _scope_weeks(scope: str) -> float:
+        """Weeks to scale a season projection by for the requested horizon.
+        rest_of_week → 1; rest_of_season → the live weeks-remaining (≈ a season)."""
+        if str(scope or "").lower() == "rest_of_week":
+            return 1.0
+        try:
+            from src.league_rules import weeks_remaining
+
+            wr = float(weeks_remaining() or 0.0)
+            return wr if wr > 0 else 26.0
+        except Exception:
+            return 26.0
+
+    def _projection_values(self, roster, pool, scope: str) -> dict[int, tuple[float, float]]:
+        """Per-player {player_id: (value_0_100, projected_for_scope)} for the standard
+        (week/season) LP, whose assignments carry no per-player value.
+
+        `projected_for_scope` = the player's net per-category SGP (a single fantasy-
+        value number) scaled to the scope horizon (weeks): a rest_of_week number is
+        ~1/Nth of the rest_of_season number, so the column reflects the chosen scope.
+        `value_0_100` normalizes that across the roster (best roster player = 100), so
+        the heat bar ranks within the team. Never raises (missing pool/stats → {})."""
+        import pandas as pd
+
+        out: dict[int, tuple[float, float]] = {}
+        try:
+            from src.valuation import LeagueConfig, SGPCalculator
+
+            if (
+                not isinstance(roster, pd.DataFrame)
+                or roster.empty
+                or "player_id" not in roster.columns
+                or not isinstance(pool, pd.DataFrame)
+                or pool.empty
+                or "player_id" not in pool.columns
+            ):
+                return out
+            weeks = self._scope_weeks(scope)
+            calc = SGPCalculator(LeagueConfig())
+            # Index pool rows by player_id for the projection lookup.
+            pool_by_pid: dict[int, pd.Series] = {}
+            for _, prow in pool.iterrows():
+                try:
+                    ppid = int(prow.get("player_id", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if ppid:
+                    pool_by_pid[ppid] = prow
+            # Season net SGP per roster player (sum of per-category SGP).
+            season_sgp: dict[int, float] = {}
+            for r in roster.to_dict("records"):
+                try:
+                    pid = int(r.get("player_id", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                prow = pool_by_pid.get(pid)
+                if not pid or prow is None:
+                    continue
+                try:
+                    per_cat = calc.player_sgp(prow)
+                except Exception:
+                    continue
+                net = sum(self._f(v) for v in per_cat.values())
+                season_sgp[pid] = net
+            if not season_sgp:
+                return out
+            # Scale to the scope (per-week portion of the season number) + normalize 0-100.
+            scaled = {pid: net * (weeks / 26.0) for pid, net in season_sgp.items()}
+            max_scaled = max((v for v in scaled.values()), default=0.0)
+            for pid, sv in scaled.items():
+                value = round(100.0 * sv / max_scaled, 1) if max_scaled > 0 and sv > 0 else 0.0
+                out[pid] = (value, round(sv, 2))
+        except Exception as exc:
+            logger.warning("LineupService._projection_values failed: %s", exc)
+            return {}
+        return out
+
+    @staticmethod
     def _fa_suggestions(moves, pool) -> list[FaSuggestion]:
         """Map recommend_fa_moves() dicts → FaSuggestion contracts.
 
@@ -567,13 +662,18 @@ class LineupService:
         return f if math.isfinite(f) else default
 
     @staticmethod
-    def _to_slots(lineup, pool=None, roster=None) -> tuple[list[LineupSlot], list[LineupSlot]]:
+    def _to_slots(lineup, pool=None, roster=None, proj_values=None) -> tuple[list[LineupSlot], list[LineupSlot]]:
         """(starters, bench). Starters from lineup['assignments']; bench = roster players
-        not in the optimal lineup (player_id-based, so no fragile name lookup)."""
+        not in the optimal lineup (player_id-based, so no fragile name lookup).
+
+        proj_values = {player_id: (value_0_100, projected_for_scope)} from
+        _projection_values — the LP carries no per-player value, so each slot's
+        value/projected come from the pool's scope-scaled projection."""
         import pandas as pd
 
         if not isinstance(lineup, dict):
             return [], []
+        proj_values = proj_values or {}
         current = LineupService._current_slots(roster)
         assignments = lineup.get("assignments") or []
         starters: list[LineupSlot] = []
@@ -585,6 +685,7 @@ class LineupService:
             except (TypeError, ValueError):
                 pid = 0
             starter_ids.add(pid)
+            pv = proj_values.get(pid, (0.0, 0.0))
             starters.append(
                 LineupSlot(
                     slot=str(g("slot", "") or ""),
@@ -594,8 +695,9 @@ class LineupService:
                         pid, pool, name=_engine_name(g("player_name", "")), positions=g("positions", "")
                     ),
                     action="START",
-                    projected=0.0,  # per-player value is daily-mode (DCV) → slice 2
+                    projected=pv[1],
                     status="start",
+                    value=pv[0],
                     current_slot=current.get(pid, ""),
                 )
             )
@@ -610,6 +712,7 @@ class LineupService:
                 if pid == 0 or pid in starter_ids:
                     continue
                 slot = str(r.get("selected_position", "") or r.get("roster_slot", "") or "BN")
+                pv = proj_values.get(pid, (0.0, 0.0))
                 bench.append(
                     LineupSlot(
                         slot=slot or "BN",
@@ -617,8 +720,9 @@ class LineupService:
                             pid, pool, name=r.get("name") or r.get("player_name"), positions=r.get("positions")
                         ),
                         action="SIT",
-                        projected=0.0,
+                        projected=pv[1],
                         status="bench",
+                        value=pv[0],
                         current_slot=current.get(pid, ""),
                     )
                 )

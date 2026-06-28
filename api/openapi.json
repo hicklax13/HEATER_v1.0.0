@@ -2012,6 +2012,15 @@
             ],
             "title": "Date"
           },
+          "depth": {
+            "default": "standard",
+            "enum": [
+              "standard",
+              "enhanced"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
           "mode": {
             "default": "standard",
             "title": "Mode",
@@ -2694,6 +2703,60 @@
           "total"
         ],
         "title": "OpsCard",
+        "type": "object"
+      },
+      "OptimizeJobRef": {
+        "description": "Handle returned by POST /api/lineup/optimize/start \u2014 the client polls\n/optimize/result/{job_id} until status is 'done' or 'error'.",
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "OptimizeJobRef",
+        "type": "object"
+      },
+      "OptimizeJobResult": {
+        "description": "Polled job state from GET /api/lineup/optimize/result/{job_id}.\n\nstatus: \"running\" (still computing) | \"done\" (result populated) | \"error\" (error set).",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineupOptimizeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OptimizeJobResult",
         "type": "object"
       },
       "OverallLeaderRow": {
@@ -6372,6 +6435,137 @@
           }
         },
         "summary": "Optimize Lineup",
+        "tags": [
+          "lineup"
+        ]
+      }
+    },
+    "/api/lineup/optimize/result/{job_id}": {
+      "get": {
+        "description": "Poll a background optimize job. 404 if the job id is unknown/expired.",
+        "operationId": "optimize_result_api_lineup_optimize_result__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizeJobResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Optimize Result",
+        "tags": [
+          "lineup"
+        ]
+      }
+    },
+    "/api/lineup/optimize/start": {
+      "post": {
+        "description": "Kick off an optimize in the background (so Enhanced/FA can run ~3min past the\nVercel gateway timeout) and return a job handle immediately. The client polls\n/lineup/optimize/result/{job_id}. Team resolution mirrors the sync route.",
+        "operationId": "start_optimize_api_lineup_optimize_start_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineupOptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizeJobRef"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required (when billing is enabled)."
+          },
+          "402": {
+            "description": "Pro subscription required (when billing is enabled)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Optimize",
         "tags": [
           "lineup"
         ]
