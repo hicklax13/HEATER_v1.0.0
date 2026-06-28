@@ -80,21 +80,42 @@ def test_trade_finder_method_discipline_get_is_supported_post_405():
     assert client.post("/api/trade-finder", json={"team_name": "Team Hickey"}).status_code == 405
 
 
-# ── Task 2: emoji/whitespace team resolution + all_team_totals (DB-free) ──────
+# ── Shared fixtures ───────────────────────────────────────────────────────────
 
 
-def _fake_pool():
-    # minimal pool: ids 1,2,3 (user) + 4,5 (rival), with the cols the refs/diff need
+def _hitter_pool():
+    """Pool with real category cols so per-player SGP (calc.player_sgp) is NONZERO
+    and a give/receive swap moves true_gain. Player 4 (rival) is a clearly stronger
+    hitter than user players 1-3, so give=[1] get=[4] is a genuine upgrade
+    (true_gain > 0.5 → surfaces); give=[1,2] get=[4] is value-losing (filtered)."""
     return pd.DataFrame(
         {
             "player_id": [1, 2, 3, 4, 5],
             "player_name": ["You A", "You B", "You C", "Riv A", "Riv B"],
-            "positions": ["OF", "SP", "2B", "SS", "RP"],
+            "positions": ["OF", "OF", "2B", "SS", "RP"],
             "mlb_id": [101, 102, 103, 104, 105],
             "team": ["NYM", "SEA", "KC", "CIN", "CLE"],
-            "is_hitter": [1, 0, 1, 1, 0],
+            "is_hitter": [1, 1, 1, 1, 0],
+            "r": [80, 70, 60, 95, 0],
+            "hr": [25, 20, 15, 30, 0],
+            "rbi": [80, 70, 60, 90, 0],
+            "sb": [5, 3, 2, 30, 0],
+            "ab": [550, 540, 500, 560, 0],
+            "h": [150, 140, 130, 165, 0],
+            "bb": [50, 45, 40, 60, 0],
+            "hbp": [3, 2, 2, 4, 0],
+            "sf": [4, 3, 3, 5, 0],
+            "obp": [0.350, 0.330, 0.320, 0.380, 0.0],
+            "avg": [0.272, 0.259, 0.260, 0.295, 0.0],
         }
     )
+
+
+# `_fake_pool` is the DB-free service-path fixture. It carries the SAME stat columns
+# as `_hitter_pool` so the surfaced swap (give=[1] get=[4]) has true_gain > 0.5 — a
+# pool WITHOUT stat columns would score 0 SGP everywhere and the honest filter would
+# (correctly) drop every trade, breaking the service-path assertions.
+_fake_pool = _hitter_pool
 
 
 class _FakeYds:
@@ -114,11 +135,15 @@ class _FakeYds:
         )
 
 
+# ── Task 2: emoji/whitespace team resolution + all_team_totals (DB-free) ──────
+
+
 def test_service_reconciles_emoji_team_name_and_passes_all_team_totals(monkeypatch):
     """The bug: raw .get('Team Hickey') misses the '🏆 Team Hickey' roster key →
     empty user_roster_ids; and all_team_totals=None forces find_trade_opportunities
     to early-return []. Assert the service reconciles the name AND passes non-None
-    all_team_totals."""
+    all_team_totals. The engine emits a GENUINE upgrade (give weak #1, get strong #4)
+    so the honest re-valuation keeps it (true_gain > 0.5)."""
     captured = {}
 
     def _fake_find(**kwargs):
@@ -151,9 +176,10 @@ def test_service_reconciles_emoji_team_name_and_passes_all_team_totals(monkeypat
     # all_team_totals passed through non-None (the second compounding bug)
     assert captured["all_team_totals"] is not None
     assert "Over the Rembow" in captured["all_team_totals"]
-    # suggestion surfaced
+    # suggestion surfaced (the upgrade has a real positive marginal gain)
     assert len(resp.suggestions) == 1
     assert resp.suggestions[0].partner_team == "Over the Rembow"
+    assert resp.suggestions[0].net_sgp > 0.5
 
 
 def test_service_exact_name_match_still_works(monkeypatch):
@@ -194,22 +220,25 @@ def test_service_unresolvable_name_returns_empty_not_crash(monkeypatch):
     assert resp.suggestions == []
 
 
-# ── Task 3: grade (engine) + partner_record (load_league_records) ─────────────
+# ── HONEST RE-VALUATION: grade + net_sgp come from per-player marginal SGP ─────
 
 
-def test_build_suggestions_reads_engine_grade_and_partner_record(monkeypatch):
-    """grade comes straight off the engine dict (find_trade_opportunities already
-    sets trade['grade']); partner_record comes from load_league_records, matched
-    emoji-tolerantly to the opponent_team."""
+def test_build_suggestions_regrades_from_marginal_value_and_reads_record(monkeypatch):
+    """The honest contract: grade + net_sgp are RE-DERIVED from per-player marginal
+    SGP (calc.player_sgp), NOT trusted from the engine dict. Give a weak hitter (#1),
+    get a clearly stronger one (#4): the marginal gain is several SGP → an A-tier
+    grade. partner_record still reads from load_league_records, emoji-tolerantly."""
     svc = TradeFinderService()
-    pool = _fake_pool()
+    pool = _hitter_pool()
     raw = [
         {
             "giving_ids": [1],
             "receiving_ids": [4],
             "opponent_team": "Over the Rembow",
-            "user_sgp_gain": 1.2,
-            "grade": "B+",
+            # The engine's OWN gain/grade are deliberately WRONG/absent — the service
+            # must ignore them and re-derive from the players' marginal SGP.
+            "user_sgp_gain": 99.0,
+            "grade": "F",
             "rationale": "ok",
         }
     ]
@@ -226,103 +255,188 @@ def test_build_suggestions_reads_engine_grade_and_partner_record(monkeypatch):
         ),
     )
     out = svc._build_suggestions(raw, pool)
-    assert out[0].grade == "B+"
+    assert len(out) == 1
+    # net_sgp is the HONEST marginal gain, not the engine's 99.0
+    assert 3.0 < out[0].net_sgp < 5.0
+    # re-graded from true_gain (a multi-SGP gain → top tier), NOT the engine's "F"
+    assert out[0].grade.startswith("A")
+    # partner_record still surfaces
     assert out[0].partner_record == "11-1-0 · 1st"
 
 
-def test_build_suggestions_missing_grade_and_records_degrade(monkeypatch):
-    """No grade on the dict + no records table → grade '' and partner_record None,
-    never a crash."""
+def test_build_suggestions_record_degrades_grade_always_computed(monkeypatch):
+    """No records table → partner_record None (degrades, never crashes). The grade is
+    now ALWAYS computed from marginal value (never blank), so a positive-gain trade
+    still surfaces with a real grade."""
     monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
     out = TradeFinderService()._build_suggestions(
-        [{"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Nobody", "user_sgp_gain": 0.4}],
-        _fake_pool(),
+        # give weak #1, get strong #4 → true_gain > 0.5 so it surfaces
+        [{"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Nobody"}],
+        _hitter_pool(),
     )
-    assert out[0].grade == ""
+    assert len(out) == 1
     assert out[0].partner_record is None
+    assert out[0].grade != ""  # grade is always derived from true_gain
+    assert out[0].net_sgp > 0.5
 
 
-# ── Task 4: category_impacts (service-side per-category SGP diff) ──────────────
+# ── Marginal category impacts (roster-id-space independent) ────────────────────
 
 
-def test_category_impacts_computed_from_roster_diff():
-    """category_impacts = per-category SGP delta of (roster - give + receive) vs
-    roster, computed in the service (the finder engine doesn't surface it)."""
+def test_build_suggestions_threads_marginal_category_impacts():
+    """Marginal category impacts come from the give/receive players directly
+    (cat_net = Σreceiving − Σgiving), so they are present REGARDLESS of whether
+    user_roster_ids was passed — roster-id-space independent (more robust than the
+    old roster-totals diff)."""
     svc = TradeFinderService()
-    # pool with real-ish category columns so totals_sgp moves on a swap
-    pool = pd.DataFrame(
-        {
-            "player_id": [1, 2, 3, 4],
-            "player_name": ["You A", "You B", "You C", "Riv A"],
-            "positions": ["OF", "OF", "OF", "SS"],
-            "mlb_id": [101, 102, 103, 104],
-            "team": ["NYM", "SEA", "KC", "CIN"],
-            "is_hitter": [1, 1, 1, 1],
-            "r": [80, 70, 60, 95],
-            "hr": [20, 15, 10, 30],
-            "rbi": [70, 60, 50, 90],
-            "sb": [5, 3, 2, 30],
-            "ab": [550, 540, 500, 560],
-            "h": [150, 140, 130, 165],
-            "bb": [50, 45, 40, 60],
-            "hbp": [3, 2, 2, 4],
-            "sf": [4, 3, 3, 5],
-            "obp": [0.350, 0.330, 0.320, 0.380],
-            "avg": [0.272, 0.259, 0.260, 0.295],
-        }
-    )
-    user_roster_ids = [1, 2, 3]
-    impacts = svc._category_impacts(user_roster_ids, [1], [4], pool)
-    cats = {ci.cat for ci in impacts}
-    # at minimum SB should be a large positive delta (give a 5-SB OF, get a 30-SB SS)
-    sb = next((ci for ci in impacts if ci.cat == "SB"), None)
-    assert sb is not None and sb.delta > 0
-    assert "HR" in cats  # a counting cat is present
-
-
-def test_category_impacts_empty_when_no_user_roster():
-    """No user roster ids → empty impacts, no crash."""
-    svc = TradeFinderService()
-    assert svc._category_impacts([], [1], [4], _fake_pool()) == []
-
-
-def test_build_suggestions_threads_category_impacts():
-    """When user_roster_ids is passed, each suggestion carries computed
-    category_impacts; when omitted (None), impacts default to []."""
-    svc = TradeFinderService()
-    pool = pd.DataFrame(
-        {
-            "player_id": [1, 2, 3, 4],
-            "player_name": ["You A", "You B", "You C", "Riv A"],
-            "positions": ["OF", "OF", "OF", "SS"],
-            "mlb_id": [101, 102, 103, 104],
-            "team": ["NYM", "SEA", "KC", "CIN"],
-            "is_hitter": [1, 1, 1, 1],
-            "r": [80, 70, 60, 95],
-            "hr": [20, 15, 10, 30],
-            "rbi": [70, 60, 50, 90],
-            "sb": [5, 3, 2, 30],
-            "ab": [550, 540, 500, 560],
-            "h": [150, 140, 130, 165],
-            "bb": [50, 45, 40, 60],
-            "hbp": [3, 2, 2, 4],
-            "sf": [4, 3, 3, 5],
-            "obp": [0.350, 0.330, 0.320, 0.380],
-            "avg": [0.272, 0.259, 0.260, 0.295],
-        }
-    )
+    pool = _hitter_pool()
     raw = [
         {
             "giving_ids": [1],
             "receiving_ids": [4],
             "opponent_team": "Rival",
-            "user_sgp_gain": 1.0,
         }
     ]
     with_roster = svc._build_suggestions(raw, pool, [1, 2, 3])
-    assert len(with_roster[0].category_impacts) > 0
     without_roster = svc._build_suggestions(raw, pool)
-    assert without_roster[0].category_impacts == []
+    # impacts present in BOTH cases (no longer roster-dependent)
+    assert len(with_roster[0].category_impacts) > 0
+    assert len(without_roster[0].category_impacts) > 0
+    # and identical (the marginal diff doesn't depend on the roster)
+    wi = {ci.cat: ci.delta for ci in with_roster[0].category_impacts}
+    wo = {ci.cat: ci.delta for ci in without_roster[0].category_impacts}
+    assert wi == wo
+
+
+def test_build_suggestions_marginal_impacts_correct_signs():
+    """Anti-"AVG +1.03": giving a run-producer (#4, the strong hitter) and receiving a
+    weaker one (#1) LOWERS R/HR/RBI (negative deltas), and the AVG delta is realistic
+    (|AVG delta| well under 1.0). cat_net = Σreceiving − Σgiving = player_sgp(#1) −
+    player_sgp(#4)."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    # give the STRONG hitter (#4), receive a weak one (#1) → counting cats drop
+    raw = [{"giving_ids": [4], "receiving_ids": [1], "opponent_team": "Rival"}]
+    # This trade is value-LOSING for the user, so it'll be filtered from suggestions.
+    # Compute impacts directly to assert the signs/magnitudes.
+    impacts = svc._marginal_category_impacts([4], [1], pool)
+    by_cat = {ci.cat: ci.delta for ci in impacts}
+    assert by_cat["R"] < 0
+    assert by_cat["HR"] < 0
+    assert by_cat["RBI"] < 0
+    # AVG/OBP deltas are realistic — never an absurd "+1.03" rate SGP on one swap
+    assert abs(by_cat.get("AVG", 0.0)) < 1.0
+    assert abs(by_cat.get("OBP", 0.0)) < 1.0
+
+
+def test_marginal_category_impacts_empty_for_unknown_players():
+    """Unknown player ids → {} per-player SGP → no finite, non-trivial deltas."""
+    svc = TradeFinderService()
+    assert svc._marginal_category_impacts([991], [992], _hitter_pool()) == []
+
+
+# ── HONEST FILTER: lopsided value-losing trades are dropped ────────────────────
+
+
+def test_build_suggestions_filters_lopsided_two_for_one():
+    """The LIVE BUG: give two strong hitters, get one lower-SGP hitter. The honest
+    re-valuation (true_gain = get − give + slot_credit) is deeply negative, so the
+    suggestion is FILTERED OUT — never surfaced as a graded card. This is the exact
+    'give Reynolds+Olson, get Moniak → A / You win' class, fixed."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    # give #1 (~6.8 SGP) + #2 (~6.0 SGP) = ~12.8; get #4 (~10.9 SGP); slot_credit 1.0
+    # true_gain ≈ 10.9 − 12.8 + 1.0 < 0 → filtered.
+    raw = [
+        {
+            "giving_ids": [1, 2],
+            "receiving_ids": [4],
+            "opponent_team": "Rival",
+            "user_sgp_gain": 5.0,  # the engine's inflated gain — must be ignored
+            "grade": "A",  # the engine's bogus grade — must be ignored
+        }
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert out == []  # the value-losing 2-for-1 is dropped
+
+
+def test_build_suggestions_drops_below_min_true_gain():
+    """A trade whose honest marginal gain is at/below the floor (_MIN_TRUE_GAIN) is
+    not surfaced. give #1 get #3 — two similar-value hitters → true_gain near 0."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [{"giving_ids": [1], "receiving_ids": [3], "opponent_team": "Rival", "user_sgp_gain": 0.9}]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert out == []
+
+
+def test_build_suggestions_keeps_genuine_upgrade():
+    """A genuine upgrade (give weak #1, get strong #4) clears the floor and surfaces
+    with an honest net_sgp."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [{"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.1}]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert len(out) == 1
+    assert out[0].net_sgp > 0.5
+
+
+def test_build_suggestions_keeps_positive_distinct_trades():
+    """Distinct positive trades (different partner+receiving) are all kept — both are
+    genuine upgrades giving a weak hitter for a strong one."""
+    svc = TradeFinderService()
+    # extend the pool with a second strong rival hitter (#6) for the 2nd trade
+    pool = _hitter_pool()
+    pool = pd.concat(
+        [
+            pool,
+            pd.DataFrame(
+                {
+                    "player_id": [6],
+                    "player_name": ["Riv C"],
+                    "positions": ["2B"],
+                    "mlb_id": [106],
+                    "team": ["ATL"],
+                    "is_hitter": [1],
+                    "r": [92],
+                    "hr": [28],
+                    "rbi": [88],
+                    "sb": [25],
+                    "ab": [555],
+                    "h": [162],
+                    "bb": [58],
+                    "hbp": [4],
+                    "sf": [5],
+                    "obp": [0.375],
+                    "avg": [0.292],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    raw = [
+        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9},
+        {"giving_ids": [2], "receiving_ids": [6], "opponent_team": "Other", "user_sgp_gain": 0.5},
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert len(out) == 2
+    assert all(s.net_sgp > 0.5 for s in out)
+
+
+def test_build_suggestions_dedupes_same_partner_and_receiving():
+    """Two engine trades with the SAME partner + SAME receiving set (give-side differs)
+    collapse to ONE card — the near-duplicate the live UI showed. Both are genuine
+    upgrades so neither is filtered first; the dedupe keeps the first."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [
+        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9},
+        {"giving_ids": [2], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.6},
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    keys = {(s.partner_team, tuple(sorted(p.id for p in s.receiving))) for s in out}
+    assert len(keys) == 1  # collapsed
+    assert len(out) == 1
 
 
 # ── Observability: response.reason makes a recurrence LOUD (not a silent empty) ──
@@ -369,7 +483,7 @@ def test_reason_no_totals_when_get_all_team_totals_empty(monkeypatch):
 
 
 def test_reason_ok_when_suggestion_produced(monkeypatch):
-    """Engine ran (regardless of count) → reason='ok'."""
+    """Engine ran AND a genuine upgrade survived the honest filter → reason='ok'."""
     monkeypatch.setattr("src.database.load_player_pool", _fake_pool)
     monkeypatch.setattr("src.database.load_league_records", lambda: pd.DataFrame())
     monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: _FakeYds())
@@ -381,8 +495,8 @@ def test_reason_ok_when_suggestion_produced(monkeypatch):
         "src.trade_finder.find_trade_opportunities",
         lambda **k: [
             {
-                "giving_ids": [1],
-                "receiving_ids": [4],
+                "giving_ids": [1],  # weak hitter
+                "receiving_ids": [4],  # strong hitter → genuine upgrade
                 "opponent_team": "Over the Rembow",
                 "user_sgp_gain": 1.2,
                 "grade": "B+",
@@ -392,6 +506,7 @@ def test_reason_ok_when_suggestion_produced(monkeypatch):
     resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
     assert resp.reason == "ok"
     assert len(resp.suggestions) == 1
+    assert resp.suggestions[0].net_sgp > 0.5
 
 
 def test_reason_no_pool_when_pool_empty(monkeypatch):
@@ -414,113 +529,3 @@ def test_reason_no_league_data_when_rosters_empty(monkeypatch):
     resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
     assert resp.reason == "no_league_data"
     assert resp.suggestions == []
-
-
-# ── BUG 1: give-side MUST be subtracted; never fabricate all-positive impacts ──
-
-
-def _hitter_pool():
-    """Pool with real category cols so totals_sgp moves on a swap (3 user hitters
-    1-3 + a strong rival hitter 4)."""
-    return pd.DataFrame(
-        {
-            "player_id": [1, 2, 3, 4],
-            "player_name": ["You A", "You B", "You C", "Riv A"],
-            "positions": ["OF", "OF", "OF", "SS"],
-            "mlb_id": [101, 102, 103, 104],
-            "team": ["NYM", "SEA", "KC", "CIN"],
-            "is_hitter": [1, 1, 1, 1],
-            "r": [80, 70, 60, 95],
-            "hr": [25, 20, 15, 30],
-            "rbi": [80, 70, 60, 90],
-            "sb": [5, 3, 2, 30],
-            "ab": [550, 540, 500, 560],
-            "h": [150, 140, 130, 165],
-            "bb": [50, 45, 40, 60],
-            "hbp": [3, 2, 2, 4],
-            "sf": [4, 3, 3, 5],
-            "obp": [0.350, 0.330, 0.320, 0.380],
-            "avg": [0.272, 0.259, 0.260, 0.295],
-        }
-    )
-
-
-def test_category_impacts_reflect_loss_when_giving_more_than_receiving():
-    """Giving two strong hitters (1,2) for one (4) must produce NEGATIVE deltas in
-    counting cats — the give-side IS subtracted. This is the BUG-1 happy path:
-    impacts reflect BOTH gains and losses, not all-positive."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    impacts = svc._category_impacts([1, 2, 3], [1, 2], [4], pool)
-    by_cat = {ci.cat: ci.delta for ci in impacts}
-    # Net roster HR/R/RBI drop when you give 2 hitters for 1.
-    assert by_cat["HR"] < 0
-    assert by_cat["R"] < 0
-    # At least one cat is a loss → not the fabricated "all gains" card.
-    assert any(v < 0 for v in by_cat.values())
-
-
-def test_category_impacts_returns_empty_when_give_not_in_roster():
-    """BUG-1 DEFENSE: if the engine's giving_ids are NOT in user_roster_ids (the
-    no-op-subtraction condition that produces the fabricated all-positive
-    AVG+2.04 card), the service must NOT compute impacts off a roster that only
-    ADDS the received player. It returns [] (honest 'no impact data') instead."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    # giving ids 991/992 are not on the roster [1,2,3] → after = roster + recv only.
-    impacts = svc._category_impacts([1, 2, 3], [991, 992], [4], pool)
-    assert impacts == []
-
-
-def test_category_impacts_rate_stat_magnitude_bounded():
-    """BUG-1 (rate sub-bug): a single-player swap must not yield an absurd AVG SGP
-    like +2.04. A realistic roster-AVG swing keeps |AVG delta| well under 2.0."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    impacts = svc._category_impacts([1, 2, 3], [1], [4], pool)
-    avg = next((ci.delta for ci in impacts if ci.cat == "AVG"), 0.0)
-    assert abs(avg) < 2.0
-
-
-# ── BUG 2: dedupe near-duplicate cards + never surface obviously-bad trades ────
-
-
-def test_build_suggestions_dedupes_same_partner_and_receiving():
-    """Two engine trades with the SAME partner + SAME receiving set (give-side
-    differs) collapse to ONE card — the near-duplicate the live UI showed."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    raw = [
-        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9, "grade": "B"},
-        {"giving_ids": [2], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.6, "grade": "B-"},
-    ]
-    out = svc._build_suggestions(raw, pool, [1, 2, 3])
-    keys = {(s.partner_team, tuple(sorted(p.id for p in s.receiving))) for s in out}
-    assert len(keys) == 1  # collapsed
-    assert len(out) == 1
-
-
-def test_build_suggestions_drops_non_positive_user_gain():
-    """A trade with net_sgp <= 0 is a loss for the user — the service must NOT
-    surface it as a 'Favorable' card. Only positive-gain trades survive."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    raw = [
-        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": -1.5, "grade": "A-"},
-        {"giving_ids": [3], "receiving_ids": [4], "opponent_team": "Other", "user_sgp_gain": 0.7, "grade": "B"},
-    ]
-    out = svc._build_suggestions(raw, pool, [1, 2, 3])
-    assert all(s.net_sgp > 0 for s in out)
-    assert {s.partner_team for s in out} == {"Other"}
-
-
-def test_build_suggestions_keeps_positive_distinct_trades():
-    """Distinct positive trades (different partner+receiving) are all kept."""
-    svc = TradeFinderService()
-    pool = _hitter_pool()
-    raw = [
-        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9, "grade": "B"},
-        {"giving_ids": [2], "receiving_ids": [3], "opponent_team": "Other", "user_sgp_gain": 0.5, "grade": "B-"},
-    ]
-    out = svc._build_suggestions(raw, pool, [1, 2, 3])
-    assert len(out) == 2
