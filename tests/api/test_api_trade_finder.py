@@ -529,3 +529,92 @@ def test_reason_no_league_data_when_rosters_empty(monkeypatch):
     resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
     assert resp.reason == "no_league_data"
     assert resp.suggestions == []
+
+
+# ── Value basis: ACTUAL 2026 YTD season stats, not the (compressed) projections ──
+
+
+def test_player_value_uses_ytd_not_projection():
+    """Trade value must come from ACTUAL 2026 YTD production, not the projection cols
+    (which over-rate scrubs — Olson #23 and Moniak #2021 were within 0.7 SGP on
+    projections). A player with elite projections but a bust YTD must score BELOW a
+    player with bust projections but an elite YTD."""
+    pool = pd.DataFrame(
+        {
+            "player_id": [1, 2],
+            "player_name": ["Proj Stud / YTD Bust", "Proj Bust / YTD Stud"],
+            "positions": ["OF", "OF"],
+            "is_hitter": [1, 1],
+            # projection columns (the OLD basis)
+            "r": [100, 20],
+            "hr": [40, 3],
+            "rbi": [110, 25],
+            "sb": [20, 1],
+            "avg": [0.310, 0.210],
+            "obp": [0.390, 0.270],
+            "ab": [600, 300],
+            "h": [186, 63],
+            "bb": [70, 20],
+            "hbp": [3, 2],
+            "sf": [5, 3],
+            "pa": [680, 330],
+            # ACTUAL YTD (the NEW basis) — deliberately inverted from the projections
+            "ytd_r": [15, 70],
+            "ytd_hr": [2, 25],
+            "ytd_rbi": [18, 75],
+            "ytd_sb": [0, 12],
+            "ytd_avg": [0.200, 0.300],
+            "ytd_obp": [0.260, 0.380],
+            "ytd_ab": [120, 280],
+            "ytd_h": [24, 84],
+            "ytd_bb": [10, 45],
+            "ytd_hbp": [1, 3],
+            "ytd_sf": [2, 4],
+            "ytd_pa": [135, 330],
+        }
+    )
+    per_cat = TradeFinderService._player_sgp_lookup(pool)
+    v_projstud = sum(per_cat(1).values())  # elite projection, bust YTD
+    v_ytdstud = sum(per_cat(2).values())  # bust projection, elite YTD
+    assert v_ytdstud > v_projstud, (
+        f"value must track YTD, not projection: YTD-stud={v_ytdstud:.2f} should beat YTD-bust={v_projstud:.2f}"
+    )
+
+
+def test_player_value_falls_back_to_projection_when_no_ytd():
+    """A player with NO YTD sample (ytd_ab 0 — e.g. a yet-to-debut callup) is valued off
+    projections, not dropped to 0."""
+    pool = pd.DataFrame(
+        {
+            "player_id": [1],
+            "player_name": ["Callup"],
+            "positions": ["OF"],
+            "is_hitter": [1],
+            "r": [80],
+            "hr": [20],
+            "rbi": [70],
+            "sb": [10],
+            "avg": [0.280],
+            "obp": [0.350],
+            "ab": [500],
+            "h": [140],
+            "bb": [55],
+            "hbp": [3],
+            "sf": [4],
+            "pa": [562],
+            "ytd_r": [0],
+            "ytd_hr": [0],
+            "ytd_rbi": [0],
+            "ytd_sb": [0],
+            "ytd_avg": [0.0],
+            "ytd_obp": [0.0],
+            "ytd_ab": [0],
+            "ytd_h": [0],
+            "ytd_bb": [0],
+            "ytd_hbp": [0],
+            "ytd_sf": [0],
+            "ytd_pa": [0],
+        }
+    )
+    per_cat = TradeFinderService._player_sgp_lookup(pool)
+    assert sum(per_cat(1).values()) > 0, "no-YTD player must fall back to projection value, not 0"

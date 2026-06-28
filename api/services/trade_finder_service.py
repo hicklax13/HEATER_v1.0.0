@@ -40,6 +40,66 @@ def _grade_from_gain(gain: float) -> str:
     return "B-"
 
 
+# Value players by their ACTUAL 2026 YTD season production — the "current total season
+# stats" that the live Yahoo rankings reflect — NOT the pool's projection columns. The
+# projections compress an elite hitter and a replacement-level one (Olson #23 and Moniak
+# #2021 scored within 0.7 SGP); on real YTD stats the gap is honest (Olson +5.05 vs
+# Moniak +2.05), so a lopsided trade reads as the loss it is. We swap the YTD columns
+# into the names player_sgp reads, then fall back to the projection row ONLY when the
+# player has no YTD sample yet (e.g. a yet-to-debut callup) so they aren't valued at 0.
+_YTD_HIT_SWAP = (
+    ("r", "ytd_r"),
+    ("hr", "ytd_hr"),
+    ("rbi", "ytd_rbi"),
+    ("sb", "ytd_sb"),
+    ("avg", "ytd_avg"),
+    ("obp", "ytd_obp"),
+    ("ab", "ytd_ab"),
+    ("h", "ytd_h"),
+    ("bb", "ytd_bb"),
+    ("hbp", "ytd_hbp"),
+    ("sf", "ytd_sf"),
+    ("pa", "ytd_pa"),
+)
+_YTD_PIT_SWAP = (
+    ("w", "ytd_w"),
+    ("l", "ytd_l"),
+    ("sv", "ytd_sv"),
+    ("k", "ytd_k"),
+    ("era", "ytd_era"),
+    ("whip", "ytd_whip"),
+    ("ip", "ytd_ip"),
+    ("er", "ytd_er"),
+)
+
+
+def _ytd_value_row(row):
+    """Return (row_for_valuation, used_ytd). Swaps the actual 2026 YTD season stats into
+    the columns `SGPCalculator.player_sgp` reads so value = real production. Falls back
+    to the unchanged (projection) row when the player has no YTD sample (ytd volume 0),
+    so a not-yet-played player isn't valued at 0. Never raises."""
+    try:
+        if "is_hitter" in row.index:
+            is_hit = bool(int(row.get("is_hitter", 1) or 0))
+        else:
+            is_hit = float(row.get("ytd_ab", 0) or 0) >= float(row.get("ytd_ip", 0) or 0)
+    except Exception:
+        is_hit = True
+    vol_col = "ytd_ab" if is_hit else "ytd_ip"
+    try:
+        vol = float(row.get(vol_col, 0) or 0)
+    except (TypeError, ValueError):
+        vol = 0.0
+    if vol <= 0:
+        return row, False
+    swap = _YTD_HIT_SWAP if is_hit else _YTD_PIT_SWAP
+    s = row.copy()
+    for col, ycol in swap:
+        if ycol in row.index:
+            s[col] = row.get(ycol)
+    return s, True
+
+
 class TradeFinderService:
     def get_suggestions(self, team_name: str, limit: int = 10) -> TradeFinderResponse:
         try:
@@ -187,8 +247,9 @@ class TradeFinderService:
         """Return a cached `player_id -> {cat: per-category SGP}` resolver over `pool`.
         Per-player SGP is the CANONICAL marginal-value path (`SGPCalculator.player_sgp`):
         it applies inverse-stat signs (L/ERA/WHIP) and rate-stat volume weighting
-        correctly — the same per-player value the audit used (Reynolds +3.34, Olson
-        +3.76, Moniak +3.07). A missing/unparseable player → {} (value 0). The id→row
+        correctly. Value is computed on ACTUAL 2026 YTD season stats (see _ytd_value_row)
+        — Olson +5.05, Reynolds +4.43, Moniak +2.05 — NOT the compressed projections that
+        had them within 0.7 SGP. A missing/unparseable player → {} (value 0). The id→row
         index is built ONCE; per-id results are memoized so repeated lookups are free."""
         import pandas as pd
 
@@ -218,7 +279,10 @@ class TradeFinderService:
                 cache[key] = {}
                 return {}
             try:
-                raw = calc.player_sgp(row)
+                # Value by ACTUAL 2026 YTD season stats (the user's "current total season
+                # stats"), falling back to projections only for a no-sample player.
+                val_row, _ = _ytd_value_row(row)
+                raw = calc.player_sgp(val_row)
                 # Guard every value: drop NaN/inf so a bad stat can't poison the sum.
                 clean = {c: float(v) for c, v in raw.items() if math.isfinite(v)}
             except Exception:
