@@ -99,6 +99,12 @@ class LineupService:
             # scope (rest_of_week → 1 week, rest_of_season → ROS) — see _projection_values.
             proj_values = self._projection_values(roster, pool, scope)
             slots, bench = self._to_slots(lineup, pool, roster, proj_values)
+            std_fell_back = False
+            if not slots:
+                # LP seated no one (cold data / no projections) — show the roster grouped
+                # by current slot rather than an empty page.
+                slots, bench = self._roster_view_slots(roster, pool, proj_values)
+                std_fell_back = bool(slots or bench)
             impact = self._impact((lineup or {}).get("projected_stats") if isinstance(lineup, dict) else None)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
             # FA pickups: in STANDARD depth they're loaded by the frontend via a SEPARATE
@@ -109,7 +115,7 @@ class LineupService:
             if str(depth or "standard").lower() == "enhanced":
                 fa_suggestions = self._compose_fa(team_name, scope, yds, pool)
             if slots:
-                summary = f"{len(slots)} starters set."
+                summary = "Showing your roster." if std_fell_back else f"{len(slots)} starters set."
         except Exception as exc:
             logger.warning("LineupService.optimize failed: %s", exc)
         return LineupOptimizeResponse(
@@ -167,6 +173,15 @@ class LineupService:
             slots, bench = self._daily_slots(
                 result.get("daily_dcv"), result.get("daily_lineup"), roster, pool, schedule
             )
+            fell_back = False
+            if not slots:
+                # No actionable daily lineup (e.g. all of today's games already final →
+                # every DCV ~0). Show the roster anyway so the page is never a misleading
+                # empty "couldn't find your roster".
+                slots, bench = self._roster_view_slots(
+                    roster, pool, self._projection_values(roster, pool, "rest_of_season")
+                )
+                fell_back = bool(slots or bench)
             daily = self._daily_meta(result, slots, roster, pool, resolved_date)
             optimal = self._optimal(roster, {s.player.id for s in slots if s.player.id})
             # FA pickups: STANDARD depth loads them separately (frontend) to keep the sync
@@ -175,7 +190,11 @@ class LineupService:
             if str(depth or "standard").lower() == "enhanced":
                 fa_suggestions = self._compose_fa(team_name, "today", yds, pool)
             if slots:
-                summary = f"{len(slots)} starters set for {resolved_date}."
+                summary = (
+                    "Today's games are final — showing your roster."
+                    if fell_back
+                    else f"{len(slots)} starters set for {resolved_date}."
+                )
         except Exception as exc:
             logger.warning("LineupService daily failed: %s", exc)
         return LineupOptimizeResponse(
@@ -509,6 +528,42 @@ class LineupService:
             logger.warning("LineupService._projection_values failed: %s", exc)
             return {}
         return out
+
+    def _roster_view_slots(self, roster, pool, proj_values):
+        """Fallback view: when the optimize yields NO actionable lineup (e.g. 'Today'
+        after all of today's games are final → every DCV is ~0, or a standard LP that
+        couldn't seat anyone), still show the user their roster grouped by its current
+        Yahoo slot — never a misleading empty 'couldn't find your roster'. value = the
+        scope projection (0 when unavailable); current starters START, BN/IL → bench."""
+        import pandas as pd
+
+        starters: list[LineupSlot] = []
+        bench: list[LineupSlot] = []
+        if not isinstance(roster, pd.DataFrame) or roster.empty or "player_id" not in roster.columns:
+            return starters, bench
+        name_col = "name" if "name" in roster.columns else "player_name"
+        for r in roster.to_dict("records"):
+            try:
+                pid = int(r.get("player_id", 0) or 0)
+            except (TypeError, ValueError):
+                pid = 0
+            slot = str(r.get("selected_position", "") or "").strip()
+            if not slot:
+                slot = (str(r.get("positions", "") or "BN").split(",")[0].strip()) or "BN"
+            is_bench = slot.upper() in _NON_LINEUP_SLOTS
+            value = round(self._f((proj_values.get(pid) or (0.0, 0.0))[0]), 1) if proj_values else 0.0
+            (bench if is_bench else starters).append(
+                LineupSlot(
+                    slot=slot or "BN",
+                    player=player_ref_from_pool(pid, pool, name=r.get(name_col), positions=r.get("positions")),
+                    action="SIT" if is_bench else "START",
+                    status="bench" if is_bench else "start",
+                    value=value,
+                    matchup="",
+                    current_slot=slot,
+                )
+            )
+        return starters, bench
 
     @staticmethod
     def _fa_suggestions(moves, pool) -> list[FaSuggestion]:
