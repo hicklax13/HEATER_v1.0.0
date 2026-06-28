@@ -14,6 +14,31 @@ from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
 
+# A freed roster slot in a 2-for-1 is worth a STREAMABLE replacement-level FA — NOT
+# the engine's "best available FA" (src/trade_finder.py ~L701 credits the freed slot
+# at the value of the single BEST FA, large enough to mask a multi-SGP value loss and
+# stamp an "A" on a lopsided 2-for-1). Replacement-level (~1 SGP) is the honest credit.
+_REPLACEMENT_SLOT_SGP = 1.0
+
+# A surfaced trade must be a GENUINE gain. true_gain at/below this floor is noise (or a
+# loss) → dropped. This REPLACES the old `user_sgp_gain <= 0` engine-gain gate, which
+# trusted the engine's inflated gain.
+_MIN_TRUE_GAIN = 0.5
+
+
+def _grade_from_gain(gain: float) -> str:
+    """Letter grade from the HONEST marginal true_gain (SGP). Nothing grades 'A'
+    unless it's a real multi-SGP gain — the anti-"A on a value loss" ladder."""
+    if gain >= 3.0:
+        return "A+"
+    if gain >= 2.0:
+        return "A"
+    if gain >= 1.2:
+        return "B+"
+    if gain >= 0.7:
+        return "B"
+    return "B-"
+
 
 class TradeFinderService:
     def get_suggestions(self, team_name: str, limit: int = 10) -> TradeFinderResponse:
@@ -137,65 +162,6 @@ class TradeFinderService:
             return {}
 
     @staticmethod
-    def _category_impacts(
-        user_roster_ids: list[int],
-        giving_ids: list[int],
-        receiving_ids: list[int],
-        pool,
-        config=None,
-    ) -> list[CategoryImpact]:
-        """Per-category SGP delta of the post-trade roster vs the current roster.
-        Cheap totals diff (no MC/LP) — fine for ≤10 cards. Mirrors src.in_season.
-        analyze_trade: each cat's delta = totals_sgp({cat: after - before}) via the
-        SOLE SGP path (handles inverse-stat signs + denominators correctly). Returns
-        [] on any failure or empty roster.
-
-        BUG-1 DEFENSE: the give-side MUST actually be removed from the post-trade
-        roster. If the engine's giving_ids are NOT a subset of user_roster_ids (an
-        id-space inconsistency, e.g. a partially-synced roster), the subtraction
-        becomes a no-op and `after` only ADDS the received player → fabricated
-        all-positive impacts + an inflated grade (the live AVG+2.04 card). Detect
-        that and return [] (honest 'no impact data') rather than a misleading card.
-        """
-        if not user_roster_ids:
-            return []
-        try:
-            from src.in_season import _roster_category_totals
-            from src.valuation import LeagueConfig, SGPCalculator
-
-            cfg = config or LeagueConfig()
-            calc = SGPCalculator(cfg)
-            before_ids = list(user_roster_ids)
-            roster_set = set(before_ids)
-            give = set(giving_ids)
-            # Guard the no-op subtraction: every give MUST be on the roster.
-            if give and not give.issubset(roster_set):
-                logger.warning(
-                    "TradeFinderService._category_impacts: giving_ids %s not a subset of "
-                    "user_roster_ids — give-side would not subtract (no-op), so impacts "
-                    "would be fabricated all-positive. Returning [] instead.",
-                    sorted(give - roster_set),
-                )
-                return []
-            after_ids = [pid for pid in before_ids if pid not in give] + list(receiving_ids)
-            before = _roster_category_totals(before_ids, pool)
-            after = _roster_category_totals(after_ids, pool)
-            out: list[CategoryImpact] = []
-            for cat in cfg.all_categories:
-                b = float(before.get(cat, 0.0) or 0.0)
-                a = float(after.get(cat, 0.0) or 0.0)
-                # totals_sgp applies the inverse-stat sign (L/ERA/WHIP) + denom, so a
-                # raw (after - before) delta becomes a correctly-signed SGP delta.
-                delta = calc.totals_sgp({cat: a - b})
-                if not math.isfinite(delta):  # guards NaN AND inf (repo _f convention)
-                    continue
-                out.append(CategoryImpact(cat=cat, delta=round(delta, 3)))
-            return out
-        except Exception:
-            logger.warning("TradeFinderService._category_impacts failed", exc_info=True)
-            return []
-
-    @staticmethod
     def _build_league_rosters(rosters_df) -> dict[str, list[int]]:
         """Convert rosters DataFrame to {team_name: [player_ids]}."""
         result: dict[str, list[int]] = {}
@@ -217,66 +183,168 @@ class TradeFinderService:
         return result
 
     @staticmethod
-    def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
-        """Map engine output dicts → TradeSuggestion list.
+    def _player_sgp_lookup(pool):
+        """Return a cached `player_id -> {cat: per-category SGP}` resolver over `pool`.
+        Per-player SGP is the CANONICAL marginal-value path (`SGPCalculator.player_sgp`):
+        it applies inverse-stat signs (L/ERA/WHIP) and rate-stat volume weighting
+        correctly — the same per-player value the audit used (Reynolds +3.34, Olson
+        +3.76, Moniak +3.07). A missing/unparseable player → {} (value 0). The id→row
+        index is built ONCE; per-id results are memoized so repeated lookups are free."""
+        import pandas as pd
 
-        BUG-2 hardening:
-        - DEDUPE near-duplicates: two engine trades that share the same partner +
-          the same receiving set (only the give-side differs) collapse to ONE card
-          (keeping the first, which the engine already sorted as the strongest).
-        - GATE obviously-bad trades: the service never surfaces a trade with a
-          non-positive user gain (net_sgp <= 0) — a card the UI would render as
-          'Favorable' despite being a loss for the user.
+        from src.valuation import LeagueConfig, SGPCalculator
+
+        calc = SGPCalculator(LeagueConfig())
+        rows: dict[int, pd.Series] = {}
+        if isinstance(pool, pd.DataFrame) and not pool.empty and "player_id" in pool.columns:
+            # Last-write-wins on dup ids — harmless (the pool is id-unique in practice).
+            for _, r in pool.iterrows():
+                try:
+                    rows[int(r["player_id"])] = r
+                except (TypeError, ValueError):
+                    continue
+
+        cache: dict[int, dict[str, float]] = {}
+
+        def per_cat(pid: int) -> dict[str, float]:
+            try:
+                key = int(pid)
+            except (TypeError, ValueError):
+                return {}
+            if key in cache:
+                return cache[key]
+            row = rows.get(key)
+            if row is None:
+                cache[key] = {}
+                return {}
+            try:
+                raw = calc.player_sgp(row)
+                # Guard every value: drop NaN/inf so a bad stat can't poison the sum.
+                clean = {c: float(v) for c, v in raw.items() if math.isfinite(v)}
+            except Exception:
+                logger.warning("TradeFinderService: player_sgp failed for id=%s", key, exc_info=True)
+                clean = {}
+            cache[key] = clean
+            return clean
+
+        return per_cat
+
+    @staticmethod
+    def _marginal_category_impacts(giving_ids, receiving_ids, pool, per_cat=None) -> list[CategoryImpact]:
+        """Per-category marginal SGP delta = Σ(receiving) − Σ(giving), per category.
+        Roster-id-space INDEPENDENT (unlike the old roster-totals ratio diff, which
+        depended on user_roster_ids and inflated rate stats / could flip counting
+        signs — the live 'AVG +1.03'). Each player's contribution comes from the
+        canonical `player_sgp` (correct inverse signs). Drops non-finite / trivial
+        (<0.01) deltas. Never raises → []."""
+        try:
+            resolve = per_cat if per_cat is not None else TradeFinderService._player_sgp_lookup(pool)
+            cat_net: dict[str, float] = {}
+            for pid in receiving_ids:
+                for cat, val in resolve(pid).items():
+                    cat_net[cat] = cat_net.get(cat, 0.0) + val
+            for pid in giving_ids:
+                for cat, val in resolve(pid).items():
+                    cat_net[cat] = cat_net.get(cat, 0.0) - val
+            return [
+                CategoryImpact(cat=k, delta=round(v, 3))
+                for k, v in cat_net.items()
+                if math.isfinite(v) and abs(v) >= 0.01
+            ]
+        except Exception:
+            logger.warning("TradeFinderService._marginal_category_impacts failed", exc_info=True)
+            return []
+
+    @staticmethod
+    def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
+        """Map engine output dicts → TradeSuggestion list, RE-VALUED HONESTLY.
+
+        The engine (src/trade_finder.py — SHARED with Streamlit, not modified here)
+        values trades by a weighted roster-totals diff PLUS a freed-roster-spot bonus
+        credited at the BEST available FA, then grades the result. That bonus is large
+        enough to stamp an "A / You win" on a lopsided 2-for-1 that LOSES several SGP
+        (the live "give Reynolds+Olson, get Moniak" card). So the service does NOT
+        trust the engine's `user_sgp_gain` / `grade`. It re-values every suggestion by
+        per-player marginal SGP:
+
+          give_total = Σ sum(player_sgp(pid))  over giving_ids
+          get_total  = Σ sum(player_sgp(pid))  over receiving_ids
+          slot_credit = max(0, |give| − |receive|) * _REPLACEMENT_SLOT_SGP
+          true_gain  = (get_total − give_total) + slot_credit
+
+        Then:
+        - FILTER: drop when true_gain <= _MIN_TRUE_GAIN (replaces the old engine-gain
+          gate). A value-losing 2-for-1 is dropped, not graded.
+        - net_sgp = round(true_gain, 3) — the honest value.
+        - grade = _grade_from_gain(true_gain) — never the engine grade.
+        - category_impacts = the marginal Σreceiving − Σgiving deltas (correct signs,
+          realistic magnitudes), roster-id-space independent.
+        - DEDUPE: same partner + same receiving set (give-side differs) → ONE card.
+
+        A re-valuation failure for ONE suggestion → that suggestion is skipped, never a
+        500. Honest-empty (every candidate value-losing → 0 suggestions) is acceptable.
         """
         from api.tenancy import normalize_team_name
 
         records = TradeFinderService._partner_records()
+        per_cat = TradeFinderService._player_sgp_lookup(pool)
         suggestions: list[TradeSuggestion] = []
         seen_keys: set[tuple] = set()
         for opp in raw:
-            giving_ids: list[int] = opp.get("giving_ids", [])
-            receiving_ids: list[int] = opp.get("receiving_ids", [])
-            partner_team: str = str(opp.get("opponent_team", ""))
-            net_sgp: float = float(opp.get("user_sgp_gain", 0.0) or 0.0)
-            rationale: str = str(opp.get("rationale", "") or "")
-            grade: str = str(opp.get("grade", "") or "")
+            try:
+                giving_ids: list[int] = opp.get("giving_ids", [])
+                receiving_ids: list[int] = opp.get("receiving_ids", [])
+                partner_team: str = str(opp.get("opponent_team", ""))
+                rationale: str = str(opp.get("rationale", "") or "")
 
-            # GATE: drop trades that don't actually help the user. Surfacing a
-            # net-negative trade as a graded card is the BUG-2 "lopsided but
-            # Favorable" complaint.
-            if net_sgp <= 0:
-                logger.debug(
-                    "TradeFinderService: dropping non-positive trade (partner=%r net_sgp=%.3f)",
-                    partner_team,
-                    net_sgp,
+                # Honest re-valuation by per-player marginal SGP.
+                give_total = sum(sum(per_cat(pid).values()) for pid in giving_ids)
+                get_total = sum(sum(per_cat(pid).values()) for pid in receiving_ids)
+                slot_credit = max(0, len(giving_ids) - len(receiving_ids)) * _REPLACEMENT_SLOT_SGP
+                true_gain = (get_total - give_total) + slot_credit
+
+                # FILTER: only GENUINE gains survive. (The live lopsided 2-for-1 lands
+                # well below the floor and is dropped here.)
+                if not math.isfinite(true_gain) or true_gain <= _MIN_TRUE_GAIN:
+                    logger.debug(
+                        "TradeFinderService: dropping value-losing trade (partner=%r true_gain=%.3f)",
+                        partner_team,
+                        true_gain,
+                    )
+                    continue
+
+                # DEDUPE: collapse same partner + same receiving set (give-side differs).
+                dedupe_key = (normalize_team_name(partner_team), tuple(sorted(receiving_ids)))
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+
+                partner_record = records.get(normalize_team_name(partner_team))
+                giving = _build_player_refs(giving_ids, pool)
+                receiving = _build_player_refs(receiving_ids, pool)
+                category_impacts = TradeFinderService._marginal_category_impacts(
+                    giving_ids, receiving_ids, pool, per_cat
+                )
+
+                suggestions.append(
+                    TradeSuggestion(
+                        partner_team=partner_team,
+                        partner_record=partner_record,
+                        grade=_grade_from_gain(true_gain),
+                        giving=giving,
+                        receiving=receiving,
+                        net_sgp=round(true_gain, 3),
+                        category_impacts=category_impacts,
+                        rationale=rationale,
+                    )
+                )
+            except Exception:
+                # One bad suggestion must not 500 the whole list — skip it.
+                logger.warning(
+                    "TradeFinderService._build_suggestions: skipping a suggestion that failed re-valuation",
+                    exc_info=True,
                 )
                 continue
-
-            # DEDUPE: collapse same partner + same receiving set (give-side differs).
-            dedupe_key = (normalize_team_name(partner_team), tuple(sorted(receiving_ids)))
-            if dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
-
-            partner_record = records.get(normalize_team_name(partner_team))
-            giving = _build_player_refs(giving_ids, pool)
-            receiving = _build_player_refs(receiving_ids, pool)
-            category_impacts = TradeFinderService._category_impacts(
-                user_roster_ids or [], giving_ids, receiving_ids, pool
-            )
-
-            suggestions.append(
-                TradeSuggestion(
-                    partner_team=partner_team,
-                    partner_record=partner_record,
-                    grade=grade,
-                    giving=giving,
-                    receiving=receiving,
-                    net_sgp=net_sgp,
-                    category_impacts=category_impacts,
-                    rationale=rationale,
-                )
-            )
         return suggestions
 
 
