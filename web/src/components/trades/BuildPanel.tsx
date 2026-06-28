@@ -125,11 +125,32 @@ function SearchBasket({
 }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<PlayerPick[]>([]);
+  const [searching, setSearching] = useState(false);
 
+  // `searching` tracks the in-flight fetch so the dropdown can show "Searching…"
+  // instead of staying blank while the live request resolves (auth-token wait +
+  // server-side proxy can take a few seconds — a blank box reads as broken). All
+  // setState lives inside the async timeout callback (react-hooks/
+  // set-state-in-effect bans synchronous setState in an effect body).
   useEffect(() => {
     let alive = true;
+    const tooShort = q.trim().length < 2;
     const id = setTimeout(() => {
-      searchPlayers(q).then((r) => alive && setResults(r));
+      if (tooShort) {
+        if (alive) {
+          setResults([]);
+          setSearching(false);
+        }
+        return;
+      }
+      if (alive) setSearching(true);
+      searchPlayers(q)
+        .then((r) => {
+          if (alive) setResults(r);
+        })
+        .finally(() => {
+          if (alive) setSearching(false);
+        });
     }, 250);
     return () => {
       alive = false;
@@ -138,6 +159,7 @@ function SearchBasket({
   }, [q]);
 
   const shown = results.filter((p) => !chosen.has(p.id)).slice(0, 12);
+  const showDropdown = shown.length > 0 || (searching && q.trim().length >= 2);
 
   return (
     <div>
@@ -182,8 +204,11 @@ function SearchBasket({
             aria-label={`Search players to ${label.toLowerCase()}`}
           />
         </div>
-        {shown.length > 0 && (
+        {showDropdown && (
           <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-line bg-canvas shadow-[0_8px_24px_rgba(11,24,48,0.18)]">
+            {shown.length === 0 && searching && (
+              <li className="px-2.5 py-2 text-[12px] text-ink-3">Searching…</li>
+            )}
             {shown.map((p) => (
               <li key={p.id}>
                 <button

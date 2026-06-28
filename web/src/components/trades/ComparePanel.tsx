@@ -25,14 +25,35 @@ export function ComparePanel() {
   const [selected, setSelected] = useState<PlayerPick[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerPick[]>([]);
+  const [searching, setSearching] = useState(false);
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [comparing, setComparing] = useState(false);
 
-  // Debounced player search.
+  // Debounced player search. `searching` tracks the in-flight fetch so the picker
+  // shows "Searching…" instead of a premature "No matching players." while the
+  // request is pending (the live search can take a few seconds — the auth-token
+  // wait + the server-side proxy — which otherwise reads as a broken search).
+  // All setState lives inside the async timeout callback (react-hooks/
+  // set-state-in-effect bans synchronous setState in an effect body).
   useEffect(() => {
     let alive = true;
+    const tooShort = query.trim().length < 2;
     const id = setTimeout(() => {
-      searchPlayers(query).then((r) => alive && setResults(r));
+      if (tooShort) {
+        if (alive) {
+          setResults([]);
+          setSearching(false);
+        }
+        return;
+      }
+      if (alive) setSearching(true);
+      searchPlayers(query)
+        .then((r) => {
+          if (alive) setResults(r);
+        })
+        .finally(() => {
+          if (alive) setSearching(false);
+        });
     }, 250);
     return () => {
       alive = false;
@@ -95,7 +116,11 @@ export function ComparePanel() {
           <ul className="max-h-80 overflow-y-auto">
             {filtered.length === 0 ? (
               <li className="px-4 py-6 text-center text-[13px] text-ink-3">
-                {query.trim().length < 2 ? "Type a name to search players." : "No matching players."}
+                {query.trim().length < 2
+                  ? "Type a name to search players."
+                  : searching
+                    ? "Searching…"
+                    : "No matching players."}
               </li>
             ) : (
               filtered.map((p) => (
