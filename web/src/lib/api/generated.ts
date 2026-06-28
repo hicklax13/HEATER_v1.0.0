@@ -433,6 +433,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lineup/optimize/result/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Optimize Result
+         * @description Poll a background optimize job. 404 if the job id is unknown/expired.
+         */
+        get: operations["optimize_result_api_lineup_optimize_result__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lineup/optimize/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Optimize
+         * @description Kick off an optimize in the background (so Enhanced/FA can run ~3min past the
+         *     Vercel gateway timeout) and return a job handle immediately. The client polls
+         *     /lineup/optimize/result/{job_id}. Team resolution mirrors the sync route.
+         */
+        post: operations["start_optimize_api_lineup_optimize_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lineup/set": {
         parameters: {
             query?: never;
@@ -1734,6 +1776,12 @@ export interface components {
             /** Date */
             date?: string | null;
             /**
+             * Depth
+             * @default standard
+             * @enum {string}
+             */
+            depth: "standard" | "enhanced";
+            /**
              * Mode
              * @default standard
              */
@@ -2051,6 +2099,30 @@ export interface components {
              * @default
              */
             verdict: string;
+        };
+        /**
+         * OptimizeJobRef
+         * @description Handle returned by POST /api/lineup/optimize/start — the client polls
+         *     /optimize/result/{job_id} until status is 'done' or 'error'.
+         */
+        OptimizeJobRef: {
+            /** Job Id */
+            job_id: string;
+            /** Status */
+            status: string;
+        };
+        /**
+         * OptimizeJobResult
+         * @description Polled job state from GET /api/lineup/optimize/result/{job_id}.
+         *
+         *     status: "running" (still computing) | "done" (result populated) | "error" (error set).
+         */
+        OptimizeJobResult: {
+            /** Error */
+            error?: string | null;
+            result?: components["schemas"]["LineupOptimizeResponse"] | null;
+            /** Status */
+            status: string;
         };
         /** OverallLeaderRow */
         OverallLeaderRow: {
@@ -4287,6 +4359,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineupOptimizeResponse"];
+                };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    optimize_result_api_lineup_optimize_result__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimizeJobResult"];
+                };
+            };
+            /** @description Authentication required (when billing is enabled). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pro subscription required (when billing is enabled). */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_optimize_api_lineup_optimize_start_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineupOptimizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimizeJobRef"];
                 };
             };
             /** @description Authentication required (when billing is enabled). */

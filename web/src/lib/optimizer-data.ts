@@ -1,18 +1,27 @@
 import { getViewerTeam } from "@/lib/viewer-team";
 import type { PlayerRef } from "./types";
-import { apiPost } from "@/lib/api/client";
+import { apiGet, apiPost } from "@/lib/api/client";
 import { apiOptimizeToData } from "@/lib/api/adapters";
-import { liveOrMock } from "@/lib/api/live";
-import type { ApiLineupOptimizeResponse } from "@/lib/api/types";
+import { isLive } from "@/lib/api/live";
+import type {
+  ApiLineupOptimizeResponse,
+  ApiOptimizeJobRef,
+  ApiOptimizeJobResult,
+} from "@/lib/api/types";
 
 /**
- * Optimizer data — today's recommended lineup for Team Hickey. With
- * NEXT_PUBLIC_HEATER_LIVE=1, fetchOptimizer POSTs /api/lineup/optimize in DAILY
- * mode (start/sit by 0-100 heat value). Daily mode needs live Yahoo, so it
- * returns empty in local dev (→ the page's empty-state) and populates on Railway;
- * off-live falls back to the mock below. The mock shape is the contract.
+ * Optimizer data — the recommended lineup for the viewer's team. The Optimizer is
+ * EXPLICIT (no auto-run): the page calls runOptimize(scope, depth) when the user
+ * presses Optimize. With NEXT_PUBLIC_HEATER_LIVE=1 it kicks off the ASYNC job
+ * (POST /api/lineup/optimize/start) and polls /optimize/result/{job_id} — required
+ * because the Enhanced (FA) depth runs ~3min, past the Vercel gateway timeout.
+ * scope="today" runs the daily DCV start/sit path; week/season run the standard LP.
+ * Off-live falls back to the mock; the mock shape is the contract.
  */
 export type SlotStatus = "start" | "sit" | "bench" | "off";
+
+/** Optimize depth: standard = fast lineup-only; enhanced = also compose FA pickups (slow). */
+export type OptimizerDepth = "standard" | "enhanced";
 
 export interface LineupSlot {
   slot: string; // C, 1B, …, SP, RP, P, Util, BN
@@ -132,20 +141,40 @@ export const OPTIMIZER: OptimizerData = {
   faSuggestions: [],
 };
 
-/** Live: POST /api/lineup/optimize at the chosen scope → adapt. scope="today" runs the
- *  daily DCV start/sit path on the backend; rest_of_week/rest_of_season run the standard LP.
- *  Live errors propagate (HIGH-3) so usePageData reaches error/locked(402)/unlinked(409); an
- *  empty lineup → null → page `empty`. Off-live → the in-memory OPTIMIZER mock. */
-export async function fetchOptimizer(scope: OptimizerScope = "today"): Promise<OptimizerData | null> {
-  return liveOrMock(
-    async () => {
-      const api = await apiPost<ApiLineupOptimizeResponse>("/lineup/optimize", {
-        team_name: getViewerTeam(),
-        scope,
-      });
-      const data = apiOptimizeToData(api);
+// Poll the async optimize job at this cadence until it finishes. Each poll is a
+// fast GET, so it never hits the Vercel gateway timeout (unlike a 3min sync call).
+const POLL_INTERVAL_MS = 2000;
+// Hard ceiling so a stuck job can't spin forever — Enhanced can run ~3min, plus margin.
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Run an optimize and return its data, or null when there's nothing to show.
+ *
+ *  Live: start the async job (POST /optimize/start) then poll /optimize/result/{id}
+ *  every ~2s until status is "done" (adapt + return) or "error" (throw → the page's
+ *  error state). Live errors PROPAGATE (HIGH-3) so usePageData reaches
+ *  error/locked(402)/unlinked(409). Off-live → the in-memory OPTIMIZER mock. */
+export async function runOptimize(
+  scope: OptimizerScope = "today",
+  depth: OptimizerDepth = "standard",
+): Promise<OptimizerData | null> {
+  if (!isLive()) {
+    await sleep(400);
+    return OPTIMIZER;
+  }
+  const body = { team_name: getViewerTeam(), scope, depth };
+  const ref = await apiPost<ApiOptimizeJobRef>("/lineup/optimize/start", body);
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  while (Date.now() <= deadline) {
+    const res = await apiGet<ApiOptimizeJobResult>(`/lineup/optimize/result/${ref.job_id}`);
+    if (res.status === "error") throw new Error(res.error ?? "Optimize failed.");
+    if (res.status === "done") {
+      if (!res.result) return null;
+      const data = apiOptimizeToData(res.result as ApiLineupOptimizeResponse);
       return data.starters.length > 0 || data.faSuggestions.length > 0 ? data : null;
-    },
-    () => new Promise<OptimizerData>((resolve) => setTimeout(() => resolve(OPTIMIZER), 400)),
-  );
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error("Optimize timed out.");
 }
