@@ -53,6 +53,34 @@ const PROVIDERS = ["deepseek", "anthropic", "openai", "gemini", "xai", "openrout
 
 const PAGE_CONTEXT_CAP = 16 * 1024; // 16 KB cap on the auto-attached page snapshot
 
+// The active conversation id is persisted here so closing+reopening the panel (or
+// reloading the page) restores the last chat instead of a blank one. Only "New
+// chat"/clear resets it. SSR- and quota-safe: every access is wrapped so a
+// missing window (server render) or a private-mode quota error never throws.
+const ACTIVE_CONVO_KEY = "heater_bubba_conversation_id";
+
+function readActiveConversationId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_CONVO_KEY);
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null; // SSR / disabled storage / parse failure — fall back to blank
+  }
+}
+
+function writeActiveConversationId(id: number | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (id == null) window.localStorage.removeItem(ACTIVE_CONVO_KEY);
+    else window.localStorage.setItem(ACTIVE_CONVO_KEY, String(id));
+  } catch {
+    // quota/private-mode — persistence is best-effort, never block the UI
+  }
+}
+
 /** Serialize the current page's loaded data into a size-capped page_context.
  *  Returns undefined when there's nothing to attach or the data can't be
  *  serialized (cycles / non-serializable) — never throws. The backend treats an
@@ -121,7 +149,10 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   const [models, setModels] = useState<ChatModelOption[]>([]);
   const [model, setModel] = useState<string>("");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [conversationId, setConversationId] = useState<number | null>(null);
+  // Lazy-init from localStorage so the active chat survives a close/reopen + reload.
+  // Reading it here (rather than via the persist effect) avoids a mount race where
+  // the persist effect's first (null) write would wipe the value before restore.
+  const [conversationId, setConversationId] = useState<number | null>(readActiveConversationId);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -161,13 +192,26 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
         setPhase("loading");
         return Promise.all([bubba.models(), bubba.conversations()]);
       })
-      .then((res) => {
+      .then(async (res) => {
         if (!alive || !res) return;
         const [ms, convos] = res;
         setModels(ms);
         setModel((m) => m || ms[0]?.id || "");
         setConversations(convos);
         setPhase("ready");
+        // Restore the last active conversation across close/reopen + page reload.
+        // conversationId was lazy-seeded from localStorage; only keep it if it's
+        // still one of the user's conversations (it may have been deleted
+        // server-side, or belong to a different account) — else reset to blank.
+        const persisted = readActiveConversationId();
+        if (persisted != null && convos.some((c) => c.id === persisted)) {
+          const msgs = await bubba.messages(persisted).catch(() => []);
+          if (alive) {
+            setMessages(msgs.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.content })));
+          }
+        } else if (persisted != null && alive) {
+          setConversationId(null); // stale/invalid — start blank (effect clears storage)
+        }
       })
       .catch((e) => {
         if (alive) setPhase(isAuthRequired(e) ? "auth" : "error");
@@ -176,6 +220,13 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       alive = false;
     };
   }, [epoch]);
+
+  // Persist the active conversation id whenever it changes (best-effort, SSR-safe).
+  // This is what lets close+reopen / reload restore the same chat. New chat/clear
+  // sets conversationId to null, which removes the key here.
+  useEffect(() => {
+    writeActiveConversationId(conversationId);
+  }, [conversationId]);
 
   // Keep the transcript pinned to the latest message.
   useEffect(() => {
@@ -231,8 +282,17 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   const startNew = useCallback(() => {
+    // The previous conversation is already saved server-side, so it stays in the
+    // History list (refreshed on send). Clearing the id removes the persisted key.
     setConversationId(null);
     setMessages([]);
+  }, []);
+
+  // Re-pull the conversation list so a just-created conversation shows up in the
+  // History dropdown. Degrades silently (keeps the current list) on failure.
+  const refreshConversations = useCallback(async () => {
+    const convos = await bubba.conversations().catch(() => null);
+    if (convos) setConversations(convos);
   }, []);
 
   const snapPage = useCallback(async () => {
@@ -357,7 +417,12 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
           } else if (e.type === "tool_result") {
             setToolStatus(null);
           } else if (e.type === "done") {
-            if (e.conversation_id) setConversationId(e.conversation_id);
+            if (e.conversation_id) {
+              setConversationId(e.conversation_id);
+              // A new conversation was just created server-side (we sent with a
+              // null id) — refresh History so the just-finished chat is listed.
+              if (conversationId == null) void refreshConversations();
+            }
             setToolStatus(null);
             // An empty completion (model returned no text) would leave a blank
             // bubble that looks like a UI bug — surface it instead of nothing.
@@ -405,7 +470,7 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
       setSending(false);
       setToolStatus(null);
     }
-  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs, pageContextOn, pageId, pageData]);
+  }, [input, sending, model, conversationId, webSearch, deepResearch, effort, tags, images, docs, pageContextOn, pageId, pageData, refreshConversations]);
 
   const onSubmit = useCallback(() => {
     const text = input.trim();
@@ -500,9 +565,42 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
 
       {phase === "ready" && (
         <>
+          {/* History — prominent at the TOP. Picking a past conversation loads it
+              (and persists it); "New chat" archives the current one server-side. */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2">
+            <label
+              htmlFor="bubba-history"
+              className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-ink-3"
+            >
+              History
+            </label>
+            <select
+              id="bubba-history"
+              aria-label="Conversation history"
+              value={conversationId ?? ""}
+              onChange={(e) => (e.target.value ? selectConversation(Number(e.target.value)) : startNew())}
+              className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-2 py-1.5 text-xs font-semibold text-ink outline-none focus:border-heat"
+            >
+              <option value="">New chat</option>
+              {conversations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={startNew}
+              title="Start a new chat (the current one stays in History)"
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-xs font-semibold text-ink-3 transition-colors hover:border-heat hover:text-heat"
+            >
+              <Plus className="size-3.5" aria-hidden /> New
+            </button>
+          </div>
+
           {showSettings && <KeySettings onChanged={reload} />}
 
-          {/* controls: model + history */}
+          {/* controls: model */}
           <div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2">
             <select
               aria-label="Model"
@@ -514,19 +612,6 @@ function BubbaPanel({ onClose }: { onClose: () => void }) {
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Conversation history"
-              value={conversationId ?? ""}
-              onChange={(e) => (e.target.value ? selectConversation(Number(e.target.value)) : startNew())}
-              className="min-w-0 max-w-[44%] rounded-lg border border-line bg-canvas px-2 py-1.5 text-xs font-semibold text-ink outline-none focus:border-heat"
-            >
-              <option value="">New chat</option>
-              {conversations.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
                 </option>
               ))}
             </select>
