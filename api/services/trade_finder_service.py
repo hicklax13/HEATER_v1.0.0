@@ -148,7 +148,15 @@ class TradeFinderService:
         Cheap totals diff (no MC/LP) — fine for ≤10 cards. Mirrors src.in_season.
         analyze_trade: each cat's delta = totals_sgp({cat: after - before}) via the
         SOLE SGP path (handles inverse-stat signs + denominators correctly). Returns
-        [] on any failure or empty roster."""
+        [] on any failure or empty roster.
+
+        BUG-1 DEFENSE: the give-side MUST actually be removed from the post-trade
+        roster. If the engine's giving_ids are NOT a subset of user_roster_ids (an
+        id-space inconsistency, e.g. a partially-synced roster), the subtraction
+        becomes a no-op and `after` only ADDS the received player → fabricated
+        all-positive impacts + an inflated grade (the live AVG+2.04 card). Detect
+        that and return [] (honest 'no impact data') rather than a misleading card.
+        """
         if not user_roster_ids:
             return []
         try:
@@ -158,7 +166,17 @@ class TradeFinderService:
             cfg = config or LeagueConfig()
             calc = SGPCalculator(cfg)
             before_ids = list(user_roster_ids)
+            roster_set = set(before_ids)
             give = set(giving_ids)
+            # Guard the no-op subtraction: every give MUST be on the roster.
+            if give and not give.issubset(roster_set):
+                logger.warning(
+                    "TradeFinderService._category_impacts: giving_ids %s not a subset of "
+                    "user_roster_ids — give-side would not subtract (no-op), so impacts "
+                    "would be fabricated all-positive. Returning [] instead.",
+                    sorted(give - roster_set),
+                )
+                return []
             after_ids = [pid for pid in before_ids if pid not in give] + list(receiving_ids)
             before = _roster_category_totals(before_ids, pool)
             after = _roster_category_totals(after_ids, pool)
@@ -200,11 +218,21 @@ class TradeFinderService:
 
     @staticmethod
     def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
-        """Map engine output dicts → TradeSuggestion list."""
+        """Map engine output dicts → TradeSuggestion list.
+
+        BUG-2 hardening:
+        - DEDUPE near-duplicates: two engine trades that share the same partner +
+          the same receiving set (only the give-side differs) collapse to ONE card
+          (keeping the first, which the engine already sorted as the strongest).
+        - GATE obviously-bad trades: the service never surfaces a trade with a
+          non-positive user gain (net_sgp <= 0) — a card the UI would render as
+          'Favorable' despite being a loss for the user.
+        """
         from api.tenancy import normalize_team_name
 
         records = TradeFinderService._partner_records()
         suggestions: list[TradeSuggestion] = []
+        seen_keys: set[tuple] = set()
         for opp in raw:
             giving_ids: list[int] = opp.get("giving_ids", [])
             receiving_ids: list[int] = opp.get("receiving_ids", [])
@@ -212,8 +240,25 @@ class TradeFinderService:
             net_sgp: float = float(opp.get("user_sgp_gain", 0.0) or 0.0)
             rationale: str = str(opp.get("rationale", "") or "")
             grade: str = str(opp.get("grade", "") or "")
-            partner_record = records.get(normalize_team_name(partner_team))
 
+            # GATE: drop trades that don't actually help the user. Surfacing a
+            # net-negative trade as a graded card is the BUG-2 "lopsided but
+            # Favorable" complaint.
+            if net_sgp <= 0:
+                logger.debug(
+                    "TradeFinderService: dropping non-positive trade (partner=%r net_sgp=%.3f)",
+                    partner_team,
+                    net_sgp,
+                )
+                continue
+
+            # DEDUPE: collapse same partner + same receiving set (give-side differs).
+            dedupe_key = (normalize_team_name(partner_team), tuple(sorted(receiving_ids)))
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            partner_record = records.get(normalize_team_name(partner_team))
             giving = _build_player_refs(giving_ids, pool)
             receiving = _build_player_refs(receiving_ids, pool)
             category_impacts = TradeFinderService._category_impacts(

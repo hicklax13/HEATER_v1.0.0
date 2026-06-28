@@ -414,3 +414,113 @@ def test_reason_no_league_data_when_rosters_empty(monkeypatch):
     resp = TradeFinderService().get_suggestions(team_name="Team Hickey", limit=10)
     assert resp.reason == "no_league_data"
     assert resp.suggestions == []
+
+
+# ── BUG 1: give-side MUST be subtracted; never fabricate all-positive impacts ──
+
+
+def _hitter_pool():
+    """Pool with real category cols so totals_sgp moves on a swap (3 user hitters
+    1-3 + a strong rival hitter 4)."""
+    return pd.DataFrame(
+        {
+            "player_id": [1, 2, 3, 4],
+            "player_name": ["You A", "You B", "You C", "Riv A"],
+            "positions": ["OF", "OF", "OF", "SS"],
+            "mlb_id": [101, 102, 103, 104],
+            "team": ["NYM", "SEA", "KC", "CIN"],
+            "is_hitter": [1, 1, 1, 1],
+            "r": [80, 70, 60, 95],
+            "hr": [25, 20, 15, 30],
+            "rbi": [80, 70, 60, 90],
+            "sb": [5, 3, 2, 30],
+            "ab": [550, 540, 500, 560],
+            "h": [150, 140, 130, 165],
+            "bb": [50, 45, 40, 60],
+            "hbp": [3, 2, 2, 4],
+            "sf": [4, 3, 3, 5],
+            "obp": [0.350, 0.330, 0.320, 0.380],
+            "avg": [0.272, 0.259, 0.260, 0.295],
+        }
+    )
+
+
+def test_category_impacts_reflect_loss_when_giving_more_than_receiving():
+    """Giving two strong hitters (1,2) for one (4) must produce NEGATIVE deltas in
+    counting cats — the give-side IS subtracted. This is the BUG-1 happy path:
+    impacts reflect BOTH gains and losses, not all-positive."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    impacts = svc._category_impacts([1, 2, 3], [1, 2], [4], pool)
+    by_cat = {ci.cat: ci.delta for ci in impacts}
+    # Net roster HR/R/RBI drop when you give 2 hitters for 1.
+    assert by_cat["HR"] < 0
+    assert by_cat["R"] < 0
+    # At least one cat is a loss → not the fabricated "all gains" card.
+    assert any(v < 0 for v in by_cat.values())
+
+
+def test_category_impacts_returns_empty_when_give_not_in_roster():
+    """BUG-1 DEFENSE: if the engine's giving_ids are NOT in user_roster_ids (the
+    no-op-subtraction condition that produces the fabricated all-positive
+    AVG+2.04 card), the service must NOT compute impacts off a roster that only
+    ADDS the received player. It returns [] (honest 'no impact data') instead."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    # giving ids 991/992 are not on the roster [1,2,3] → after = roster + recv only.
+    impacts = svc._category_impacts([1, 2, 3], [991, 992], [4], pool)
+    assert impacts == []
+
+
+def test_category_impacts_rate_stat_magnitude_bounded():
+    """BUG-1 (rate sub-bug): a single-player swap must not yield an absurd AVG SGP
+    like +2.04. A realistic roster-AVG swing keeps |AVG delta| well under 2.0."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    impacts = svc._category_impacts([1, 2, 3], [1], [4], pool)
+    avg = next((ci.delta for ci in impacts if ci.cat == "AVG"), 0.0)
+    assert abs(avg) < 2.0
+
+
+# ── BUG 2: dedupe near-duplicate cards + never surface obviously-bad trades ────
+
+
+def test_build_suggestions_dedupes_same_partner_and_receiving():
+    """Two engine trades with the SAME partner + SAME receiving set (give-side
+    differs) collapse to ONE card — the near-duplicate the live UI showed."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [
+        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9, "grade": "B"},
+        {"giving_ids": [2], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.6, "grade": "B-"},
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    keys = {(s.partner_team, tuple(sorted(p.id for p in s.receiving))) for s in out}
+    assert len(keys) == 1  # collapsed
+    assert len(out) == 1
+
+
+def test_build_suggestions_drops_non_positive_user_gain():
+    """A trade with net_sgp <= 0 is a loss for the user — the service must NOT
+    surface it as a 'Favorable' card. Only positive-gain trades survive."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [
+        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": -1.5, "grade": "A-"},
+        {"giving_ids": [3], "receiving_ids": [4], "opponent_team": "Other", "user_sgp_gain": 0.7, "grade": "B"},
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert all(s.net_sgp > 0 for s in out)
+    assert {s.partner_team for s in out} == {"Other"}
+
+
+def test_build_suggestions_keeps_positive_distinct_trades():
+    """Distinct positive trades (different partner+receiving) are all kept."""
+    svc = TradeFinderService()
+    pool = _hitter_pool()
+    raw = [
+        {"giving_ids": [1], "receiving_ids": [4], "opponent_team": "Rival", "user_sgp_gain": 0.9, "grade": "B"},
+        {"giving_ids": [2], "receiving_ids": [3], "opponent_team": "Other", "user_sgp_gain": 0.5, "grade": "B-"},
+    ]
+    out = svc._build_suggestions(raw, pool, [1, 2, 3])
+    assert len(out) == 2
