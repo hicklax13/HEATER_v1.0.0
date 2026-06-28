@@ -354,6 +354,7 @@ class TradeFinderService:
         per_cat = TradeFinderService._player_sgp_lookup(pool)
         suggestions: list[TradeSuggestion] = []
         seen_keys: set[tuple] = set()
+        logger.info("TradeFinderDiag: re-valuing %d raw engine candidates (honest YTD)", len(raw))
         for opp in raw:
             try:
                 giving_ids: list[int] = opp.get("giving_ids", [])
@@ -367,13 +368,35 @@ class TradeFinderService:
                 slot_credit = max(0, len(giving_ids) - len(receiving_ids)) * _REPLACEMENT_SLOT_SGP
                 true_gain = (get_total - give_total) + slot_credit
 
+                # TEMP DIAG: log every candidate + its honest value + per-cat deltas so we
+                # can see what the engine offers and why each is kept/dropped (live-only;
+                # local rosters are empty). Remove after tuning.
+                _net: dict[str, float] = {}
+                for _pid in giving_ids:
+                    for _c, _v in per_cat(_pid).items():
+                        _net[_c] = _net.get(_c, 0.0) - _v
+                for _pid in receiving_ids:
+                    for _c, _v in per_cat(_pid).items():
+                        _net[_c] = _net.get(_c, 0.0) + _v
+                logger.info(
+                    "TradeFinderDiag cand give=%s recv=%s partner=%r true_gain=%.2f (give_tot=%.2f get_tot=%.2f) deltas=%s",
+                    giving_ids,
+                    receiving_ids,
+                    partner_team,
+                    true_gain,
+                    give_total,
+                    get_total,
+                    {_c: round(_v, 2) for _c, _v in _net.items() if abs(_v) >= 0.05},
+                )
+
                 # FILTER: only GENUINE gains survive. (The live lopsided 2-for-1 lands
                 # well below the floor and is dropped here.)
                 if not math.isfinite(true_gain) or true_gain <= _MIN_TRUE_GAIN:
-                    logger.debug(
-                        "TradeFinderService: dropping value-losing trade (partner=%r true_gain=%.3f)",
+                    logger.info(
+                        "TradeFinderDiag: DROP (partner=%r true_gain=%.3f <= floor %.2f)",
                         partner_team,
                         true_gain,
+                        _MIN_TRUE_GAIN,
                     )
                     continue
 
@@ -409,6 +432,7 @@ class TradeFinderService:
                     exc_info=True,
                 )
                 continue
+        logger.info("TradeFinderDiag: surfaced %d of %d candidates", len(suggestions), len(raw))
         return suggestions
 
 
