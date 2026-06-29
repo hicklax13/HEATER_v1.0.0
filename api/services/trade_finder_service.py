@@ -21,10 +21,11 @@ logger = logging.getLogger(__name__)
 _REPLACEMENT_SLOT_SGP = 1.0
 
 # A surfaced trade must IMPROVE the user's standing by at least this need-weighted SGP.
-# Set low enough to surface modest-but-real category fits (a strong roster rarely has a
-# slam-dunk available), but above noise. The raw-loss floor below still blocks any deal
-# that bleeds total value, so a "modest" surfaced trade is a genuine fit, not a giveaway.
-_MIN_TRUE_GAIN = 0.25
+# Low enough to surface the BEST AVAILABLE fits even when there's no slam-dunk (a strong
+# roster rarely gets a clear-win offer), but above noise. The raw-loss floor below still
+# blocks any deal that bleeds total value, and the grade ladder marks modest fits C/B-
+# so the bar conveys quality rather than hiding the user's options behind a bare "none".
+_MIN_TRUE_GAIN = 0.1
 
 # Hard safety floor on RAW (unweighted) value: never surface a trade that gives away more
 # than this many SGP of total production, even if category-need weighting makes it look
@@ -241,19 +242,8 @@ class TradeFinderService:
             # Category-need weights from the user's standing — so the finder favors trades
             # that improve the categories they're WEAK in (not just raw total value).
             need_weights = _category_need_weights(all_team_totals, resolved_team, LeagueConfig())
-            # TEMP diagnostic: a negative `limit` (never sent by the frontend) returns the
-            # FULL candidate analysis in `reason` so we can see every trade the engine
-            # offered + its honest raw/weighted value. Remove after tuning the floors.
-            debug = limit < 0
-            sink: list | None = [] if debug else None
-            built = self._build_suggestions(raw, pool, user_roster_ids, need_weights=need_weights, debug_sink=sink)
-            if debug:
-                import json as _json
-
-                return TradeFinderResponse(
-                    team_name=team_name, suggestions=built, reason="debug:" + _json.dumps(sink)[:7000]
-                )
-            return TradeFinderResponse(team_name=team_name, suggestions=built[:limit], reason="ok")
+            suggestions = self._build_suggestions(raw, pool, user_roster_ids, need_weights=need_weights)[:limit]
+            return TradeFinderResponse(team_name=team_name, suggestions=suggestions, reason="ok")
 
         except Exception as exc:
             logger.warning("TradeFinderService.get_suggestions failed: %s", exc, exc_info=True)
@@ -428,7 +418,6 @@ class TradeFinderService:
         pool,
         user_roster_ids: list[int] | None = None,
         need_weights: dict[str, float] | None = None,
-        debug_sink: list | None = None,
     ) -> list[TradeSuggestion]:
         """Map engine output dicts → TradeSuggestion list, RE-VALUED HONESTLY.
 
@@ -463,7 +452,6 @@ class TradeFinderService:
         per_cat = TradeFinderService._player_sgp_lookup(pool)
         suggestions: list[TradeSuggestion] = []
         seen_keys: set[tuple] = set()
-        logger.info("TradeFinderDiag: re-valuing %d raw engine candidates (honest YTD)", len(raw))
         for opp in raw:
             try:
                 giving_ids: list[int] = opp.get("giving_ids", [])
@@ -489,31 +477,10 @@ class TradeFinderService:
                 w = need_weights or {}
                 weighted_gain = sum(v * w.get(c, 1.0) for c, v in cat_net.items()) + slot_credit
 
-                logger.info(
-                    "TradeFinderDiag cand give=%s recv=%s partner=%r raw=%.2f weighted=%.2f deltas=%s",
-                    giving_ids,
-                    receiving_ids,
-                    partner_team,
-                    raw_gain,
-                    weighted_gain,
-                    {c: round(v, 2) for c, v in cat_net.items() if abs(v) >= 0.05},
-                )
-
                 # FILTER: surface a standing-improving trade (weighted gain above the
-                # floor) that doesn't bleed raw value (raw above the safety floor). The
-                # live lopsided 2-for-1 fails both; a near-even need-fit passes both.
-                passed = math.isfinite(weighted_gain) and weighted_gain > _MIN_TRUE_GAIN and raw_gain >= _RAW_LOSS_FLOOR
-                if debug_sink is not None:
-                    debug_sink.append(
-                        {
-                            "give": [str(p.name) for p in _build_player_refs(giving_ids, pool)],
-                            "get": [str(p.name) for p in _build_player_refs(receiving_ids, pool)],
-                            "raw": round(float(raw_gain), 2),
-                            "w": round(float(weighted_gain), 2),
-                            "ok": bool(passed),
-                        }
-                    )
-                if not passed:
+                # floor) that doesn't bleed raw value (raw above the safety floor). A
+                # lopsided value-loser fails both; a near-even need-fit passes both.
+                if not math.isfinite(weighted_gain) or weighted_gain <= _MIN_TRUE_GAIN or raw_gain < _RAW_LOSS_FLOOR:
                     continue
 
                 # DEDUPE: collapse same partner + same receiving set (give-side differs).
@@ -554,7 +521,7 @@ class TradeFinderService:
                 continue
         # Best trades first (by need-weighted value to the user).
         suggestions.sort(key=lambda s: s.net_sgp, reverse=True)
-        logger.info("TradeFinderDiag: surfaced %d of %d candidates", len(suggestions), len(raw))
+        logger.info("TradeFinder: surfaced %d of %d engine candidates", len(suggestions), len(raw))
         return suggestions
 
 

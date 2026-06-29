@@ -38,8 +38,8 @@ export default function TradesPage() {
             {state.status === "empty" && (
               <PageEmpty
                 icon={TrendingUp}
-                title="No trade ideas yet"
-                body="We need a bit more league data to surface targets."
+                title="No clearly beneficial trades right now"
+                body="The finder evaluated every realistic deal on current 2026 stats — none improve your team without giving up value. Your roster is strong; check back as form and matchups shift."
               />
             )}
             {state.status === "loaded" && <FinderView data={state.data} />}
