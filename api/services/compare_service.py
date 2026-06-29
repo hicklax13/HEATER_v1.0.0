@@ -60,7 +60,16 @@ class CompareService:
                 )
                 stats: dict[str, float] = {}
                 for cat in categories:
-                    col = _STAT_MAP.get(cat, cat.lower())
+                    proj_col = _STAT_MAP.get(cat, cat.lower())
+                    # Show the player's ACTUAL 2026 YTD season production (the "current
+                    # total season stats" the Yahoo standings reflect), NOT the pool's
+                    # compressed preseason projection — so the head-to-head reads real.
+                    # Read ytd_<col> when the pool carries it; fall back to the projection
+                    # column only when no ytd_ variant exists (so the table never blanks
+                    # for a stat that lacks one). A player with no YTD sample legitimately
+                    # shows low/zero — that's honest (they haven't produced yet).
+                    ytd_col = f"ytd_{proj_col}"
+                    col = ytd_col if ytd_col in pool.columns else proj_col
                     val = r.get(col)
                     if val is not None:
                         try:
