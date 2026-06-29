@@ -241,8 +241,19 @@ class TradeFinderService:
             # Category-need weights from the user's standing — so the finder favors trades
             # that improve the categories they're WEAK in (not just raw total value).
             need_weights = _category_need_weights(all_team_totals, resolved_team, LeagueConfig())
-            suggestions = self._build_suggestions(raw, pool, user_roster_ids, need_weights=need_weights)[:limit]
-            return TradeFinderResponse(team_name=team_name, suggestions=suggestions, reason="ok")
+            # TEMP diagnostic: a negative `limit` (never sent by the frontend) returns the
+            # FULL candidate analysis in `reason` so we can see every trade the engine
+            # offered + its honest raw/weighted value. Remove after tuning the floors.
+            debug = limit < 0
+            sink: list | None = [] if debug else None
+            built = self._build_suggestions(raw, pool, user_roster_ids, need_weights=need_weights, debug_sink=sink)
+            if debug:
+                import json as _json
+
+                return TradeFinderResponse(
+                    team_name=team_name, suggestions=built, reason="debug:" + _json.dumps(sink)[:7000]
+                )
+            return TradeFinderResponse(team_name=team_name, suggestions=built[:limit], reason="ok")
 
         except Exception as exc:
             logger.warning("TradeFinderService.get_suggestions failed: %s", exc, exc_info=True)
@@ -417,6 +428,7 @@ class TradeFinderService:
         pool,
         user_roster_ids: list[int] | None = None,
         need_weights: dict[str, float] | None = None,
+        debug_sink: list | None = None,
     ) -> list[TradeSuggestion]:
         """Map engine output dicts → TradeSuggestion list, RE-VALUED HONESTLY.
 
@@ -490,13 +502,18 @@ class TradeFinderService:
                 # FILTER: surface a standing-improving trade (weighted gain above the
                 # floor) that doesn't bleed raw value (raw above the safety floor). The
                 # live lopsided 2-for-1 fails both; a near-even need-fit passes both.
-                if not math.isfinite(weighted_gain) or weighted_gain <= _MIN_TRUE_GAIN or raw_gain < _RAW_LOSS_FLOOR:
-                    logger.info(
-                        "TradeFinderDiag: DROP (partner=%r weighted=%.3f raw=%.3f)",
-                        partner_team,
-                        weighted_gain,
-                        raw_gain,
+                passed = math.isfinite(weighted_gain) and weighted_gain > _MIN_TRUE_GAIN and raw_gain >= _RAW_LOSS_FLOOR
+                if debug_sink is not None:
+                    debug_sink.append(
+                        {
+                            "give": [p.name for p in _build_player_refs(giving_ids, pool)],
+                            "get": [p.name for p in _build_player_refs(receiving_ids, pool)],
+                            "raw": round(raw_gain, 2),
+                            "w": round(weighted_gain, 2),
+                            "ok": passed,
+                        }
                     )
+                if not passed:
                     continue
 
                 # DEDUPE: collapse same partner + same receiving set (give-side differs).
