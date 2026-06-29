@@ -506,11 +506,11 @@ class TradeFinderService:
                 if debug_sink is not None:
                     debug_sink.append(
                         {
-                            "give": [p.name for p in _build_player_refs(giving_ids, pool)],
-                            "get": [p.name for p in _build_player_refs(receiving_ids, pool)],
-                            "raw": round(raw_gain, 2),
-                            "w": round(weighted_gain, 2),
-                            "ok": passed,
+                            "give": [str(p.name) for p in _build_player_refs(giving_ids, pool)],
+                            "get": [str(p.name) for p in _build_player_refs(receiving_ids, pool)],
+                            "raw": round(float(raw_gain), 2),
+                            "w": round(float(weighted_gain), 2),
+                            "ok": bool(passed),
                         }
                     )
                 if not passed:
