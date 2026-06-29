@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 # stamp an "A" on a lopsided 2-for-1). Replacement-level (~1 SGP) is the honest credit.
 _REPLACEMENT_SLOT_SGP = 1.0
 
-# A surfaced trade must be a GENUINE gain. The need-weighted gain at/below this floor is
-# noise (or a loss) → dropped. This REPLACES the old `user_sgp_gain <= 0` engine-gain
-# gate, which trusted the engine's inflated gain.
-_MIN_TRUE_GAIN = 0.5
+# A surfaced trade must IMPROVE the user's standing by at least this need-weighted SGP.
+# Set low enough to surface modest-but-real category fits (a strong roster rarely has a
+# slam-dunk available), but above noise. The raw-loss floor below still blocks any deal
+# that bleeds total value, so a "modest" surfaced trade is a genuine fit, not a giveaway.
+_MIN_TRUE_GAIN = 0.25
 
 # Hard safety floor on RAW (unweighted) value: never surface a trade that gives away more
 # than this many SGP of total production, even if category-need weighting makes it look
@@ -63,8 +64,9 @@ def _sample_reliability(row) -> float:
 
 
 def _grade_from_gain(gain: float) -> str:
-    """Letter grade from the HONEST marginal true_gain (SGP). Nothing grades 'A'
-    unless it's a real multi-SGP gain — the anti-"A on a value loss" ladder."""
+    """Letter grade from the HONEST need-weighted gain (SGP). Nothing grades 'A' unless
+    it's a real multi-SGP gain; modest fits grade B-/C so the grade never oversells a
+    marginal trade — the anti-"A on a value loss" ladder."""
     if gain >= 3.0:
         return "A+"
     if gain >= 2.0:
@@ -73,7 +75,9 @@ def _grade_from_gain(gain: float) -> str:
         return "B+"
     if gain >= 0.7:
         return "B"
-    return "B-"
+    if gain >= 0.4:
+        return "B-"
+    return "C"
 
 
 # Value players by their ACTUAL 2026 YTD season production — the "current total season
