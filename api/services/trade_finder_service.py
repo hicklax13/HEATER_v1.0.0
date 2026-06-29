@@ -20,10 +20,46 @@ logger = logging.getLogger(__name__)
 # stamp an "A" on a lopsided 2-for-1). Replacement-level (~1 SGP) is the honest credit.
 _REPLACEMENT_SLOT_SGP = 1.0
 
-# A surfaced trade must be a GENUINE gain. true_gain at/below this floor is noise (or a
-# loss) → dropped. This REPLACES the old `user_sgp_gain <= 0` engine-gain gate, which
-# trusted the engine's inflated gain.
+# A surfaced trade must be a GENUINE gain. The need-weighted gain at/below this floor is
+# noise (or a loss) → dropped. This REPLACES the old `user_sgp_gain <= 0` engine-gain
+# gate, which trusted the engine's inflated gain.
 _MIN_TRUE_GAIN = 0.5
+
+# Hard safety floor on RAW (unweighted) value: never surface a trade that gives away more
+# than this many SGP of total production, even if category-need weighting makes it look
+# favorable. Keeps the finder from recommending "sell your strength to patch a weakness"
+# deals that bleed net value. Near-even need-fit trades (raw ≈ 0) still pass.
+_RAW_LOSS_FLOOR = -1.5
+
+# How many candidates to pull from the engine, DECOUPLED from how many we display. The
+# engine ranks by its inflated metric, so the genuinely-good trades rank BELOW its top
+# few (live: the good fits were candidates 11-32). Pull a wide set, re-value honestly,
+# then surface the best `limit`. The engine self-caps well under this for a normal roster.
+_ENGINE_CANDIDATE_POOL = 60
+
+# Small-sample guard: a player's YTD RATE stats (AVG/OBP/ERA/WHIP) are noise until they
+# accumulate enough volume — a 9-IP WHIP or a 25-AB AVG can swing wildly. We scale a
+# player's rate-stat SGP by min(1, volume/stabilization) so a tiny sample contributes a
+# muted (not full) rate signal. Thresholds are deliberately LOW — they mute genuine
+# small samples (callups, just-off-the-IL arms) without touching a 250-AB regular.
+# COUNTING stats are NOT scaled: a low total already reflects the low accumulated value.
+_RATE_STAB_AB = 80.0
+_RATE_STAB_IP = 30.0
+
+
+def _sample_reliability(row) -> float:
+    """0..1 weight on a player's YTD RATE-stat signal, from their accumulated volume.
+    1.0 once they clear the stabilization threshold; lower for tiny samples. Never raises."""
+    try:
+        if "is_hitter" in row.index:
+            is_hit = bool(int(row.get("is_hitter", 1) or 0))
+        else:
+            is_hit = float(row.get("ytd_ab", 0) or 0) >= float(row.get("ytd_ip", 0) or 0)
+        vol = float(row.get("ytd_ab" if is_hit else "ytd_ip", 0) or 0)
+        stab = _RATE_STAB_AB if is_hit else _RATE_STAB_IP
+        return max(0.0, min(1.0, vol / stab)) if stab > 0 else 1.0
+    except Exception:
+        return 1.0
 
 
 def _grade_from_gain(gain: float) -> str:
@@ -100,6 +136,45 @@ def _ytd_value_row(row):
     return s, True
 
 
+def _category_need_weights(all_team_totals, user_team_key, config) -> dict[str, float]:
+    """Per-category NEED weight for the user, from their standing among the league.
+
+    A good H2H-categories trade improves the categories you're WEAK in — even at a small
+    cost to a category you already dominate. Pure total-value (context-free) ranking
+    misses that, so we weight each category's marginal delta by how much the user needs
+    it: HIGHER weight where they're weak, LOWER where they're already strong. Weight =
+    1 - 0.30*z (z = the user's z-score among the 12 teams in that category, inverse-stat
+    aware), clamped to [0.6, 1.6] so it nudges toward fit without letting one category
+    dominate. Returns all 1.0 (context-free) when the data is insufficient. Never raises."""
+    import statistics
+
+    weights: dict[str, float] = {}
+    user = all_team_totals.get(user_team_key) if isinstance(all_team_totals, dict) else None
+    user = user or {}
+    for cat in config.all_categories:
+        try:
+            vals = [
+                float(t[cat])
+                for t in all_team_totals.values()
+                if isinstance(t, dict) and isinstance(t.get(cat), (int, float))
+            ]
+            uval = user.get(cat)
+            if len(vals) < 4 or not isinstance(uval, (int, float)):
+                weights[cat] = 1.0
+                continue
+            sd = statistics.pstdev(vals)
+            if sd < 1e-9:
+                weights[cat] = 1.0
+                continue
+            z = (float(uval) - statistics.fmean(vals)) / sd
+            if cat in config.inverse_stats:
+                z = -z  # lower-is-better → flip so a high z means "strong here"
+            weights[cat] = max(0.6, min(1.6, 1.0 - 0.30 * z))
+        except Exception:
+            weights[cat] = 1.0
+    return weights
+
+
 class TradeFinderService:
     def get_suggestions(self, team_name: str, limit: int = 10) -> TradeFinderResponse:
         try:
@@ -146,6 +221,9 @@ class TradeFinderService:
                 )
                 return TradeFinderResponse(team_name=team_name, reason="no_totals")
 
+            # Pull a WIDE candidate set (decoupled from the display limit): the engine
+            # ranks by its inflated metric, so the genuinely-good trades sit below its top
+            # few. Re-value all honestly, then surface the best `limit`.
             raw = find_trade_opportunities(
                 user_roster_ids=user_roster_ids,
                 player_pool=pool,
@@ -153,10 +231,13 @@ class TradeFinderService:
                 all_team_totals=all_team_totals,
                 user_team_name=resolved_team,
                 league_rosters=league_rosters,
-                max_results=limit,
+                max_results=max(limit, _ENGINE_CANDIDATE_POOL),
             )
 
-            suggestions = self._build_suggestions(raw, pool, user_roster_ids)
+            # Category-need weights from the user's standing — so the finder favors trades
+            # that improve the categories they're WEAK in (not just raw total value).
+            need_weights = _category_need_weights(all_team_totals, resolved_team, LeagueConfig())
+            suggestions = self._build_suggestions(raw, pool, user_roster_ids, need_weights=need_weights)[:limit]
             return TradeFinderResponse(team_name=team_name, suggestions=suggestions, reason="ok")
 
         except Exception as exc:
@@ -256,6 +337,7 @@ class TradeFinderService:
         from src.valuation import LeagueConfig, SGPCalculator
 
         calc = SGPCalculator(LeagueConfig())
+        rate_cats = set(calc.config.rate_stats)
         rows: dict[int, pd.Series] = {}
         if isinstance(pool, pd.DataFrame) and not pool.empty and "player_id" in pool.columns:
             # Last-write-wins on dup ids — harmless (the pool is id-unique in practice).
@@ -281,10 +363,16 @@ class TradeFinderService:
             try:
                 # Value by ACTUAL 2026 YTD season stats (the user's "current total season
                 # stats"), falling back to projections only for a no-sample player.
-                val_row, _ = _ytd_value_row(row)
+                val_row, used_ytd = _ytd_value_row(row)
                 raw = calc.player_sgp(val_row)
                 # Guard every value: drop NaN/inf so a bad stat can't poison the sum.
                 clean = {c: float(v) for c, v in raw.items() if math.isfinite(v)}
+                # Small-sample guard: mute noisy YTD RATE stats (a 9-IP WHIP) by the
+                # player's volume reliability. Counting stats keep their full (low) value.
+                if used_ytd:
+                    rel = _sample_reliability(row)
+                    if rel < 1.0:
+                        clean = {c: (v * rel if c in rate_cats else v) for c, v in clean.items()}
             except Exception:
                 logger.warning("TradeFinderService: player_sgp failed for id=%s", key, exc_info=True)
                 clean = {}
@@ -320,7 +408,12 @@ class TradeFinderService:
             return []
 
     @staticmethod
-    def _build_suggestions(raw: list[dict], pool, user_roster_ids: list[int] | None = None) -> list[TradeSuggestion]:
+    def _build_suggestions(
+        raw: list[dict],
+        pool,
+        user_roster_ids: list[int] | None = None,
+        need_weights: dict[str, float] | None = None,
+    ) -> list[TradeSuggestion]:
         """Map engine output dicts → TradeSuggestion list, RE-VALUED HONESTLY.
 
         The engine (src/trade_finder.py — SHARED with Streamlit, not modified here)
@@ -362,41 +455,43 @@ class TradeFinderService:
                 partner_team: str = str(opp.get("opponent_team", ""))
                 rationale: str = str(opp.get("rationale", "") or "")
 
-                # Honest re-valuation by per-player marginal SGP.
-                give_total = sum(sum(per_cat(pid).values()) for pid in giving_ids)
-                get_total = sum(sum(per_cat(pid).values()) for pid in receiving_ids)
+                # Per-category YTD marginal deltas: Σ(receiving) − Σ(giving).
+                cat_net: dict[str, float] = {}
+                for pid in giving_ids:
+                    for _c, _v in per_cat(pid).items():
+                        cat_net[_c] = cat_net.get(_c, 0.0) - _v
+                for pid in receiving_ids:
+                    for _c, _v in per_cat(pid).items():
+                        cat_net[_c] = cat_net.get(_c, 0.0) + _v
                 slot_credit = max(0, len(giving_ids) - len(receiving_ids)) * _REPLACEMENT_SLOT_SGP
-                true_gain = (get_total - give_total) + slot_credit
+                # RAW gain = honest total value change (the safety floor guards this).
+                raw_gain = sum(cat_net.values()) + slot_credit
+                # NEED-WEIGHTED gain = the trade's value to the user's STANDING: each
+                # category delta scaled by how much the user needs that category (1.0 each
+                # when need_weights is None → context-free). This surfaces near-even trades
+                # that improve weak categories while the raw floor blocks value giveaways.
+                w = need_weights or {}
+                weighted_gain = sum(v * w.get(c, 1.0) for c, v in cat_net.items()) + slot_credit
 
-                # TEMP DIAG: log every candidate + its honest value + per-cat deltas so we
-                # can see what the engine offers and why each is kept/dropped (live-only;
-                # local rosters are empty). Remove after tuning.
-                _net: dict[str, float] = {}
-                for _pid in giving_ids:
-                    for _c, _v in per_cat(_pid).items():
-                        _net[_c] = _net.get(_c, 0.0) - _v
-                for _pid in receiving_ids:
-                    for _c, _v in per_cat(_pid).items():
-                        _net[_c] = _net.get(_c, 0.0) + _v
                 logger.info(
-                    "TradeFinderDiag cand give=%s recv=%s partner=%r true_gain=%.2f (give_tot=%.2f get_tot=%.2f) deltas=%s",
+                    "TradeFinderDiag cand give=%s recv=%s partner=%r raw=%.2f weighted=%.2f deltas=%s",
                     giving_ids,
                     receiving_ids,
                     partner_team,
-                    true_gain,
-                    give_total,
-                    get_total,
-                    {_c: round(_v, 2) for _c, _v in _net.items() if abs(_v) >= 0.05},
+                    raw_gain,
+                    weighted_gain,
+                    {c: round(v, 2) for c, v in cat_net.items() if abs(v) >= 0.05},
                 )
 
-                # FILTER: only GENUINE gains survive. (The live lopsided 2-for-1 lands
-                # well below the floor and is dropped here.)
-                if not math.isfinite(true_gain) or true_gain <= _MIN_TRUE_GAIN:
+                # FILTER: surface a standing-improving trade (weighted gain above the
+                # floor) that doesn't bleed raw value (raw above the safety floor). The
+                # live lopsided 2-for-1 fails both; a near-even need-fit passes both.
+                if not math.isfinite(weighted_gain) or weighted_gain <= _MIN_TRUE_GAIN or raw_gain < _RAW_LOSS_FLOOR:
                     logger.info(
-                        "TradeFinderDiag: DROP (partner=%r true_gain=%.3f <= floor %.2f)",
+                        "TradeFinderDiag: DROP (partner=%r weighted=%.3f raw=%.3f)",
                         partner_team,
-                        true_gain,
-                        _MIN_TRUE_GAIN,
+                        weighted_gain,
+                        raw_gain,
                     )
                     continue
 
@@ -409,18 +504,22 @@ class TradeFinderService:
                 partner_record = records.get(normalize_team_name(partner_team))
                 giving = _build_player_refs(giving_ids, pool)
                 receiving = _build_player_refs(receiving_ids, pool)
-                category_impacts = TradeFinderService._marginal_category_impacts(
-                    giving_ids, receiving_ids, pool, per_cat
-                )
+                # Impacts come straight from the deltas we already computed (correct signs,
+                # realistic magnitudes; the inflated roster-totals diff is gone).
+                category_impacts = [
+                    CategoryImpact(cat=k, delta=round(v, 3))
+                    for k, v in cat_net.items()
+                    if math.isfinite(v) and abs(v) >= 0.01
+                ]
 
                 suggestions.append(
                     TradeSuggestion(
                         partner_team=partner_team,
                         partner_record=partner_record,
-                        grade=_grade_from_gain(true_gain),
+                        grade=_grade_from_gain(weighted_gain),
                         giving=giving,
                         receiving=receiving,
-                        net_sgp=round(true_gain, 3),
+                        net_sgp=round(weighted_gain, 3),
                         category_impacts=category_impacts,
                         rationale=rationale,
                     )
@@ -432,6 +531,8 @@ class TradeFinderService:
                     exc_info=True,
                 )
                 continue
+        # Best trades first (by need-weighted value to the user).
+        suggestions.sort(key=lambda s: s.net_sgp, reverse=True)
         logger.info("TradeFinderDiag: surfaced %d of %d candidates", len(suggestions), len(raw))
         return suggestions
 

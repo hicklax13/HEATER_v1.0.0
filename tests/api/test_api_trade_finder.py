@@ -618,3 +618,47 @@ def test_player_value_falls_back_to_projection_when_no_ytd():
     )
     per_cat = TradeFinderService._player_sgp_lookup(pool)
     assert sum(per_cat(1).values()) > 0, "no-YTD player must fall back to projection value, not 0"
+
+
+# ── Need-weighting, small-sample guard, best-first sort ───────────────────────
+
+
+def test_category_need_weights_reflects_standing():
+    """Need weight is HIGHER where the user is weak (more to gain), LOWER where strong;
+    clamped to [0.6, 1.6]."""
+    from api.services.trade_finder_service import _category_need_weights
+    from src.valuation import LeagueConfig
+
+    totals = {
+        "ME": {"HR": 8, "SB": 60},  # weakest HR, strongest SB
+        "A": {"HR": 30, "SB": 12},
+        "B": {"HR": 34, "SB": 15},
+        "C": {"HR": 40, "SB": 8},
+    }
+    w = _category_need_weights(totals, "ME", LeagueConfig())
+    assert w["HR"] > 1.05, w  # weak in HR → needs it more
+    assert w["SB"] < 0.95, w  # strong in SB → needs it less
+    assert 0.6 <= w["HR"] <= 1.6 and 0.6 <= w["SB"] <= 1.6  # clamped
+
+
+def test_sample_reliability_mutes_tiny_samples():
+    """A tiny YTD sample → low rate-stat reliability; a full sample → 1.0."""
+    from api.services.trade_finder_service import _sample_reliability
+
+    assert _sample_reliability(pd.Series({"is_hitter": 0, "ytd_ip": 60})) == 1.0
+    assert _sample_reliability(pd.Series({"is_hitter": 0, "ytd_ip": 9})) < 0.5  # 9-IP WHIP is noise
+    assert _sample_reliability(pd.Series({"is_hitter": 1, "ytd_ab": 300})) == 1.0
+    assert _sample_reliability(pd.Series({"is_hitter": 1, "ytd_ab": 20})) < 0.5
+
+
+def test_build_suggestions_sorted_best_first():
+    """Surfaced suggestions are ordered by net_sgp (need-weighted value) descending —
+    the strongest trade first."""
+    pool = _hitter_pool()  # player 4 is the strongest hitter; 1-3 weaker
+    raw = [
+        {"giving_ids": [2], "receiving_ids": [4], "opponent_team": "Rival A"},
+        {"giving_ids": [3], "receiving_ids": [4], "opponent_team": "Rival B"},
+    ]
+    out = TradeFinderService()._build_suggestions(raw, pool, [1, 2, 3])
+    nets = [s.net_sgp for s in out]
+    assert nets == sorted(nets, reverse=True), nets
