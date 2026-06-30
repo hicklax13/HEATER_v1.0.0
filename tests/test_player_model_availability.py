@@ -80,3 +80,31 @@ def test_expected_active_weeks_bounded():
     s = availability_survival(_row(health_score=0.8), status="IL15", weeks_remaining=12)
     assert 0.0 <= s.expected_active_weeks <= 12.0
     assert 0.0 <= s.weekly_hazard <= 1.0
+
+
+def test_sample_active_weeks_mean_matches_expectation():
+    from src.player_model.availability import availability_survival, sample_active_weeks
+
+    s = availability_survival(_row(health_score=0.9, age=27), status=None, weeks_remaining=20)
+    rng = np.random.default_rng(0)
+    draws = sample_active_weeks(s, rng, n_samples=5000)
+    assert draws.shape == (5000,)
+    assert draws.min() >= 0 and draws.max() <= 20
+    assert abs(draws.mean() - s.expected_active_weeks) < 0.5  # Monte-Carlo mean ~ expectation
+
+
+def test_sample_active_weeks_reproducible():
+    from src.player_model.availability import availability_survival, sample_active_weeks
+
+    s = availability_survival(_row(), status="IL15", weeks_remaining=15)
+    a = sample_active_weeks(s, np.random.default_rng(7), n_samples=100)
+    b = sample_active_weeks(s, np.random.default_rng(7), n_samples=100)
+    assert np.array_equal(a, b)
+
+
+def test_sample_active_weeks_zero_when_out_all_season():
+    from src.player_model.availability import availability_survival, sample_active_weeks
+
+    s = availability_survival(_row(), status="IL60", weeks_remaining=4)  # IL ~10wk > 4wk left
+    draws = sample_active_weeks(s, np.random.default_rng(1), n_samples=50)
+    assert draws.max() == 0  # sidelined the whole remaining window
