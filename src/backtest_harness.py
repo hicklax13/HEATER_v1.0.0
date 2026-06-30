@@ -63,6 +63,9 @@ def diebold_mariano(loss_a, loss_b) -> tuple[float, float]:
     return (float(dm), float(p))
 
 
+# Deferred import (kept below the pure-NumPy functions, hence E402): backtest_calibration
+# pulls SciPy at module load, so importing it lazily lets callers use decision_regret /
+# purged_kfold_splits without paying the SciPy import cost.
 from src.engine.output.backtest_calibration import trade_prediction_spearman  # noqa: E402
 
 
@@ -88,6 +91,11 @@ class BacktestHarness:
             fold_regrets.append(decision_regret(pred[test], realized[test], k=min(k, test.size)))
         return {
             "n": n,
+            # rank_ic = generic Spearman information coefficient (predicted vs realized).
+            # We reuse trade_prediction_spearman for the math (Spearman is symmetric in its
+            # two inputs), but this is NOT the Section-G trade-delta metric — do NOT compare
+            # it to the 0.4 _SECTION_G_TARGETS floor, which is calibrated for predicted-delta
+            # vs realized-rank-change pairs, not arbitrary valuation/realized-value pairs.
             "rank_ic": trade_prediction_spearman(pred, realized),
             "decision_regret": decision_regret(pred, realized, k=k),
             "mean_fold_regret": float(np.mean(fold_regrets)) if fold_regrets else 0.0,

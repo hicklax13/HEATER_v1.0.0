@@ -24,6 +24,12 @@ def test_decision_regret_empty_and_k_guard():
     assert decision_regret([], [], k=1) == 0.0
     assert decision_regret([1.0], [1.0], k=0) == 0.0
     assert decision_regret([1.0, 2.0], [1.0, 2.0], k=9) == 0.0
+    # k > n clamps to n (lock the contract): for an IMPERFECT predictor, k=9 matches
+    # k=n=3, and k genuinely varies the result (k=1 differs from k=3) — so a broken
+    # clamp or an ignored k would be caught, unlike the perfect-predictor case above.
+    imperfect = ([1.0, 2.0, 3.0], [3.0, 1.0, 2.0])
+    assert decision_regret(*imperfect, k=9) == decision_regret(*imperfect, k=3)
+    assert decision_regret(*imperfect, k=1) != decision_regret(*imperfect, k=3)
 
 
 def test_purged_kfold_covers_all_test_indices_disjointly():
@@ -104,3 +110,17 @@ def test_harness_compare_prefers_lower_error_model():
     verdict = h.compare(lambda r: r["signal"], lambda r: -r["signal"], recs)
     assert verdict["a_better"] is True
     assert verdict["p_value"] < 0.05
+
+
+def test_harness_empty_dataframe_is_safe():
+    from src.backtest_harness import BacktestHarness
+
+    h = BacktestHarness()
+    empty = pd.DataFrame({"realized_value": []})
+    out = h.evaluate(lambda r: 0.0, empty, k=5)
+    assert out["n"] == 0
+    assert out["rank_ic"] != out["rank_ic"]  # NaN sentinel from <3 samples (no exception)
+    assert out["decision_regret"] == 0.0
+    assert out["mean_fold_regret"] == 0.0
+    verdict = h.compare(lambda r: 0.0, lambda r: 0.0, empty)
+    assert verdict == {"dm_stat": 0.0, "p_value": 1.0, "a_better": False}
