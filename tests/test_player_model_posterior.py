@@ -140,3 +140,45 @@ def test_sigma2_zero_sample_is_max_uncertainty():
     s0 = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=0, is_hitter=True)
     s_big = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=5000, is_hitter=True)
     assert s0 > s_big
+
+
+def test_tau2_counting_is_phi_times_mean_and_nb_margin_consistent():
+    from src.player_model.posterior import _COUNTING_OVERDISPERSION, week_to_week_tau2
+
+    mu = 1.15
+    tau2, margin = week_to_week_tau2(mean=mu, kind="counting", category="HR", weekly_vol=0.0)
+    phi = _COUNTING_OVERDISPERSION["HR"]
+    assert tau2 == pytest.approx(phi * mu)
+    assert margin["dist"] == "nb"
+    # NB variance mu + mu^2/r must equal tau2 (the margin reconstructs the same variance).
+    r = margin["r"]
+    assert mu + mu * mu / r == pytest.approx(tau2, rel=1e-6)
+
+
+def test_tau2_counting_poisson_limit_when_phi_one(monkeypatch):
+    import src.player_model.posterior as pm
+
+    monkeypatch.setitem(pm._COUNTING_OVERDISPERSION, "HR", 1.0)
+    tau2, margin = pm.week_to_week_tau2(mean=2.0, kind="counting", category="HR", weekly_vol=0.0)
+    assert tau2 == pytest.approx(2.0)  # Poisson: variance == mean
+    assert math.isinf(margin["r"])  # phi=1 -> r = inf (Poisson)
+
+
+def test_tau2_rate_prop_decreases_with_weekly_volume():
+    from src.player_model.posterior import week_to_week_tau2
+
+    lo_vol, _ = week_to_week_tau2(mean=0.270, kind="rate_prop", category="AVG", weekly_vol=10.0)
+    hi_vol, _ = week_to_week_tau2(mean=0.270, kind="rate_prop", category="AVG", weekly_vol=40.0)
+    assert lo_vol > hi_vol  # more AB/week -> tighter weekly AVG
+    _, margin = week_to_week_tau2(mean=0.270, kind="rate_prop", category="AVG", weekly_vol=20.0)
+    assert margin["dist"] == "beta_binomial"
+    assert margin["theta"] == pytest.approx(0.270)
+
+
+def test_tau2_rate_ratio_margin_is_ratio_normal():
+    from src.player_model.posterior import week_to_week_tau2
+
+    tau2, margin = week_to_week_tau2(mean=3.50, kind="rate_ratio", category="ERA", weekly_vol=20.0)
+    assert tau2 > 0
+    assert margin["dist"] == "ratio_normal"
+    assert margin["std_week"] == pytest.approx(math.sqrt(tau2), rel=1e-6)
