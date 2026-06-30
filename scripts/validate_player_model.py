@@ -83,7 +83,12 @@ def main() -> None:  # pragma: no cover - CLI entry
     print("Layer-0 gate verdict:")
     for k, v in verdict.items():
         print(f"  {k}: {v}")
-    print("PASS" if verdict.get("passes_gate") else "FAIL (see coverage / sigma_scale_hint)")
+    if verdict.get("n", 0) == 0:
+        # Distinguish "no data assembled" from a real model failure (the actuals game-log
+        # assembly is the operator's integration point — an empty frame is NOT a gate failure).
+        print("NO DATA — wire the actuals game-log assembly in run_gate before reading the verdict")
+    else:
+        print("PASS" if verdict.get("passes_gate") else "FAIL (see coverage / sigma_scale_hint)")
 
 
 if __name__ == "__main__":  # pragma: no cover
