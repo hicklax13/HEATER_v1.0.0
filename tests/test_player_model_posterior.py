@@ -255,3 +255,13 @@ def test_categories_locked_to_league_config():
     cfg = LeagueConfig()
     keys = set(player_posteriors(_hitter_row(), cfg)) | set(player_posteriors(_pitcher_row(), cfg))
     assert keys == set(cfg.all_categories)
+
+
+def test_tau2_rate_prop_margin_consistent_with_tau2():
+    from src.player_model.posterior import week_to_week_tau2
+
+    tau2, m = week_to_week_tau2(mean=0.270, kind="rate_prop", category="AVG", weekly_vol=20.0)
+    theta, n, rho = m["theta"], m["n"], m["rho"]
+    # Beta-binomial variance of the weekly RATE must reconstruct tau2 exactly.
+    reconstructed = theta * (1 - theta) / n * (1 + (n - 1) * rho)
+    assert reconstructed == pytest.approx(tau2, rel=1e-9)

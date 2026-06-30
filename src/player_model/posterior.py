@@ -54,6 +54,10 @@ _COUNTING_OVERDISPERSION: dict[str, float] = {
 _RATE_TALENT_STD: dict[str, float] = {"AVG": 0.020, "OBP": 0.022, "ERA": 0.60, "WHIP": 0.09}
 _RATE_FLOOR_STD: dict[str, float] = {"AVG": 0.012, "OBP": 0.013, "ERA": 0.35, "WHIP": 0.05}
 _RATE_WEEK_STD: dict[str, float] = {"AVG": 0.022, "OBP": 0.025, "ERA": 0.70, "WHIP": 0.10}
+# Within-week intra-class correlation (overdispersion) for rate_prop beta-binomial margins.
+# 0 => pure binomial weekly sampling; small positive => within-week matchup/streak correlation.
+# Harness-calibratable (slice 5).
+_RATE_ICC: dict[str, float] = {"AVG": 0.01, "OBP": 0.01}
 _RATE_REF_AB: float = 20.0  # reference weekly AB the AVG/OBP week-std is quoted at
 _RATE_REF_IP: float = 20.0  # reference weekly IP the ERA/WHIP week-std is quoted at
 _MIN_WEEK_VOL: float = 1.0  # floor on weekly volume to avoid division blow-ups
@@ -101,7 +105,7 @@ def _f(value, default: float = 0.0) -> float:
 
 
 def _mean_for(row, category: str, kind: str, config: LeagueConfig, weeks: float) -> float:
-    col = config.STAT_MAP[category]
+    col = config.STAT_MAP.get(category, category.lower())
     raw = _f(row.get(col)) if hasattr(row, "get") else _f(row[col])
     if kind == "counting":
         return raw / weeks if weeks > 0 else 0.0
@@ -113,7 +117,7 @@ def _shrink(n: float, is_hitter: bool) -> float:
     Generalizes weekly_matrix.build_team_kalman_variances' per-team shrink to per-player."""
     s0 = _STABILIZE_PA if is_hitter else _STABILIZE_IP
     n = max(0.0, _f(n))
-    return s0 / (s0 + n) if (s0 + n) > 0 else 1.0
+    return s0 / (s0 + n)
 
 
 def between_player_sigma2(mean: float, kind: str, category: str, n: float, is_hitter: bool) -> float:
@@ -123,6 +127,8 @@ def between_player_sigma2(mean: float, kind: str, category: str, n: float, is_hi
     std seeds. Returns a variance (>= floor^2 > 0)."""
     mean = _f(mean)
     shrink = _shrink(n, is_hitter)
+    # Note: counting sigma2 shrinks strongly with sample (CV on the mean); rate sigma2 is
+    # floor-dominated and shrinks weakly (absolute-std seeds) — intentional; calibrated in slice 5.
     if kind == "counting":
         reducible = abs(mean) * _TALENT_CV * shrink
         floor = max(abs(mean) * _PROJ_FLOOR_CV, _COUNTING_ABS_FLOOR)
@@ -146,15 +152,14 @@ def week_to_week_tau2(mean: float, kind: str, category: str, weekly_vol: float) 
         return float(tau2), {"dist": "nb", "mean": mu, "r": r}
 
     if kind == "rate_prop":
-        ref = _RATE_REF_AB
+        # Weekly rate H/n is beta-binomial: Var(H/n) = theta(1-theta)/n * [1 + (n-1)*rho].
+        # Computing tau2 FROM this (not a season-scale std) keeps tau2 and the {theta,n,rho}
+        # margin consistent by construction (rho>0 => genuine within-week overdispersion).
         vol = max(_MIN_WEEK_VOL, _f(weekly_vol))
-        base = _RATE_WEEK_STD.get(category, 0.022)
-        tau2 = (base * base) * (ref / vol)
-        # Beta-binomial intra-class correlation implied by the inflated week variance over a
-        # binomial baseline theta(1-theta)/vol; clamped to [0, 0.5] for stability.
         theta = min(max(mean, 1e-3), 1 - 1e-3)
+        rho = _RATE_ICC.get(category, 0.0)
         binom_var = theta * (1 - theta) / vol
-        rho = 0.0 if binom_var <= 0 else min(0.5, max(0.0, (tau2 - binom_var) / max(binom_var, 1e-9)))
+        tau2 = binom_var * (1.0 + (vol - 1.0) * rho)
         return float(tau2), {"dist": "beta_binomial", "theta": theta, "n": vol, "rho": rho}
 
     # rate_ratio (ERA/WHIP): events-per-IP, not a proportion.
@@ -183,7 +188,7 @@ def category_posterior(
     """Build the per-category posterior for one pool row. `weeks` defaults to
     config.season_weeks. Never raises on missing columns / NaN (degrades gracefully)."""
     cfg = config or LeagueConfig()
-    weeks = float(weeks) if weeks else float(cfg.season_weeks)
+    weeks = float(weeks) if (weeks is not None and weeks > 0) else float(cfg.season_weeks)
     kind = classify_kind(category, cfg)
     is_hit = _is_hitter(row)
     mean = _mean_for(row, category, kind, cfg, weeks)
