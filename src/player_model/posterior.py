@@ -31,6 +31,7 @@ from src.valuation import LeagueConfig
 # ~6000). Seeds below are deliberate, sensible, and replaced by slice-5 SURE calibration.
 _TALENT_CV: float = 0.40  # reducible true-talent spread coefficient (counting cats)
 _PROJ_FLOOR_CV: float = 0.10  # irreducible projection-error CV — NEVER vanishes (gap G3)
+_COUNTING_ABS_FLOOR: float = 1e-4  # minimum absolute floor for zero-mean / NaN-mean rows (gap G3)
 _STABILIZE_PA: float = 1200.0  # ytd_pa at which true-talent shrink == 0.5 (hitter cats)
 _STABILIZE_IP: float = 400.0  # ytd_ip at which true-talent shrink == 0.5 (pitcher cats)
 
@@ -124,7 +125,7 @@ def between_player_sigma2(mean: float, kind: str, category: str, n: float, is_hi
     shrink = _shrink(n, is_hitter)
     if kind == "counting":
         reducible = abs(mean) * _TALENT_CV * shrink
-        floor = abs(mean) * _PROJ_FLOOR_CV
+        floor = max(abs(mean) * _PROJ_FLOOR_CV, _COUNTING_ABS_FLOOR)
     else:  # rate_prop / rate_ratio
         reducible = _RATE_TALENT_STD.get(category, 0.02) * shrink
         floor = _RATE_FLOOR_STD.get(category, 0.01)

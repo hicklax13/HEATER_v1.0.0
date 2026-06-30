@@ -223,3 +223,35 @@ def test_sigma2_wired_to_ytd_sample_through_posterior():
     rookie = category_posterior(_hitter_row(hr=30, ytd_pa=40), "HR", cfg)
     veteran = category_posterior(_hitter_row(hr=30, ytd_pa=1500), "HR", cfg)
     assert rookie.sigma2 > veteran.sigma2  # low YTD sample -> wider true-talent band
+
+
+def test_never_raises_on_nan_and_missing_columns():
+    from src.player_model.posterior import category_posterior, player_posteriors
+
+    cfg = LeagueConfig()
+    sparse = pd.Series({"player_id": 9, "is_hitter": 1, "hr": np.nan})  # missing most columns
+    p = category_posterior(sparse, "HR", cfg)
+    assert math.isfinite(p.mean) and math.isfinite(p.sigma2) and math.isfinite(p.tau2)
+    assert p.sigma2 > 0  # floor still applies even with a NaN mean (degrades to 0 mean -> floor only path)
+    out = player_posteriors(sparse, cfg)
+    assert set(out.keys()) == set(cfg.hitting_categories)
+
+
+def test_pitcher_rate_ratio_uses_ip_volume_and_ytd_ip_sample():
+    from src.player_model.posterior import category_posterior
+
+    cfg = LeagueConfig()
+    p = category_posterior(_pitcher_row(era=3.20, ip=180.0, ytd_ip=60.0), "ERA", cfg, weeks=26)
+    assert p.kind == "rate_ratio"
+    assert p.margin["dist"] == "ratio_normal"
+    assert p.mean == pytest.approx(3.20)
+    assert math.isfinite(p.sigma2) and p.sigma2 > 0
+
+
+def test_categories_locked_to_league_config():
+    # No hardcoded category list — every produced category is a LeagueConfig category.
+    from src.player_model.posterior import player_posteriors
+
+    cfg = LeagueConfig()
+    keys = set(player_posteriors(_hitter_row(), cfg)) | set(player_posteriors(_pitcher_row(), cfg))
+    assert keys == set(cfg.all_categories)
