@@ -182,3 +182,44 @@ def test_tau2_rate_ratio_margin_is_ratio_normal():
     assert tau2 > 0
     assert margin["dist"] == "ratio_normal"
     assert margin["std_week"] == pytest.approx(math.sqrt(tau2), rel=1e-6)
+
+
+def test_category_posterior_full_object_hitter_counting():
+    from src.player_model.posterior import category_posterior
+
+    cfg = LeagueConfig()
+    p = category_posterior(_hitter_row(hr=30, ytd_pa=300), "HR", cfg, weeks=26)
+    assert p.category == "HR" and p.kind == "counting"
+    assert p.mean == pytest.approx(30 / 26)
+    assert p.sigma2 > 0 and p.tau2 > 0
+    assert p.margin["dist"] == "nb"
+
+
+def test_category_posterior_rate_uses_weekly_volume_from_pool():
+    from src.player_model.posterior import category_posterior
+
+    cfg = LeagueConfig()
+    # 520 AB over 26 weeks -> 20 AB/week feeds the beta-binomial n.
+    p = category_posterior(_hitter_row(avg=0.300, ab=520), "AVG", cfg, weeks=26)
+    assert p.kind == "rate_prop"
+    assert p.margin["n"] == pytest.approx(20.0)
+    assert p.margin["theta"] == pytest.approx(0.300)
+
+
+def test_player_posteriors_covers_only_relevant_cats():
+    from src.player_model.posterior import player_posteriors
+
+    cfg = LeagueConfig()
+    hit = player_posteriors(_hitter_row(), cfg)
+    assert set(hit.keys()) == set(cfg.hitting_categories)  # hitter -> 6 hitting cats only
+    pit = player_posteriors(_pitcher_row(), cfg)
+    assert set(pit.keys()) == set(cfg.pitching_categories)  # pitcher -> 6 pitching cats only
+
+
+def test_sigma2_wired_to_ytd_sample_through_posterior():
+    from src.player_model.posterior import category_posterior
+
+    cfg = LeagueConfig()
+    rookie = category_posterior(_hitter_row(hr=30, ytd_pa=40), "HR", cfg)
+    veteran = category_posterior(_hitter_row(hr=30, ytd_pa=1500), "HR", cfg)
+    assert rookie.sigma2 > veteran.sigma2  # low YTD sample -> wider true-talent band
