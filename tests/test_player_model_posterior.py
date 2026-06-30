@@ -102,3 +102,41 @@ def test_posterior_fields_present():
     assert p.kind == "counting"
     assert p.mean > 0 and p.sigma2 > 0 and p.tau2 > 0
     assert isinstance(p.margin, dict) and p.margin["dist"] == "nb"
+
+
+def test_sigma2_heteroscedastic_low_sample_is_more_uncertain():
+    from src.player_model.posterior import between_player_sigma2
+
+    # Same mean, different YTD sample size -> low-sample player has LARGER true-talent variance.
+    lo = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=50, is_hitter=True)
+    hi = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=1200, is_hitter=True)
+    assert lo > hi
+
+
+def test_sigma2_floor_never_vanishes():
+    from src.player_model.posterior import between_player_sigma2
+
+    # Even an "infinitely sampled" player keeps the irreducible projection-error floor (gap G3).
+    huge = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=10_000_000, is_hitter=True)
+    assert huge > 0.0
+    # The floor equals (|mean| * _PROJ_FLOOR_CV)^2 in the large-sample limit.
+    from src.player_model.posterior import _PROJ_FLOOR_CV
+
+    assert huge == pytest.approx((1.15 * _PROJ_FLOOR_CV) ** 2, rel=1e-6)
+
+
+def test_sigma2_rate_uses_absolute_std_not_cv():
+    from src.player_model.posterior import _RATE_FLOOR_STD, between_player_sigma2
+
+    # Rate cats use an ABSOLUTE std floor (a 0.40 CV on a 0.270 AVG would be absurd).
+    s = between_player_sigma2(mean=0.270, kind="rate_prop", category="AVG", n=10_000_000, is_hitter=True)
+    assert s == pytest.approx(_RATE_FLOOR_STD["AVG"] ** 2, rel=1e-6)
+
+
+def test_sigma2_zero_sample_is_max_uncertainty():
+    from src.player_model.posterior import between_player_sigma2
+
+    # n=0 -> shrink=1 -> full talent spread + floor.
+    s0 = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=0, is_hitter=True)
+    s_big = between_player_sigma2(mean=1.15, kind="counting", category="HR", n=5000, is_hitter=True)
+    assert s0 > s_big
