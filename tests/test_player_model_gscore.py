@@ -127,3 +127,58 @@ def test_player_gscore_returns_total_and_per_cat():
     assert "total" in out and "per_category" in out
     assert set(out["per_category"]) == set(cfg.hitting_categories)
     assert out["total"] == pytest.approx(sum(out["per_category"].values()))
+
+
+def test_player_gscore_empty_context_no_raise():
+    from src.player_model.gscore import LeagueContext, player_gscore
+
+    cfg = LeagueConfig()
+    out = player_gscore(player_posteriors(_elite_hitter(), cfg), LeagueContext(), cfg, detail=True)
+    # No league spreads -> every denominator collapses -> all-zero, but no error.
+    assert math.isfinite(out["total"])
+    assert all(math.isfinite(v) for v in out["per_category"].values())
+
+
+def test_category_gscore_nan_inputs_safe():
+    from src.player_model.gscore import category_gscore
+
+    g = category_gscore(
+        mean=float("nan"),
+        tau2=float("nan"),
+        league_mean=float("nan"),
+        league_sd=float("nan"),
+        n_slots=10,
+        inverse=False,
+    )
+    assert g == 0.0  # all-NaN -> coerced to 0 -> zero denominator -> 0.0
+
+
+def test_pitcher_gscore_uses_pitcher_slots_and_inverse():
+    from src.player_model.gscore import LeagueContext, player_gscore
+
+    cfg = LeagueConfig()
+    pitcher = pd.Series(
+        dict(
+            player_id=3,
+            name="Ace",
+            is_hitter=0,
+            w=16,
+            l=6,
+            sv=0,
+            k=220,
+            era=2.90,
+            whip=1.02,
+            ip=190.0,
+            ytd_ip=70.0,
+            ytd_pa=0,
+        )
+    )
+    ctx = LeagueContext(
+        means={"W": 10 / 26, "L": 8 / 26, "SV": 5 / 26, "K": 180 / 26, "ERA": 3.95, "WHIP": 1.25},
+        sds={"W": 0.2, "L": 0.2, "SV": 0.6, "K": 1.5, "ERA": 0.7, "WHIP": 0.12},
+    )
+    out = player_gscore(player_posteriors(pitcher, cfg), ctx, cfg, detail=True)
+    # A 2.90-ERA ace beats a 3.95 league ERA -> positive ERA G (inverse handled).
+    assert out["per_category"]["ERA"] > 0
+    assert out["per_category"]["WHIP"] > 0
+    assert set(out["per_category"]) == set(cfg.pitching_categories)
