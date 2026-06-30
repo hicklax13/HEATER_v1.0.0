@@ -73,3 +73,34 @@ def test_diebold_mariano_degenerate_guards():
 
     assert diebold_mariano([1.0], [2.0]) == (0.0, 1.0)
     assert diebold_mariano([], []) == (0.0, 1.0)
+
+
+import pandas as pd  # noqa: E402
+
+
+def _records(n=30, noise=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    true = rng.normal(0, 1, size=n)
+    return pd.DataFrame({"signal": true, "realized_value": true + rng.normal(0, noise, size=n)})
+
+
+def test_harness_evaluate_good_valuation_beats_random():
+    from src.backtest_harness import BacktestHarness
+
+    h = BacktestHarness(n_folds=5, embargo=1)
+    recs = _records(40, noise=0.1, seed=2)
+    good = h.evaluate(lambda r: r["signal"], recs, k=5)
+    rand = h.evaluate(lambda r: 0.0 * r["signal"], recs, k=5)
+    assert good["rank_ic"] > 0.8
+    assert good["decision_regret"] <= rand["decision_regret"]
+    assert good["n"] == 40
+
+
+def test_harness_compare_prefers_lower_error_model():
+    from src.backtest_harness import BacktestHarness
+
+    h = BacktestHarness()
+    recs = _records(60, noise=0.5, seed=3)
+    verdict = h.compare(lambda r: r["signal"], lambda r: -r["signal"], recs)
+    assert verdict["a_better"] is True
+    assert verdict["p_value"] < 0.05
