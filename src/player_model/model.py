@@ -12,6 +12,7 @@ re-derives a value (spec §5 single source of truth).
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 
@@ -21,6 +22,8 @@ from src.player_model.availability import AvailabilitySurvival, availability_sur
 from src.player_model.gscore import LeagueContext, player_gscore
 from src.player_model.posterior import player_posteriors
 from src.valuation import LeagueConfig
+
+logger = logging.getLogger(__name__)
 
 # Volume floors that define "fantasy-relevant" for the league baseline (excludes AAA scrubs).
 # Calibratable (slice 5). A hitter needs projected PA, a pitcher projected IP, to count.
@@ -160,6 +163,9 @@ def build_player_models(
                 status=status_map.get(pid),
                 expected_return_days=return_days_map.get(pid),
             )
-        except Exception:
+        except Exception as exc:
+            # The slice-1/2/3 functions never raise, so this is defensive — but log it rather
+            # than silently shrink the result set, so a future contract regression is visible.
+            logger.warning("build_player_model failed for player_id=%s: %s", pid, exc)
             continue
     return out
