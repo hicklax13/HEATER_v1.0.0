@@ -108,3 +108,22 @@ def test_sample_active_weeks_zero_when_out_all_season():
     s = availability_survival(_row(), status="IL60", weeks_remaining=4)  # IL ~10wk > 4wk left
     draws = sample_active_weeks(s, np.random.default_rng(1), n_samples=50)
     assert draws.max() == 0  # sidelined the whole remaining window
+
+
+def test_never_raises_on_sparse_row():
+    from src.player_model.availability import availability_survival, sample_active_weeks
+
+    sparse = pd.Series({"player_id": 9})  # no is_hitter/health/age/positions
+    s = availability_survival(sparse, status=None, weeks_remaining=None)
+    assert math.isfinite(s.chronic_avail) and 0.0 <= s.chronic_avail <= 1.0
+    assert math.isfinite(s.expected_active_weeks)
+    draws = sample_active_weeks(s, np.random.default_rng(0), n_samples=10)
+    assert draws.shape == (10,)
+
+
+def test_garbage_status_treated_active():
+    from src.player_model.availability import availability_survival
+
+    s = availability_survival(_row(), status="not-a-real-status", weeks_remaining=20)
+    assert s.status == "ACTIVE"  # unrecognized -> classify_il_type None -> active
+    assert s.il_weeks_out == pytest.approx(0.0)
