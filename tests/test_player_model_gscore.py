@@ -2,8 +2,10 @@
 
 import math
 
+import pandas as pd
 import pytest
 
+from src.player_model.posterior import player_posteriors
 from src.valuation import LeagueConfig
 
 
@@ -54,3 +56,74 @@ def test_category_gscore_zero_denominator_is_zero_not_error():
 
     g = category_gscore(mean=1.4, tau2=0.0, league_mean=1.0, league_sd=0.0, n_slots=10, inverse=False)
     assert g == 0.0  # no spread + no noise -> no defined signal, return 0 (never divide-by-zero)
+
+
+def _elite_hitter():
+    return pd.Series(
+        dict(
+            player_id=1,
+            name="Elite",
+            is_hitter=1,
+            r=110,
+            hr=42,
+            rbi=115,
+            sb=20,
+            avg=0.310,
+            obp=0.390,
+            ab=560,
+            pa=640,
+            ytd_pa=600,
+            ytd_ip=0.0,
+        )
+    )
+
+
+def _replacement_hitter():
+    return pd.Series(
+        dict(
+            player_id=2,
+            name="Repl",
+            is_hitter=1,
+            r=55,
+            hr=10,
+            rbi=50,
+            sb=3,
+            avg=0.235,
+            obp=0.290,
+            ab=480,
+            pa=520,
+            ytd_pa=500,
+            ytd_ip=0.0,
+        )
+    )
+
+
+def _league_ctx():
+    from src.player_model.gscore import LeagueContext
+
+    # Per-week league means + per-player league spreads (rough mid-pack values).
+    return LeagueContext(
+        means={"R": 80 / 26, "HR": 22 / 26, "RBI": 80 / 26, "SB": 10 / 26, "AVG": 0.255, "OBP": 0.320},
+        sds={"R": 0.6, "HR": 0.35, "RBI": 0.6, "SB": 0.4, "AVG": 0.022, "OBP": 0.025},
+    )
+
+
+def test_player_gscore_elite_beats_replacement():
+    from src.player_model.gscore import player_gscore
+
+    cfg = LeagueConfig()
+    ctx = _league_ctx()
+    elite = player_gscore(player_posteriors(_elite_hitter(), cfg), ctx, cfg)
+    repl = player_gscore(player_posteriors(_replacement_hitter(), cfg), ctx, cfg)
+    assert elite > repl
+    assert elite > 0  # an above-average hitter has positive aggregate value
+
+
+def test_player_gscore_returns_total_and_per_cat():
+    from src.player_model.gscore import player_gscore
+
+    cfg = LeagueConfig()
+    out = player_gscore(player_posteriors(_elite_hitter(), cfg), _league_ctx(), cfg, detail=True)
+    assert "total" in out and "per_category" in out
+    assert set(out["per_category"]) == set(cfg.hitting_categories)
+    assert out["total"] == pytest.approx(sum(out["per_category"].values()))
