@@ -103,7 +103,13 @@ def availability_survival(
     `weeks_remaining` defaults to LeagueConfig.season_weeks. Never raises."""
     from src.valuation import LeagueConfig
 
-    weeks = _f(weeks_remaining) if weeks_remaining else float(LeagueConfig().season_weeks)
+    # Use the season default only when weeks_remaining is unspecified or non-positive
+    # (an explicit 0 is nonsensical for "weeks remaining"); never silently rewrite a valid value.
+    weeks = (
+        _f(weeks_remaining)
+        if (weeks_remaining is not None and _f(weeks_remaining) > 0)
+        else float(LeagueConfig().season_weeks)
+    )
     weeks = max(0.0, weeks)
     is_hit = _is_hitter(row)
     position = row.get("positions") if hasattr(row, "get") else None
@@ -147,12 +153,18 @@ def availability_survival(
 
 def sample_active_weeks(survival: AvailabilitySurvival, rng, n_samples: int = 1) -> np.ndarray:
     """Draw `n_samples` integer active-week realizations for the season MC. The current IL
-    window is fully out; each remaining week is active ~ Bernoulli(chronic_avail). Returns a
-    length-n_samples int array in [0, floor(active_window)]. Deterministic given `rng`."""
-    weeks = max(0.0, survival.weeks_remaining)
-    active_window = int(math.floor(max(0.0, weeks - survival.il_weeks_out)))
+    window is fully out; each remaining week is active ~ Bernoulli(chronic_avail). A fractional
+    IL window's partial week is stochastically rounded (an extra Bernoulli(frac * p) draw) so the
+    sample MEAN equals `survival.expected_active_weeks` exactly — not the floored value. Returns a
+    length-n_samples int array in [0, ceil(active_window)]. Deterministic given `rng`."""
     n = max(1, int(n_samples))
-    if active_window <= 0:
-        return np.zeros(n, dtype=int)
+    window = max(0.0, survival.weeks_remaining - survival.il_weeks_out)  # unfloored active window
+    w_int = int(math.floor(window))
+    w_frac = window - w_int
     p = min(max(survival.chronic_avail, 0.0), 1.0)
-    return rng.binomial(active_window, p, size=n).astype(int)
+    out = np.zeros(n, dtype=int)
+    if w_int > 0:
+        out = out + rng.binomial(w_int, p, size=n)
+    if w_frac > 0.0:
+        out = out + rng.binomial(1, w_frac * p, size=n)
+    return out.astype(int)

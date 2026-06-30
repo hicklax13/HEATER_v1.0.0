@@ -110,6 +110,18 @@ def test_sample_active_weeks_zero_when_out_all_season():
     assert draws.max() == 0  # sidelined the whole remaining window
 
 
+def test_sample_active_weeks_mean_matches_for_fractional_il_window():
+    from src.player_model.availability import availability_survival, sample_active_weeks
+
+    # IL15 ~ 3.5wk out over an 18wk horizon -> active_window = 14.5 (FRACTIONAL). The sampler must
+    # stochastically round the partial week so its mean equals the (unfloored) expected_active_weeks
+    # -- a plain Binomial(floor(window), p) would systematically undershoot by ~frac*chronic.
+    s = availability_survival(_row(health_score=0.9, age=27), status="IL15", weeks_remaining=18)
+    assert s.il_weeks_out == pytest.approx(3.5)  # fractional window precondition
+    draws = sample_active_weeks(s, np.random.default_rng(3), n_samples=12000)
+    assert abs(draws.mean() - s.expected_active_weeks) < 0.25
+
+
 def test_never_raises_on_sparse_row():
     from src.player_model.availability import availability_survival, sample_active_weeks
 
