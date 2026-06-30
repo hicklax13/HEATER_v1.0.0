@@ -147,3 +147,29 @@ def test_validate_layer0_no_baseline_still_reports_coverage():
     )
     assert "coverage" in out and out["mae_baseline"] is None
     assert out["model_beats_baseline_mae"] is None
+
+
+def test_build_records_from_predictions_shape():
+    # The script's pure record-builder must be importable + DB-free for the per-week join.
+    import numpy as np
+
+    from scripts.validate_player_model import build_records
+
+    preds = {
+        1: {"mean": 1.2, "sigma": 0.4, "baseline": 1.1},
+        2: {"mean": 0.8, "sigma": 0.3, "baseline": 0.9},
+    }
+    actuals = {1: 1.5, 2: 0.6}
+    df = build_records(preds, actuals)
+    assert list(df.columns) == ["player_id", "model_mean", "model_sigma", "baseline_pred", "realized"]
+    assert len(df) == 2
+    assert set(df["player_id"]) == {1, 2}
+
+
+def test_build_records_skips_players_without_actuals():
+    from scripts.validate_player_model import build_records
+
+    preds = {1: {"mean": 1.0, "sigma": 0.2, "baseline": 1.0}, 2: {"mean": 1.0, "sigma": 0.2, "baseline": 1.0}}
+    actuals = {1: 1.3}  # player 2 has no realized outcome this week
+    df = build_records(preds, actuals)
+    assert len(df) == 1 and df.iloc[0]["player_id"] == 1
