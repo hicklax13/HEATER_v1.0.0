@@ -68,3 +68,82 @@ def test_coverage_implied_sigma_scale_flags_overconfidence():
     assert scale_down < 1.0
     # Calibrated -> ~1.0
     assert coverage_implied_sigma_scale(0.80, 0.80) == pytest.approx(1.0, abs=0.05)
+
+
+import pandas as pd  # noqa: E402
+
+
+def _records(n=400, model_sigma=1.0, true_noise=1.0, baseline_bias=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    truth = rng.normal(0, 1, size=n)
+    realized = truth + rng.normal(0, true_noise, size=n)
+    return pd.DataFrame(
+        {
+            "model_mean": truth,
+            "model_sigma": np.full(n, model_sigma),
+            "baseline_pred": truth + baseline_bias,  # baseline = same mean unless biased
+            "realized": realized,
+        }
+    )
+
+
+def test_validate_layer0_calibrated_model_passes_gate():
+    from src.player_model.validation import validate_layer0
+
+    recs = _records(n=4000, model_sigma=1.0, true_noise=1.0, seed=1)  # sigma matches noise
+    out = validate_layer0(
+        recs,
+        mean_col="model_mean",
+        sigma_col="model_sigma",
+        baseline_col="baseline_pred",
+        realized_col="realized",
+        level=0.80,
+    )
+    assert out["coverage"] == pytest.approx(0.80, abs=0.04)
+    assert out["mae_model"] == pytest.approx(out["mae_baseline"], abs=1e-9)  # same mean -> same MAE
+    assert out["passes_gate"] is True
+
+
+def test_validate_layer0_flags_overconfident_model():
+    from src.player_model.validation import validate_layer0
+
+    recs = _records(n=4000, model_sigma=0.3, true_noise=1.0, seed=2)  # sigma too small
+    out = validate_layer0(
+        recs,
+        mean_col="model_mean",
+        sigma_col="model_sigma",
+        baseline_col="baseline_pred",
+        realized_col="realized",
+        level=0.80,
+    )
+    assert out["coverage"] < 0.70  # under-covers
+    assert out["sigma_scale_hint"] > 1.0  # calibration says "widen"
+    assert out["passes_gate"] is False  # miscalibrated -> gate fails
+
+
+def test_validate_layer0_detects_worse_baseline():
+    from src.player_model.validation import validate_layer0
+
+    # Baseline is biased -> model MAE strictly lower -> model "a_better" on the DM test.
+    recs = _records(n=4000, model_sigma=1.0, true_noise=1.0, baseline_bias=1.5, seed=3)
+    out = validate_layer0(
+        recs,
+        mean_col="model_mean",
+        sigma_col="model_sigma",
+        baseline_col="baseline_pred",
+        realized_col="realized",
+        level=0.80,
+    )
+    assert out["mae_model"] < out["mae_baseline"]
+    assert out["model_beats_baseline_mae"] is True
+
+
+def test_validate_layer0_no_baseline_still_reports_coverage():
+    from src.player_model.validation import validate_layer0
+
+    recs = _records(n=2000, model_sigma=1.0, true_noise=1.0, seed=4)
+    out = validate_layer0(
+        recs, mean_col="model_mean", sigma_col="model_sigma", baseline_col=None, realized_col="realized", level=0.80
+    )
+    assert "coverage" in out and out["mae_baseline"] is None
+    assert out["model_beats_baseline_mae"] is None
