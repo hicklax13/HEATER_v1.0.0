@@ -46,3 +46,30 @@ def test_purged_kfold_embargo_removes_neighbors_from_train():
     assert test.tolist() == [8, 9, 10, 11]
     assert set(range(6, 14)).isdisjoint(set(train.tolist()))
     assert 5 in train.tolist() and 14 in train.tolist()
+
+
+def test_diebold_mariano_detects_a_strictly_better():
+    from src.backtest_harness import diebold_mariano
+
+    rng = np.random.default_rng(0)
+    loss_b = rng.uniform(0.8, 1.2, size=200)
+    loss_a = loss_b - 0.3
+    dm, p = diebold_mariano(loss_a, loss_b)
+    assert dm < 0
+    assert p < 0.05
+
+
+def test_diebold_mariano_equal_models_not_significant():
+    from src.backtest_harness import diebold_mariano
+
+    rng = np.random.default_rng(1)
+    loss = rng.uniform(0.8, 1.2, size=200)
+    dm, p = diebold_mariano(loss, loss.copy())
+    assert dm == 0.0 and p == 1.0
+
+
+def test_diebold_mariano_degenerate_guards():
+    from src.backtest_harness import diebold_mariano
+
+    assert diebold_mariano([1.0], [2.0]) == (0.0, 1.0)
+    assert diebold_mariano([], []) == (0.0, 1.0)
