@@ -102,6 +102,19 @@ def test_skellam_infeasible_falls_back_to_normal():
     assert w > 0.99 and ell > 0.0  # A dominant but B's win prob honestly > 0
 
 
+def test_skellam_zero_lambda_falls_through_no_nan():
+    from src.winprob_proxy.category import category_win_tie_loss
+
+    # A lambda of exactly 0 (feasibility boundary var_d==|mu_d|, or a saveless SV opponent with
+    # zero variance) makes scipy.stats.skellam return nan. These must fall through to Normal-CC and
+    # stay FINITE + sum-to-1 (regression: the raw skellam nan-triple used to escape the renorm guard).
+    for a_mu, a_var, b_mu, b_var in [(1.0, 1.0, 0.0, 0.0), (4.0, 2.0, 1.0, 1.0), (3.0, 3.0, 0.0, 0.0)]:
+        w, t, ell = category_win_tie_loss(a_mu, a_var, b_mu, b_var, "counting", False, 0.0)
+        assert all(math.isfinite(x) for x in (w, t, ell)), (a_mu, a_var, b_mu, b_var)
+        assert w + t + ell == pytest.approx(1.0, abs=1e-9)
+        assert w > ell  # A leads
+
+
 def test_skellam_vs_normal_agree_at_large_sigma():
     from src.winprob_proxy.category import category_win_tie_loss
 

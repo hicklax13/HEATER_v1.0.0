@@ -80,18 +80,18 @@ def category_win_tie_loss(
     if kind == "counting" and sigma_d < _SIGMA_SKELLAM_THRESHOLD:
         lam1 = 0.5 * (var_d + mu_d)
         lam2 = 0.5 * (var_d - mu_d)
-        if lam1 >= 0.0 and lam2 >= 0.0:  # feasible <=> var_d >= |mu_d|
+        # STRICT > 0: a lambda of exactly 0 (feasibility boundary var_d==|mu_d|, or one side's
+        # variance == 0, e.g. a saveless SV opponent) makes scipy.stats.skellam return nan — so
+        # those fall through to the finite Normal-CC path below (Skellam<->Normal agree there anyway).
+        if lam1 > 0.0 and lam2 > 0.0:
             from scipy.stats import skellam
 
-            lam1 = max(lam1, 0.0)
-            lam2 = max(lam2, 0.0)
             p_win = float(skellam.sf(0, lam1, lam2))  # P(D >= 1)
             p_tie = float(skellam.pmf(0, lam1, lam2))  # P(D  = 0)
             p_loss = float(skellam.cdf(-1, lam1, lam2))  # P(D <= -1)
             s = p_win + p_tie + p_loss
-            if s > 0:  # defensive renorm (swallow 1-ulp float drift)
-                p_win, p_tie, p_loss = p_win / s, p_tie / s, p_loss / s
-            return finish(p_win, p_tie, p_loss)
+            if math.isfinite(s) and s > 0:  # finite-check: any nan -> fall through to Normal-CC
+                return finish(p_win / s, p_tie / s, p_loss / s)
 
     # Normal / Welch shape (rate cats, and counting Normal-CC fallback/large-sigma).
     p_win = float(norm.sf(h, loc=mu_d, scale=sigma_d))
