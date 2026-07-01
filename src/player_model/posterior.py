@@ -25,35 +25,49 @@ from dataclasses import dataclass, field
 
 from src.valuation import LeagueConfig
 
-# ── Seeded constants (HARNESS-CALIBRATABLE — slice 5) ───────────────────────────
-# Per-team analog: weekly_matrix._KALMAN_TALENT_CV / _KALMAN_STABILIZE_PA/IP. Per-PLAYER
-# stabilization scales are smaller than per-team (one player's season ~600 PA vs a roster's
-# ~6000). Seeds below are deliberate, sensible, and replaced by slice-5 SURE calibration.
-_TALENT_CV: float = 0.40  # reducible true-talent spread coefficient (counting cats)
-_PROJ_FLOOR_CV: float = 0.10  # irreducible projection-error CV — NEVER vanishes (gap G3)
+# ── Constants — CALIBRATED against game-logs 2026-06-30 (scripts/calibrate_player_model_variance.py)
+# tau2 (aleatory) fit to the EMPIRICAL within-player weekly variance over pooled 2025+2026 game_logs
+# (each player's own rate as the mean, isolating aleatory from projection error). sigma2 (epistemic)
+# fit to the measured projection error (pool per-week projection vs realized 2026 per-week mean).
+# Re-derive with the calibrate script + verify coverage with scripts/run_layer0_gamelog_validation.
+_TALENT_CV: float = 0.40  # reducible true-talent spread coefficient (counting cats; shrinks w/ sample)
+_PROJ_FLOOR_CV: float = 0.25  # irreducible counting projection-error CV — NEVER vanishes (gap G3).
+#   Calibrated up from 0.10: measured counting proj-error CV ~0.2-0.8 (median ~0.3). NOTE: the
+#   projection-based coverage still UNDER-covers counting cats, but that residual is a MEAN bias
+#   (model per-week mean = season/26 dilutes rest weeks, so a PLAYED week over-shoots it; PIT>0.5
+#   confirms it) — a structural fix (games-per-week / availability-weighted mean, Phase 3), NOT a
+#   variance shortfall. tau2 is kept at the clean aleatory value below rather than over-widened.
 _COUNTING_ABS_FLOOR: float = 1e-4  # minimum absolute floor for zero-mean / NaN-mean rows (gap G3)
 _STABILIZE_PA: float = 1200.0  # ytd_pa at which true-talent shrink == 0.5 (hitter cats)
 _STABILIZE_IP: float = 400.0  # ytd_ip at which true-talent shrink == 0.5 (pitcher cats)
 
 # Week-to-week overdispersion for counting cats: tau2 = phi * mu_week (phi=1 => Poisson).
-# SB/SV are role-/opportunity-driven and most overdispersed; K is steadiest. (FanGraphs
-# NB run-distribution work: counting outcomes are ~1.3-2x overdispersed vs Poisson.)
+# CALIBRATED to empirical within-player weekly variance: counting outcomes are near-POISSON around a
+# player's own rate (phi~=1); only R/RBI/K carry mild overdispersion. SB/W/L/SV were empirically
+# UNDER-dispersed (phi<1, un-representable by NB) so they floor at ~Poisson 1.05. (The old 1.3-2.0
+# seeds conflated projection error into tau2 — now sigma2 carries that; see _PROJ_FLOOR_CV.)
 _COUNTING_OVERDISPERSION: dict[str, float] = {
-    "R": 1.5,
-    "HR": 1.6,
-    "RBI": 1.5,
-    "SB": 1.8,
-    "W": 1.4,
-    "L": 1.4,
-    "SV": 2.0,
-    "K": 1.3,
+    "R": 1.15,
+    "HR": 1.05,
+    "RBI": 1.65,
+    "SB": 1.05,
+    "W": 1.05,
+    "L": 1.05,
+    "SV": 1.05,
+    "K": 1.25,
 }
 
-# Rate cats: per-week ABSOLUTE std at a reference weekly volume (seeded from
-# scenario_generator._RATE_STD). tau2 scales inversely with the player's weekly volume.
+# Rate cats: per-week ABSOLUTE std at a reference weekly volume.
+# _RATE_FLOOR_STD (sigma2 epistemic floor) CALIBRATED to measured projection error; _RATE_WEEK_STD
+# (ratio_normal ERA/WHIP tau2 base) CALIBRATED so ERA/WHIP tau2 match the empirical within-player
+# weekly variance (the old base was 7-10x too NARROW — a pitcher's weekly ERA/WHIP swings hugely on
+# one start, the dangerous G3 under-confidence). AVG/OBP tau2 were already ~right (kept).
 _RATE_TALENT_STD: dict[str, float] = {"AVG": 0.020, "OBP": 0.022, "ERA": 0.60, "WHIP": 0.09}
-_RATE_FLOOR_STD: dict[str, float] = {"AVG": 0.012, "OBP": 0.013, "ERA": 0.35, "WHIP": 0.05}
-_RATE_WEEK_STD: dict[str, float] = {"AVG": 0.022, "OBP": 0.025, "ERA": 0.70, "WHIP": 0.10}
+_RATE_FLOOR_STD: dict[str, float] = {"AVG": 0.020, "OBP": 0.020, "ERA": 0.70, "WHIP": 0.10}
+# ERA/WHIP tau2 base widened ~1.7-2x from the old 0.70/0.10 (they were the dangerous G3
+# under-confidence — weekly ERA/WHIP swing hugely on one start). NOT the full within-player 7-10x,
+# which was inflated by tiny-IP outlier weeks; this moderate value keeps ERA/WHIP near-calibrated.
+_RATE_WEEK_STD: dict[str, float] = {"AVG": 0.022, "OBP": 0.025, "ERA": 1.20, "WHIP": 0.20}
 # Within-week intra-class correlation (overdispersion) for rate_prop beta-binomial margins.
 # 0 => pure binomial weekly sampling; small positive => within-week matchup/streak correlation.
 # Harness-calibratable (slice 5).
