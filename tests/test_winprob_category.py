@@ -121,3 +121,47 @@ def test_skellam_pmf_zero_matches_bessel():
     lam1, lam2 = 2.0, 1.0
     expected = math.exp(-(lam1 + lam2)) * i0(2 * math.sqrt(lam1 * lam2))
     assert float(skellam.pmf(0, lam1, lam2)) == pytest.approx(expected, rel=1e-9)
+
+
+def test_kind_and_rounding_helpers():
+    from src.winprob_proxy.category import kind_for, rounding_unit_for
+
+    assert kind_for("HR") == "counting"
+    assert kind_for("AVG") == "rate" and kind_for("ERA") == "rate"
+    assert rounding_unit_for("AVG") == 0.001 and rounding_unit_for("OBP") == 0.001
+    assert rounding_unit_for("ERA") == 0.01 and rounding_unit_for("WHIP") == 0.01
+    assert rounding_unit_for("HR") == 0.0  # counting -> unused
+
+
+def test_near_zero_means_large_tie_no_nan():
+    from src.winprob_proxy.category import category_win_tie_loss
+
+    # SV with two saveless teams: mu ~ 0, small var -> mostly TIE (both likely 0), finite.
+    w, t, ell = category_win_tie_loss(
+        a_mu=0.2, a_var=0.2, b_mu=0.1, b_var=0.2, kind="counting", inverse=False, rounding_unit=0.0
+    )
+    assert w + t + ell == pytest.approx(1.0, abs=1e-9)
+    assert t > 0.5 and all(math.isfinite(x) for x in (w, t, ell))
+
+
+def test_skellam_normal_convergence_monotone_in_sigma():
+    # At fixed standardized gap, the Skellam and Normal-CC triples converge as sigma_D grows.
+    from scipy.stats import norm, skellam
+
+    def normal_cc(mu_d, var_d):
+        s = var_d**0.5
+        w = float(norm.sf(0.5, loc=mu_d, scale=s))
+        ell = float(norm.cdf(-0.5, loc=mu_d, scale=s))
+        return (w, 1 - w - ell, ell)
+
+    def skel(mu_d, var_d):
+        l1, l2 = 0.5 * (var_d + mu_d), 0.5 * (var_d - mu_d)
+        return (float(skellam.sf(0, l1, l2)), float(skellam.pmf(0, l1, l2)), float(skellam.cdf(-1, l1, l2)))
+
+    diffs = []
+    for scale in (1.0, 3.0, 9.0):
+        mu_d, var_d = 1.0 * scale, 3.0 * scale  # keep mu_D/sigma_D shape, grow sigma_D
+        d = max(abs(a - b) for a, b in zip(normal_cc(mu_d, var_d), skel(mu_d, var_d)))
+        diffs.append(d)
+    assert diffs[0] > diffs[1] > diffs[2]  # convergence
+    assert diffs[2] < 0.01  # <1% agreement at large sigma_D
