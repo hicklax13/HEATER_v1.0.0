@@ -32,8 +32,10 @@ from src.valuation import LeagueConfig
 # Re-derive with the calibrate script + verify coverage with scripts/run_layer0_gamelog_validation.
 _TALENT_CV: float = 0.40  # reducible true-talent spread coefficient (counting cats; shrinks w/ sample)
 _PROJ_FLOOR_CV: float = 0.25  # irreducible counting projection-error CV — NEVER vanishes (gap G3).
-#   Calibrated up from 0.10: measured counting proj-error CV ~0.2-0.8 (median ~0.3). NOTE: the
-#   projection-based coverage still UNDER-covers counting cats, but that residual is a MEAN bias
+#   Calibrated up from 0.10: measured counting proj-error CV is ~0.2-0.8 (played-week median ~0.64);
+#   0.25 is a deliberately CONSERVATIVE choice below that (the measured CV is itself inflated by the
+#   played-week over-shoot below, and counting cats already under-cover, so a larger floor only helps).
+#   NOTE: the projection-based coverage still UNDER-covers counting cats, but that residual is a MEAN bias
 #   (model per-week mean = season/26 dilutes rest weeks, so a PLAYED week over-shoots it; PIT>0.5
 #   confirms it) — a structural fix (games-per-week / availability-weighted mean, Phase 3), NOT a
 #   variance shortfall. tau2 is kept at the clean aleatory value below rather than over-widened.
@@ -64,9 +66,14 @@ _COUNTING_OVERDISPERSION: dict[str, float] = {
 # one start, the dangerous G3 under-confidence). AVG/OBP tau2 were already ~right (kept).
 _RATE_TALENT_STD: dict[str, float] = {"AVG": 0.020, "OBP": 0.022, "ERA": 0.60, "WHIP": 0.09}
 _RATE_FLOOR_STD: dict[str, float] = {"AVG": 0.020, "OBP": 0.020, "ERA": 0.70, "WHIP": 0.10}
-# ERA/WHIP tau2 base widened ~1.7-2x from the old 0.70/0.10 (they were the dangerous G3
-# under-confidence — weekly ERA/WHIP swing hugely on one start). NOT the full within-player 7-10x,
-# which was inflated by tiny-IP outlier weeks; this moderate value keeps ERA/WHIP near-calibrated.
+# ERA/WHIP tau2 base chosen so the DEPLOYED tau2 hits cov80 ~ 0.88 on the game-log runner (resolving
+# the old dangerous G3 under-confidence, which was cov 0.54-0.63). MECHANISM (important for re-calib):
+# tau2 = base^2 * (ref_ip / weekly_vol), and the model's weekly_vol is season_ip/26 ~ 1.86 IP -- ~3x
+# SMALLER than the ~5.9 mean played-week IP the calibrate script reports tau2 at. So the small
+# deployment volume multiplies base^2 back UP to ~the raw empirical within-player variance (~15 for
+# ERA); the deployed base is NOT a "moderate" fraction of the raw multiplier. CAUTION: do NOT push
+# base toward the script's printed raw multiplier -- always verify the DEPLOYED coverage. Like the
+# counting mean bias, this is entangled with the season/26 diluted per-week scale (Phase-3 refinement).
 _RATE_WEEK_STD: dict[str, float] = {"AVG": 0.022, "OBP": 0.025, "ERA": 1.20, "WHIP": 0.20}
 # Within-week intra-class correlation (overdispersion) for rate_prop beta-binomial margins.
 # 0 => pure binomial weekly sampling; small positive => within-week matchup/streak correlation.
