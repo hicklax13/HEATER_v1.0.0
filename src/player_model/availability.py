@@ -15,6 +15,7 @@ Hazard/duration seeds are in-house first guesses, calibratable against HEATER in
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -23,6 +24,8 @@ import numpy as np
 from src.il_manager import classify_il_type, estimate_il_duration
 from src.in_season import _il_weight_from_status, _return_date_weight
 from src.injury_model import age_risk_adjustment
+
+logger = logging.getLogger(__name__)
 
 # Per-week probability of a NEW availability loss, seeded from chronic durability:
 # a fully-healthy player (chronic=1) carries a small residual hazard; a fragile player more.
@@ -66,7 +69,10 @@ def chronic_availability(health_score, age, is_pitcher: bool, position) -> float
     pos = position if isinstance(position, str) else ""
     try:
         risk = age_risk_adjustment(int(_f(age, default=28)), bool(is_pitcher), pos or None)
-    except Exception:
+    except Exception as exc:
+        # Unreachable over the sanitized inputs today; log so a future age_risk_adjustment that
+        # starts raising doesn't silently bias every fragile player toward full availability.
+        logger.warning("age_risk_adjustment failed (defaulting risk=1.0): %s", exc)
         risk = 1.0
     risk = min(max(_f(risk, default=1.0), 0.0), 1.0)
     return float(min(max(hs * risk, 0.0), 1.0))

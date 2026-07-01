@@ -153,7 +153,12 @@ def build_player_models(
         return out
     for i in range(len(pool)):
         row = pool.iloc[i]
-        pid = int(_f(row.get("player_id")))
+        pid_f = _f(row.get("player_id"), default=math.nan)
+        if not math.isfinite(pid_f):
+            # Skip (don't bucket every missing/NaN id to pid=0, which would silently overwrite).
+            logger.warning("build_player_models skipping row %s: missing/NaN player_id", i)
+            continue
+        pid = int(pid_f)
         try:
             out[pid] = build_player_model(
                 row,
