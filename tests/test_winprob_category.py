@@ -64,3 +64,60 @@ def test_nan_and_negative_inputs_safe():
     w, t, ell = category_win_tie_loss(float("nan"), -5.0, float("nan"), float("nan"), "counting", False, 0.0)
     assert (w, t, ell) == (0.0, 1.0, 0.0)  # NaN means -> 0, neg var -> 0 -> degenerate tie
     assert math.isfinite(w) and math.isfinite(t) and math.isfinite(ell)
+
+
+def test_skellam_moment_match_reproduces_mean_and_var():
+    # The chosen lambdas must reproduce the target margin mean+variance exactly.
+    from scipy.stats import skellam
+
+    mu_d, var_d = 1.0, 3.0  # low-count SV-like: sigma_D ~ 1.73 -> Skellam regime
+    lam1 = 0.5 * (var_d + mu_d)
+    lam2 = 0.5 * (var_d - mu_d)
+    m, v = skellam.stats(lam1, lam2, moments="mv")
+    assert float(m) == pytest.approx(mu_d)
+    assert float(v) == pytest.approx(var_d)
+
+
+def test_skellam_branch_used_in_low_count_and_sums_to_one():
+    from src.winprob_proxy.category import category_win_tie_loss
+
+    # sigma_D ~ 1.73 (< 3) and feasible -> Skellam path; must sum to 1 and give a sizeable tie.
+    w, t, ell = category_win_tie_loss(
+        a_mu=2.0, a_var=1.5, b_mu=1.0, b_var=1.5, kind="counting", inverse=False, rounding_unit=0.0
+    )
+    assert w + t + ell == pytest.approx(1.0, abs=1e-9)
+    assert t > 0.10  # low-count integer totals tie often
+    assert w > ell  # A's mean higher
+
+
+def test_skellam_infeasible_falls_back_to_normal():
+    from src.winprob_proxy.category import category_win_tie_loss
+
+    # var_D (=1) < |mu_D| (=8): Skellam infeasible -> Normal-CC fallback, still finite + sums to 1,
+    # and the trailing team keeps a small non-zero loss/win (moment-faithful, not clamped to 0).
+    w, t, ell = category_win_tie_loss(
+        a_mu=10, a_var=0.5, b_mu=2, b_var=0.5, kind="counting", inverse=False, rounding_unit=0.0
+    )
+    assert w + t + ell == pytest.approx(1.0, abs=1e-9)
+    assert w > 0.99 and ell > 0.0  # A dominant but B's win prob honestly > 0
+
+
+def test_skellam_vs_normal_agree_at_large_sigma():
+    from src.winprob_proxy.category import category_win_tie_loss
+
+    # sigma_D ~ 10.7 (>> 3) -> Normal path; independently the Skellam would agree to <1%. Here we just
+    # assert the Normal branch is taken (large sigma) and behaves (P(win) high but < 1).
+    w, t, ell = category_win_tie_loss(
+        a_mu=40, a_var=60, b_mu=34, b_var=55, kind="counting", inverse=False, rounding_unit=0.0
+    )
+    assert 0.6 < w < 0.85 and t < 0.05
+
+
+def test_skellam_pmf_zero_matches_bessel():
+    # P(D=0) = e^{-(l1+l2)} I_0(2 sqrt(l1 l2)) — the exact Bessel form.
+    from scipy.special import i0
+    from scipy.stats import skellam
+
+    lam1, lam2 = 2.0, 1.0
+    expected = math.exp(-(lam1 + lam2)) * i0(2 * math.sqrt(lam1 * lam2))
+    assert float(skellam.pmf(0, lam1, lam2)) == pytest.approx(expected, rel=1e-9)

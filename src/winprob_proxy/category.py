@@ -76,7 +76,24 @@ def category_win_tie_loss(
             return (0.0, 1.0, 0.0)
         return finish(1.0, 0.0, 0.0) if mu_d > 0 else finish(0.0, 0.0, 1.0)
 
-    # Normal / Welch shape (Skellam upgrade for counting added in Task 2).
+    # Counting low-count regime: exact moment-matched Skellam (discrete tie mass + skew).
+    if kind == "counting" and sigma_d < _SIGMA_SKELLAM_THRESHOLD:
+        lam1 = 0.5 * (var_d + mu_d)
+        lam2 = 0.5 * (var_d - mu_d)
+        if lam1 >= 0.0 and lam2 >= 0.0:  # feasible <=> var_d >= |mu_d|
+            from scipy.stats import skellam
+
+            lam1 = max(lam1, 0.0)
+            lam2 = max(lam2, 0.0)
+            p_win = float(skellam.sf(0, lam1, lam2))  # P(D >= 1)
+            p_tie = float(skellam.pmf(0, lam1, lam2))  # P(D  = 0)
+            p_loss = float(skellam.cdf(-1, lam1, lam2))  # P(D <= -1)
+            s = p_win + p_tie + p_loss
+            if s > 0:  # defensive renorm (swallow 1-ulp float drift)
+                p_win, p_tie, p_loss = p_win / s, p_tie / s, p_loss / s
+            return finish(p_win, p_tie, p_loss)
+
+    # Normal / Welch shape (rate cats, and counting Normal-CC fallback/large-sigma).
     p_win = float(norm.sf(h, loc=mu_d, scale=sigma_d))
     p_loss = float(norm.cdf(-h, loc=mu_d, scale=sigma_d))
     p_tie = 1.0 - p_win - p_loss
